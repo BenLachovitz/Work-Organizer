@@ -1,12 +1,21 @@
-import type { ReactNode } from 'react';
+import { Suspense, lazy, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { Login } from '@/pages/Login';
 import { GuardHome } from '@/pages/GuardHome';
 import { Preferences } from '@/pages/Preferences';
-import { ManagerDashboard, NotFound, RosterView } from '@/pages/Placeholders';
+import { NotFound, RosterView } from '@/pages/Placeholders';
 import { Spinner } from '@/components/ui';
+
+/**
+ * The manager dashboard is used by one person; eight guards never open it.
+ * Splitting it out keeps its code (and, later, the solver UI) off the download
+ * path for everyone else.
+ */
+const ManagerDashboard = lazy(() =>
+  import('@/pages/ManagerDashboard').then((m) => ({ default: m.ManagerDashboard })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -83,7 +92,9 @@ function AppRoutes() {
         path="/manage"
         element={
           <ManagerOnly>
-            <ManagerDashboard />
+            <Suspense fallback={<FullScreenLoader />}>
+              <ManagerDashboard />
+            </Suspense>
           </ManagerOnly>
         }
       />
