@@ -79,14 +79,31 @@ start), so the UI needs a "מחמם מנוע…" state on first call.
   one published run per week
 - Guard-side `RosterView` reads the published run (hooks already exist)
 
-### E3. Deploy the solver
+### E3. Deploy the solver — OPTIONAL, do last
 
-1. Render → New → Blueprint → point at this repo (`solver/render.yaml`)
-2. Set `SOLVER_SECRET` in the Render dashboard
+**Why a third host at all:** OR-Tools only ships for Python/C++/Java. Supabase
+Edge Functions run Deno (JS only) and Vercel serves a static browser bundle, so
+neither can execute the solver. Render runs a Python web service on its free
+tier and returns a URL the Edge Function calls server-to-server.
+
+**Not a blocker.** The mock solver runs in the browser and its output is always
+legal — every hard rule is checked before each assignment and the same referee
+judges it. Across the 7 fixtures it tied CP-SAT on 5 and lost on 2. Recommended
+sequence: ship E1+E2 on the mock, use it for a real week, and add Render only
+if the rosters feel worse than hand-built ones.
+
+**E0 prerequisite — no GitHub remote exists yet.** Render deploys from a Git
+repository; this repo is local-only. Create a GitHub repo (do NOT initialise it
+with a README — that makes a conflicting root commit) and push. Needed for
+Vercel deployment regardless.
+
+Then:
+1. render.com → New → Blueprint → point at the repo (`solver/render.yaml`)
+2. Set `SOLVER_SECRET` in the Render dashboard to any random string
 3. Set the same `SOLVER_SECRET` + `SOLVER_URL` in Supabase Edge Function secrets
 4. Flip `VITE_SOLVER_MODE=remote`
 
-**Needs from Ben:** create the Render service, send the URL.
+**Needs from Ben:** the GitHub repo, then the Render URL.
 
 ### E4. Gate E (cloud)
 
@@ -138,7 +155,7 @@ Today's three seeded weeks are **test scaffolding, not a product model**
 - Exactly two live weeks: **current** (roster published, in progress) and
   **next** (open for submissions)
 - Auto-create the next week when the current one rolls over, with its
-  Wednesday 20:00 deadline
+  Wednesday 19:00 deadline
 - Delete `2026-08-23` from the seed; the target-3 path moves into the suites
 - Manager week picker shows the pair; archive is separate (see F4)
 
@@ -168,10 +185,10 @@ PostgREST.
 Change `runs_read` so guards see published runs only for the current and future
 weeks; managers see everything. Add a read-only archive view.
 
-> **OPEN:** should a guard still see *their own* past assignments (for a pay
-> dispute), or is the cut absolute? Cheap either way — add `guard_id =
-> auth.uid()` to the assignment policy for the softer version. Default if
-> unanswered: **absolute**, as literally requested.
+**DECIDED: absolute cut.** A guard sees nothing from a past week — not even
+their own shifts. Do NOT add a `guard_id = auth.uid()` escape to the assignment
+policy. Consequence to expect: a guard querying a shift from three weeks ago has
+to ask the manager, which is the intended workflow.
 
 ### F5. US work week
 
@@ -180,8 +197,11 @@ Friday is a normal working day.**
 
 - `WeeklyPreferenceForm` currently tints **Friday + Saturday** as the weekend —
   wrong. Must be **Saturday + Sunday** (indices 6 and 0).
-- Deadline moves from **Thursday** to **Wednesday** 20:00 Asia/Jerusalem
-  (`week_start − 4`). Update `submissionDeadline()`, the seed, and spec §3.5.
+- **DECIDED:** deadline moves from **Thursday 20:00** to **Wednesday 19:00**
+  Asia/Jerusalem — i.e. `week_start − 4` at 19:00. Update
+  `submissionDeadline()`, the seed, and spec §3.5 / §12. Grep for `20:00` and
+  `חמישי`; the hour is hard-coded in `dates.ts`, `seed.sql` and several test
+  comments.
 - **Week start stays Sunday.** A Sun–Sat week renders Sunday-first (natural to
   read, matches a US calendar) *and* makes Mon–Fri a contiguous block for F3.
   Moving to Monday-start would make the weekend contiguous instead, which is
@@ -195,10 +215,11 @@ Friday is a normal working day.**
 
 ## Open questions
 
-1. **F4** — do guards keep read access to their own past shifts?
-2. **F5** — confirm Wednesday **20:00** is the right time (only the day was
-   specified).
-3. **E3** — Render service URL, once created.
+All product questions are answered. The only outstanding items need an action
+from Ben, not a decision:
+
+1. **E0** — create the GitHub repo and push (needed for both Render and Vercel).
+2. **E3** — Render service URL, once created. Optional; see E3.
 
 ---
 
@@ -217,7 +238,11 @@ Friday is a normal working day.**
 - **Capacity reality:** 8 guards × 5 shifts = 40 supply vs 42 needed at
   target 2 on 8h shifts. 12h uptake is what closes the gap — a 12h shift covers
   two segments but costs one against the ceiling. Fixture 06 meets every target.
-- **Revoke the Supabase PAT** (`supabase.com/dashboard/account/tokens`) and
-  rotate the database password when the project is finished. Both appear in the
-  session transcript.
-- **Delete the old Seoul project** `jqyacxeguqkqhctrsnru` if still present.
+- **Credentials: deliberately left live.** Ben has chosen to keep the Supabase
+  PAT and database password active until the project is finished, so tooling
+  keeps full access. Both appear in the session transcript, so this is a
+  conscious trade, not an oversight. **End-of-project checklist:** revoke the
+  PAT at `supabase.com/dashboard/account/tokens` and rotate the database
+  password under Settings → Database.
+- The abandoned Seoul project has been deleted. Only
+  `atojvgyxqdbmhhycdcsa` (Frankfurt) remains.
