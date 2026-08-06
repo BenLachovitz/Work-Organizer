@@ -1,0 +1,232 @@
+/**
+ * Single source of truth for the shift grid, segment coverage and rest rules.
+ * Mirrors dynamic-guard-scheduler-spec.md v2.0 sections 2.2 - 2.6, and is
+ * mirrored in turn by solver/scheduler.py. Nothing here is duplicated by hand:
+ * the rest matrix is DERIVED from the clock times below, so a change to a shift
+ * window automatically re-derives every rest classification.
+ */
+
+// ---------------------------------------------------------------------------
+// Shift catalogue
+// ---------------------------------------------------------------------------
+
+export const BASE_SHIFTS = ['morning', 'afternoon', 'night'] as const;
+export type BaseShift = (typeof BASE_SHIFTS)[number];
+
+export const SHIFT_TYPES = ['morning', 'afternoon', 'night', 'day12', 'night12'] as const;
+export type ShiftType = (typeof SHIFT_TYPES)[number];
+
+export const SEGMENTS = ['S1', 'S2', 'S3', 'S4'] as const;
+export type Segment = (typeof SEGMENTS)[number];
+
+export interface ShiftDef {
+  readonly id: ShiftType;
+  readonly he: string;
+  /** Hours from midnight of the shift's own day. May exceed 24 (night shifts). */
+  readonly startH: number;
+  readonly endH: number;
+  readonly label: string;
+  readonly hours: 8 | 12;
+  /** True for day12 / night12 -- requires the matching week-level opt-in. */
+  readonly isExtended: boolean;
+  /** The base availability a guard must have marked to be eligible (spec 3.3). */
+  readonly requiresBase: BaseShift;
+  readonly covers: readonly Segment[];
+  readonly colorVar: string;
+}
+
+const H = (h: number, m: number) => h + m / 60;
+
+export const SHIFTS: Record<ShiftType, ShiftDef> = {
+  morning: {
+    id: 'morning',
+    he: 'בוקר',
+    startH: H(6, 45),
+    endH: H(14, 45),
+    label: '06:45-14:45',
+    hours: 8,
+    isExtended: false,
+    requiresBase: 'morning',
+    covers: ['S1'],
+    colorVar: 'var(--color-shift-morning)',
+  },
+  afternoon: {
+    id: 'afternoon',
+    he: 'צהריים',
+    startH: H(14, 45),
+    endH: H(22, 45),
+    label: '14:45-22:45',
+    hours: 8,
+    isExtended: false,
+    requiresBase: 'afternoon',
+    covers: ['S2', 'S3'],
+    colorVar: 'var(--color-shift-afternoon)',
+  },
+  night: {
+    id: 'night',
+    he: 'לילה',
+    startH: H(22, 45),
+    endH: 24 + H(6, 45),
+    label: '22:45-06:45',
+    hours: 8,
+    isExtended: false,
+    requiresBase: 'night',
+    covers: ['S4'],
+    colorVar: 'var(--color-shift-night)',
+  },
+  day12: {
+    id: 'day12',
+    he: 'יום 12ש׳',
+    startH: H(6, 45),
+    endH: H(18, 45),
+    label: '06:45-18:45',
+    hours: 12,
+    isExtended: true,
+    requiresBase: 'morning',
+    covers: ['S1', 'S2'],
+    colorVar: 'var(--color-shift-day12)',
+  },
+  night12: {
+    id: 'night12',
+    he: 'לילה 12ש׳',
+    startH: H(18, 45),
+    endH: 24 + H(6, 45),
+    label: '18:45-06:45',
+    hours: 12,
+    isExtended: true,
+    requiresBase: 'night',
+    covers: ['S3', 'S4'],
+    colorVar: 'var(--color-shift-night12)',
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Segments (spec 2.3)
+//
+// The 8h grid (morning|afternoon|night) and the 12h grid (day12|night12) are
+// two DIFFERENT partitions of the same 24 hours. Both tile it exactly, on the
+// four boundaries 06:45 / 14:45 / 18:45 / 22:45. Enforcing coverage per segment
+// rather than per shift is what lets 8h and 12h guards mix freely on one day.
+// ---------------------------------------------------------------------------
+
+export interface SegmentDef {
+  readonly id: Segment;
+  readonly he: string;
+  readonly label: string;
+  readonly hours: number;
+}
+
+export const SEGMENT_DEFS: Record<Segment, SegmentDef> = {
+  S1: { id: 'S1', he: 'בוקר', label: '06:45-14:45', hours: 8 },
+  S2: { id: 'S2', he: 'צהריים מוקדם', label: '14:45-18:45', hours: 4 },
+  S3: { id: 'S3', he: 'צהריים מאוחר', label: '18:45-22:45', hours: 4 },
+  S4: { id: 'S4', he: 'לילה', label: '22:45-06:45', hours: 8 },
+};
+
+export type MorningTarget = 2 | 3;
+
+/** Ceiling per segment. The solver never staffs above this (H6). */
+export function segmentTargets(morningTarget: MorningTarget): Record<Segment, number> {
+  return { S1: morningTarget, S2: 2, S3: 2, S4: 2 };
+}
+
+/** Critical floor per segment (spec 2.4). Soft, but penalised at weight 1000. */
+export function segmentFloors(morningTarget: MorningTarget): Record<Segment, number> {
+  return { S1: morningTarget === 3 ? 2 : 1, S2: 1, S3: 1, S4: 1 };
+}
+
+/** Which shift types contribute coverage to a given segment. */
+export function shiftsCovering(segment: Segment): ShiftType[] {
+  return SHIFT_TYPES.filter((s) => SHIFTS[s].covers.includes(segment));
+}
+
+// ---------------------------------------------------------------------------
+// Rest rules (spec 2.6)
+//
+//   < 8h   impossible, hard-blocked  (this is where No-Clopen comes from:
+//                                     night -> next morning is 0h)
+//   = 8h   permitted but penalised -5
+//   >= 12h free
+// ---------------------------------------------------------------------------
+
+export const HARD_REST_HOURS = 8;
+export const FREE_REST_HOURS = 12;
+
+export type RestClass = 'blocked' | 'penalised' | 'free';
+
+/** Rest between a shift on day d and a shift on day d+1. */
+export function restHours(prev: ShiftType, next: ShiftType): number {
+  return 24 + SHIFTS[next].startH - SHIFTS[prev].endH;
+}
+
+export function classifyRest(prev: ShiftType, next: ShiftType): RestClass {
+  const r = restHours(prev, next);
+  if (r < HARD_REST_HOURS) return 'blocked';
+  if (r < FREE_REST_HOURS) return 'penalised';
+  return 'free';
+}
+
+/** Precomputed matrix for UI badges and the validator. */
+export const REST_MATRIX: Record<ShiftType, Record<ShiftType, RestClass>> = Object.fromEntries(
+  SHIFT_TYPES.map((p) => [
+    p,
+    Object.fromEntries(SHIFT_TYPES.map((n) => [n, classifyRest(p, n)])),
+  ]),
+) as Record<ShiftType, Record<ShiftType, RestClass>>;
+
+/** True when `next` on day d+1 is illegal after `prev` on day d. */
+export function isRestViolation(prev: ShiftType, next: ShiftType): boolean {
+  return classifyRest(prev, next) === 'blocked';
+}
+
+// ---------------------------------------------------------------------------
+// Eligibility (spec 3.3)
+// ---------------------------------------------------------------------------
+
+export interface OptIns {
+  canWork12hDay: boolean;
+  canWork12hNight: boolean;
+}
+
+/**
+ * A guard may be assigned `shift` on a day only if they marked the underlying
+ * base shift AND, for the extended grid, opted in for that week.
+ */
+export function isEligible(
+  shift: ShiftType,
+  markedBaseShifts: readonly BaseShift[],
+  optIns: OptIns,
+): boolean {
+  const def = SHIFTS[shift];
+  if (!markedBaseShifts.includes(def.requiresBase)) return false;
+  if (shift === 'day12') return optIns.canWork12hDay;
+  if (shift === 'night12') return optIns.canWork12hNight;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Weekly limits (spec 2.7)
+// ---------------------------------------------------------------------------
+
+export const MAX_SHIFTS_PER_WEEK = 5;
+
+/**
+ * Pre-flight כמות override. A guard who marked only 2 days can never reach a
+ * כמות of 4, so we lower the target instead of handing the solver a constraint
+ * it cannot satisfy. This is what prevents unexplainable INFEASIBLE results.
+ */
+export function effectiveKamut(configuredKamut: number, distinctAvailableDays: number): number {
+  return Math.max(0, Math.min(configuredKamut, distinctAvailableDays, MAX_SHIFTS_PER_WEEK));
+}
+
+// ---------------------------------------------------------------------------
+// Objective weights (spec 4.2)
+// ---------------------------------------------------------------------------
+
+export const WEIGHTS = {
+  floor: 1000,
+  kamut: 100,
+  target: 10,
+  rest8: 5,
+  pref: 1,
+} as const;

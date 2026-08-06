@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+dist-ssr/
+build/
+*.local
+*.tsbuildinfo
+
+# Generated artifacts (derivable: npm run db:bundle)
+supabase/bundle.sql
+
+# Local tool config
+.claude/settings.local.json
+
+# Environment — NEVER commit keys. SERVICE_ROLE_KEY especially.
+.env
+.env.*
+!.env.example
+
+# Supabase local
+supabase/.branches/
+supabase/.temp/
+supabase/.env
+
+# Python solver
+solver/__pycache__/
+solver/**/__pycache__/
+solver/.venv/
+solver/venv/
+*.py[cod]
+.pytest_cache/
+
+# Editors
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Test scratch
+.tmp/
+coverage/

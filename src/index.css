@@ -1,0 +1,82 @@
+@import 'tailwindcss';
+
+/* ===========================================================================
+   Design tokens (Tailwind v4 CSS-first config)
+   =========================================================================== */
+@theme {
+  --font-sans:
+    'Heebo', system-ui, -apple-system, 'Segoe UI', 'Noto Sans Hebrew', Arial, sans-serif;
+
+  /* Brand: deep slate-navy. Reads as "security/duty" without being aggressive. */
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #dae5ff;
+  --color-brand-200: #bdd1ff;
+  --color-brand-300: #90b2ff;
+  --color-brand-400: #5c88fc;
+  --color-brand-500: #3762f4;
+  --color-brand-600: #2142e9;
+  --color-brand-700: #1a32d6;
+  --color-brand-800: #1c2cad;
+  --color-brand-900: #1c2b89;
+  --color-brand-950: #151d53;
+
+  /* One colour per shift type. Used on the roster grid, the preference form
+     and the legend, so a guard learns the mapping in one place and it holds
+     everywhere. Chosen to track the time of day: sunrise -> dusk -> night. */
+  --color-shift-morning: #f59e0b; /* בוקר    06:45-14:45 */
+  --color-shift-afternoon: #0ea5e9; /* צהריים  14:45-22:45 */
+  --color-shift-night: #6366f1; /* לילה    22:45-06:45 */
+  --color-shift-day12: #f97316; /* יום 12  06:45-18:45 */
+  --color-shift-night12: #a855f7; /* לילה 12 18:45-06:45 */
+
+  --radius-card: 1rem;
+}
+
+/* ===========================================================================
+   Base
+   =========================================================================== */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-slate-100 font-sans text-slate-900 antialiased;
+    /* Respect iOS notches; the bottom nav adds its own inset. */
+    padding-top: env(safe-area-inset-top);
+  }
+
+  /* Hebrew numerals stay LTR inside RTL text. Without this, a code like
+     005396 or a time range like 06:45-14:45 renders reversed. */
+  .num {
+    direction: ltr;
+    unicode-bidi: isolate;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Remove the number-input spinners: every numeric field here is a code,
+     a PIN or a small count, and the steppers only get in the way on mobile. */
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand-500;
+  }
+}
+
+@layer utilities {
+  /* Bottom nav sits above the iOS home indicator. */
+  .pb-safe {
+    padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+  }
+  .mb-safe {
+    margin-bottom: calc(env(safe-area-inset-bottom) + 4.5rem);
+  }
+}

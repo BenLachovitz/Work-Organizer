@@ -1,0 +1,7 @@
+# Normalise to LF in the repository. Without this, editing on Windows rewrites
+# every SQL and TS file's line endings and buries real diffs in noise.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.pdf binary
