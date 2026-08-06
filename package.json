@@ -15,7 +15,8 @@
     "db:bundle": "node supabase/apply.mjs --bundle",
     "test:auth": "node supabase/tests/auth.cloud.test.mjs",
     "test:client": "node supabase/tests/client.cloud.test.mjs",
-    "test:cloud": "node supabase/tests/rls.cloud.test.mjs && node supabase/tests/auth.cloud.test.mjs && node supabase/tests/client.cloud.test.mjs"
+    "test:cloud": "node supabase/tests/rls.cloud.test.mjs && node supabase/tests/auth.cloud.test.mjs && node supabase/tests/client.cloud.test.mjs && node supabase/tests/preferences.cloud.test.mjs",
+    "test:prefs": "node supabase/tests/preferences.cloud.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.2",

@@ -3,13 +3,9 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { Login } from '@/pages/Login';
-import {
-  GuardHome,
-  ManagerDashboard,
-  NotFound,
-  Preferences,
-  RosterView,
-} from '@/pages/Placeholders';
+import { GuardHome } from '@/pages/GuardHome';
+import { Preferences } from '@/pages/Preferences';
+import { ManagerDashboard, NotFound, RosterView } from '@/pages/Placeholders';
 import { Spinner } from '@/components/ui';
 
 const queryClient = new QueryClient({

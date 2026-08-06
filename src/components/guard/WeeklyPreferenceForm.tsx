@@ -11,9 +11,24 @@ import {
 import { BASE_SHIFTS, MAX_SHIFTS_PER_WEEK, SHIFTS, effectiveKamut, type BaseShift } from '@/lib/shifts';
 
 /** Set of "YYYY-MM-DD|shift" keys. Row-present-means-available, matching the DB. */
-type Selection = Set<string>;
+export type Selection = Set<string>;
 
 const slotKey = (date: DateKey, shift: BaseShift) => `${date}|${shift}`;
+
+/** Selection -> the shape save_week_preferences expects. */
+export function selectionToSlots(slots: Selection): { date: DateKey; shift: BaseShift }[] {
+  return [...slots].map((k) => {
+    const [date, shift] = k.split('|');
+    return { date: date!, shift: shift as BaseShift };
+  });
+}
+
+/** Stored preference rows -> Selection. */
+export function rowsToSelection(
+  rows: { target_date: string; shift: BaseShift }[],
+): Selection {
+  return new Set(rows.map((r) => slotKey(r.target_date, r.shift)));
+}
 
 export interface PreferenceFormValue {
   slots: Selection;
