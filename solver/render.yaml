@@ -1,0 +1,21 @@
+# Render blueprint for the CP-SAT solver service.
+#
+# Deploy: render.com -> New -> Blueprint -> point at this repo.
+# Then set SOLVER_SECRET in the dashboard to the same value stored in the
+# Supabase Edge Function secrets.
+services:
+  - type: web
+    name: guard-solver
+    runtime: python
+    plan: free
+    rootDir: solver
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: SOLVER_SECRET
+        sync: false          # set by hand in the dashboard; never committed
+      - key: SOLVER_TIME_LIMIT
+        value: "20"
+      - key: PYTHON_VERSION
+        value: "3.12.7"

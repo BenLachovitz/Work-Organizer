@@ -1,0 +1,230 @@
+{
+  "week_start": "2026-08-16",
+  "morning_target_slots": 2,
+  "weights": {
+    "floor": 1000,
+    "kamut": 100,
+    "target": 10,
+    "rest8": 5,
+    "pref": 1
+  },
+  "carry_in": {},
+  "guards": [
+    {
+      "id": "g1",
+      "effective_kamut": 5,
+      "can_work_12h_day": false,
+      "can_work_12h_night": false,
+      "availability": {
+        "0": [
+          "morning",
+          "night"
+        ],
+        "1": [
+          "morning",
+          "night"
+        ],
+        "2": [
+          "morning",
+          "night"
+        ],
+        "3": [
+          "morning",
+          "night"
+        ],
+        "4": [
+          "morning",
+          "night"
+        ],
+        "5": [
+          "morning",
+          "night"
+        ],
+        "6": [
+          "morning",
+          "night"
+        ]
+      }
+    },
+    {
+      "id": "g2",
+      "effective_kamut": 5,
+      "can_work_12h_day": false,
+      "can_work_12h_night": false,
+      "availability": {
+        "0": [
+          "morning",
+          "night"
+        ],
+        "1": [
+          "morning",
+          "night"
+        ],
+        "2": [
+          "morning",
+          "night"
+        ],
+        "3": [
+          "morning",
+          "night"
+        ],
+        "4": [
+          "morning",
+          "night"
+        ],
+        "5": [
+          "morning",
+          "night"
+        ],
+        "6": [
+          "morning",
+          "night"
+        ]
+      }
+    },
+    {
+      "id": "g3",
+      "effective_kamut": 5,
+      "can_work_12h_day": false,
+      "can_work_12h_night": false,
+      "availability": {
+        "0": [
+          "morning",
+          "night"
+        ],
+        "1": [
+          "morning",
+          "night"
+        ],
+        "2": [
+          "morning",
+          "night"
+        ],
+        "3": [
+          "morning",
+          "night"
+        ],
+        "4": [
+          "morning",
+          "night"
+        ],
+        "5": [
+          "morning",
+          "night"
+        ],
+        "6": [
+          "morning",
+          "night"
+        ]
+      }
+    },
+    {
+      "id": "g4",
+      "effective_kamut": 5,
+      "can_work_12h_day": false,
+      "can_work_12h_night": false,
+      "availability": {
+        "0": [
+          "morning",
+          "night"
+        ],
+        "1": [
+          "morning",
+          "night"
+        ],
+        "2": [
+          "morning",
+          "night"
+        ],
+        "3": [
+          "morning",
+          "night"
+        ],
+        "4": [
+          "morning",
+          "night"
+        ],
+        "5": [
+          "morning",
+          "night"
+        ],
+        "6": [
+          "morning",
+          "night"
+        ]
+      }
+    },
+    {
+      "id": "g5",
+      "effective_kamut": 5,
+      "can_work_12h_day": false,
+      "can_work_12h_night": false,
+      "availability": {
+        "0": [
+          "morning",
+          "night"
+        ],
+        "1": [
+          "morning",
+          "night"
+        ],
+        "2": [
+          "morning",
+          "night"
+        ],
+        "3": [
+          "morning",
+          "night"
+        ],
+        "4": [
+          "morning",
+          "night"
+        ],
+        "5": [
+          "morning",
+          "night"
+        ],
+        "6": [
+          "morning",
+          "night"
+        ]
+      }
+    },
+    {
+      "id": "g6",
+      "effective_kamut": 5,
+      "can_work_12h_day": false,
+      "can_work_12h_night": false,
+      "availability": {
+        "0": [
+          "morning",
+          "night"
+        ],
+        "1": [
+          "morning",
+          "night"
+        ],
+        "2": [
+          "morning",
+          "night"
+        ],
+        "3": [
+          "morning",
+          "night"
+        ],
+        "4": [
+          "morning",
+          "night"
+        ],
+        "5": [
+          "morning",
+          "night"
+        ],
+        "6": [
+          "morning",
+          "night"
+        ]
+      }
+    }
+  ]
+}

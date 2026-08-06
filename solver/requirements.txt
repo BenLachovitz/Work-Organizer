@@ -1,0 +1,5 @@
+# Pinned to the versions actually exercised by solver/tests/test_scheduler.py.
+ortools==9.15.6755
+fastapi==0.141.1
+pydantic==2.13.4
+uvicorn[standard]==0.52.1

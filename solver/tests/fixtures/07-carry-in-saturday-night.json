@@ -1,0 +1,363 @@
+{
+  "week_start": "2026-08-16",
+  "morning_target_slots": 2,
+  "weights": {
+    "floor": 1000,
+    "kamut": 100,
+    "target": 10,
+    "rest8": 5,
+    "pref": 1
+  },
+  "carry_in": {
+    "g1": "night",
+    "g2": "night12",
+    "g3": "afternoon",
+    "g4": null
+  },
+  "guards": [
+    {
+      "id": "g1",
+      "effective_kamut": 3,
+      "can_work_12h_day": false,
+      "can_work_12h_night": false,
+      "availability": {
+        "0": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "1": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "2": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "3": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "4": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "5": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "6": [
+          "morning",
+          "afternoon",
+          "night"
+        ]
+      }
+    },
+    {
+      "id": "g2",
+      "effective_kamut": 3,
+      "can_work_12h_day": false,
+      "can_work_12h_night": false,
+      "availability": {
+        "0": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "1": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "2": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "3": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "4": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "5": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "6": [
+          "morning",
+          "afternoon",
+          "night"
+        ]
+      }
+    },
+    {
+      "id": "g3",
+      "effective_kamut": 3,
+      "can_work_12h_day": false,
+      "can_work_12h_night": false,
+      "availability": {
+        "0": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "1": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "2": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "3": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "4": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "5": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "6": [
+          "morning",
+          "afternoon",
+          "night"
+        ]
+      }
+    },
+    {
+      "id": "g4",
+      "effective_kamut": 3,
+      "can_work_12h_day": false,
+      "can_work_12h_night": false,
+      "availability": {
+        "0": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "1": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "2": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "3": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "4": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "5": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "6": [
+          "morning",
+          "afternoon",
+          "night"
+        ]
+      }
+    },
+    {
+      "id": "g5",
+      "effective_kamut": 3,
+      "can_work_12h_day": false,
+      "can_work_12h_night": false,
+      "availability": {
+        "0": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "1": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "2": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "3": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "4": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "5": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "6": [
+          "morning",
+          "afternoon",
+          "night"
+        ]
+      }
+    },
+    {
+      "id": "g6",
+      "effective_kamut": 3,
+      "can_work_12h_day": false,
+      "can_work_12h_night": false,
+      "availability": {
+        "0": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "1": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "2": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "3": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "4": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "5": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "6": [
+          "morning",
+          "afternoon",
+          "night"
+        ]
+      }
+    },
+    {
+      "id": "g7",
+      "effective_kamut": 3,
+      "can_work_12h_day": false,
+      "can_work_12h_night": false,
+      "availability": {
+        "0": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "1": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "2": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "3": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "4": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "5": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "6": [
+          "morning",
+          "afternoon",
+          "night"
+        ]
+      }
+    },
+    {
+      "id": "g8",
+      "effective_kamut": 3,
+      "can_work_12h_day": false,
+      "can_work_12h_night": false,
+      "availability": {
+        "0": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "1": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "2": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "3": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "4": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "5": [
+          "morning",
+          "afternoon",
+          "night"
+        ],
+        "6": [
+          "morning",
+          "afternoon",
+          "night"
+        ]
+      }
+    }
+  ]
+}
