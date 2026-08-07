@@ -8,7 +8,14 @@ import {
   weekDates,
   type DateKey,
 } from '@/lib/dates';
-import { BASE_SHIFTS, MAX_SHIFTS_PER_WEEK, SHIFTS, effectiveKamut, type BaseShift } from '@/lib/shifts';
+import {
+  BASE_SHIFTS,
+  MAX_SHIFTS_PER_WEEK,
+  SHIFTS,
+  effectiveKamut,
+  isWeekendDay,
+  type BaseShift,
+} from '@/lib/shifts';
 
 /** Set of "YYYY-MM-DD|shift" keys. Row-present-means-available, matching the DB. */
 export type Selection = Set<string>;
@@ -122,7 +129,9 @@ export function WeeklyPreferenceForm({
         <div className="divide-y divide-slate-100">
           {dates.map((date, dayIdx) => {
             const daySlots = BASE_SHIFTS.filter((s) => slots.has(slotKey(date, s)));
-            const isWeekend = dayIdx === 5 || dayIdx === 6;
+            // American school: the days off are Saturday and Sunday, so the
+            // tint sits at both ends of the Sunday-first grid, not on Friday.
+            const isWeekend = isWeekendDay(dayIdx);
 
             return (
               <div key={date} className={cn('px-4 py-3', isWeekend && 'bg-amber-50/40')}>

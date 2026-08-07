@@ -63,12 +63,28 @@ def rest_hours(prev: ShiftType, nxt: ShiftType) -> float:
     return 24.0 + START_H[nxt] - END_H[prev]
 
 
-def segment_targets(morning_target: int) -> dict[Segment, int]:
-    return {"S1": morning_target, "S2": 2, "S3": 2, "S4": 2}
+# American school: Sunday (0) and Saturday (6) are the days off. The roster
+# week still starts on Sunday, which leaves Mon..Fri as the contiguous block
+# 1..5 that the raised morning target applies to.
+WEEKEND_DAYS = (0, 6)
 
 
-def segment_floors(morning_target: int) -> dict[Segment, int]:
-    return {"S1": 2 if morning_target == 3 else 1, "S2": 1, "S3": 1, "S4": 1}
+def is_weekend_day(day_index: int) -> bool:
+    return day_index in WEEKEND_DAYS
+
+
+def morning_target_for_day(week_setting: int, day_index: int) -> int:
+    """The raised target (3) applies Mon-Fri only; the weekend always runs 2."""
+    return 2 if is_weekend_day(day_index) else week_setting
+
+
+def segment_targets(week_setting: int, day_index: int) -> dict[Segment, int]:
+    return {"S1": morning_target_for_day(week_setting, day_index), "S2": 2, "S3": 2, "S4": 2}
+
+
+def segment_floors(week_setting: int, day_index: int) -> dict[Segment, int]:
+    morning = morning_target_for_day(week_setting, day_index)
+    return {"S1": 2 if morning == 3 else 1, "S2": 1, "S3": 1, "S4": 1}
 
 
 class SolverWeights(BaseModel):

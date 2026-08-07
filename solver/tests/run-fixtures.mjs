@@ -106,6 +106,25 @@ for (const file of files) {
       : bad('one shift per day', `${output.assignments.length} shifts across ${days.size} days`);
   }
 
+  if (file.startsWith('04-')) {
+    // This fixture runs at morning target 3. The raised target applies Mon-Fri
+    // only, so Saturday (6) and Sunday (0) must still cap at 2 -- and a working
+    // day must actually reach 3, or the rule is being applied everywhere.
+    const s1 = (d) =>
+      output.assignments.filter(
+        (a) => a.day === d && (a.shift === 'morning' || a.shift === 'day12'),
+      ).length;
+    const weekendOver = [0, 6].filter((d) => s1(d) > 2);
+    weekendOver.length === 0
+      ? ok('weekend morning capped at 2 despite the week being set to 3')
+      : bad('weekend cap', `days ${weekendOver.join(', ')} exceeded 2 in the morning`);
+
+    const weekdaysAt3 = [1, 2, 3, 4, 5].filter((d) => s1(d) === 3);
+    weekdaysAt3.length > 0
+      ? ok(`weekdays do reach the raised target (${weekdaysAt3.length} of 5 at 3)`)
+      : bad('weekday target', 'no working day reached 3 -- target 3 is not applied at all');
+  }
+
   if (file.startsWith('05-')) {
     const byGuard = new Map();
     for (const a of output.assignments) {

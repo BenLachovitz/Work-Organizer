@@ -186,14 +186,17 @@ export function verifySchedule(input: SolverInput, output: SolverOutput): Verify
   }
 
   // --- H6 ceiling + the coverage report -------------------------------------
-  const targets = segmentTargets(input.morning_target_slots);
-  const floors = segmentFloors(input.morning_target_slots);
   const cov = coverageBySegment(assignments);
 
   const floorBreaches: CoverageReport['floor_breaches'] = [];
   const targetGaps: CoverageReport['target_gaps'] = [];
 
   for (let d = 0; d < 7; d++) {
+    // Recomputed per day: the raised morning target applies Mon-Fri only, so
+    // Saturday and Sunday run 2 whatever the week is set to.
+    const targets = segmentTargets(input.morning_target_slots, d);
+    const floors = segmentFloors(input.morning_target_slots, d);
+
     for (const seg of SEGMENTS as readonly Segment[]) {
       const assigned = cov.get(`${d}|${seg}`) ?? 0;
       if (assigned > targets[seg]) {

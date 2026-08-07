@@ -1,6 +1,13 @@
 import { Card, cn } from '@/components/ui';
 import { HEBREW_DAYS_SHORT, type DateKey } from '@/lib/dates';
-import { BASE_SHIFTS, SHIFTS, segmentFloors, segmentTargets, type MorningTarget } from '@/lib/shifts';
+import {
+  BASE_SHIFTS,
+  SHIFTS,
+  isWeekendDay,
+  segmentFloors,
+  segmentTargets,
+  type MorningTarget,
+} from '@/lib/shifts';
 import type { CoverageCell } from '@/hooks/useManager';
 
 /**
@@ -20,28 +27,32 @@ export function CoverageMatrix({
   dates: DateKey[];
   morningTarget: MorningTarget;
 }) {
-  const floors = segmentFloors(morningTarget);
-  const targets = segmentTargets(morningTarget);
-
+  // Per day: the raised morning target applies Mon-Fri only, so Saturday and
+  // Sunday show a requirement of 2 even when the week is set to 3.
   // The 8h shifts map onto segments: morning->S1, afternoon->S2/S3, night->S4.
-  const need = {
-    morning: { floor: floors.S1, target: targets.S1 },
-    afternoon: { floor: floors.S2, target: targets.S2 },
-    night: { floor: floors.S4, target: targets.S4 },
-  } as const;
+  const needOn = (dayIndex: number) => {
+    const floors = segmentFloors(morningTarget, dayIndex);
+    const targets = segmentTargets(morningTarget, dayIndex);
+    return {
+      morning: { floor: floors.S1, target: targets.S1 },
+      afternoon: { floor: floors.S2, target: targets.S2 },
+      night: { floor: floors.S4, target: targets.S4 },
+    } as const;
+  };
 
   const at = (date: DateKey, shift: string) =>
     cells.find((c) => c.date === date && c.shift === shift)?.available ?? 0;
 
   let breaches = 0;
   let gaps = 0;
-  for (const d of dates) {
+  dates.forEach((d, i) => {
+    const need = needOn(i);
     for (const s of BASE_SHIFTS) {
       const a = at(d, s);
       if (a < need[s].floor) breaches++;
       else if (a < need[s].target) gaps++;
     }
-  }
+  });
 
   return (
     <Card className="p-0">
@@ -58,7 +69,15 @@ export function CoverageMatrix({
             <tr>
               <th className="w-16" />
               {dates.map((d, i) => (
-                <th key={d} className="pb-1 text-center text-xs font-bold text-slate-500">
+                <th
+                  key={d}
+                  title={isWeekendDay(i) ? 'יום מנוחה - יעד בוקר 2 תמיד' : undefined}
+                  className={cn(
+                    'pb-1 text-center text-xs font-bold',
+                    // Marks why Saturday and Sunday show 2 even at target 3.
+                    isWeekendDay(i) ? 'text-amber-600' : 'text-slate-500',
+                  )}
+                >
                   {HEBREW_DAYS_SHORT[i]}
                 </th>
               ))}
@@ -76,9 +95,9 @@ export function CoverageMatrix({
                     {SHIFTS[shift].he}
                   </span>
                 </td>
-                {dates.map((date) => {
+                {dates.map((date, dayIndex) => {
                   const a = at(date, shift);
-                  const { floor, target } = need[shift];
+                  const { floor, target } = needOn(dayIndex)[shift];
                   const below = a < floor;
                   const short = !below && a < target;
                   return (

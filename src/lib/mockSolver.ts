@@ -25,8 +25,9 @@ import { addDays } from '@/lib/dates';
  * safe to fall back to when the solver service is unreachable.
  */
 export function mockSolve(input: SolverInput): SolverOutput {
-  const targets = segmentTargets(input.morning_target_slots);
-  const floors = segmentFloors(input.morning_target_slots);
+  // Per day, because the raised morning target applies Mon-Fri only.
+  const targetsOn = (day: number) => segmentTargets(input.morning_target_slots, day);
+  const floorsOn = (day: number) => segmentFloors(input.morning_target_slots, day);
   const w = input.weights;
 
   const assignments: Assignment[] = [];
@@ -57,7 +58,7 @@ export function mockSolve(input: SolverInput): SolverOutput {
 
     // H6: never exceed the target ceiling
     for (const seg of def.covers) {
-      if (covOf(day, seg) + 1 > targets[seg]) return false;
+      if (covOf(day, seg) + 1 > targetsOn(day)[seg]) return false;
     }
 
     // H5: rest against the neighbouring days
@@ -82,8 +83,8 @@ export function mockSolve(input: SolverInput): SolverOutput {
       const c = covOf(day, seg);
       // Below the floor is also below the target, so both penalties shrink --
       // which is exactly why floor-filling dominates everything else.
-      if (c < floors[seg]) score += w.floor;
-      if (c < targets[seg]) score += w.target;
+      if (c < floorsOn(day)[seg]) score += w.floor;
+      if (c < targetsOn(day)[seg]) score += w.target;
     }
 
     const g = input.guards.find((x) => x.id === guardId)!;

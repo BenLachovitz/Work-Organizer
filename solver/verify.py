@@ -115,9 +115,6 @@ def verify(inp: SolverInput, assignments: list[Assignment]) -> tuple[list[str], 
                 )
 
     # --- H6 ceiling + coverage report -----------------------------------------
-    targets = segment_targets(inp.morning_target_slots)
-    floors = segment_floors(inp.morning_target_slots)
-
     cov: dict[tuple[int, str], int] = {}
     for a in assignments:
         for seg in COVERS[a.shift]:
@@ -126,6 +123,9 @@ def verify(inp: SolverInput, assignments: list[Assignment]) -> tuple[list[str], 
     floor_breaches: list[FloorBreach] = []
     target_gaps: list[TargetGap] = []
     for d in range(7):
+        # Recomputed per day: the raised morning target applies Mon-Fri only.
+        targets = segment_targets(inp.morning_target_slots, d)
+        floors = segment_floors(inp.morning_target_slots, d)
         for seg in SEGMENTS:
             assigned = cov.get((d, seg), 0)
             if assigned > targets[seg]:

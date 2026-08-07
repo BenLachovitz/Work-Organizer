@@ -95,6 +95,27 @@ def main() -> int:
             else:
                 bad("ceiling", f"{len(out.assignments)} shifts for one guard")
 
+        if name.startswith("04-"):
+            # Morning target 3 fixture: the raised target is Mon-Fri only, so
+            # Saturday (6) and Sunday (0) must still cap at 2 -- and a working
+            # day must actually reach 3, or the rule is applied nowhere.
+            def s1(d: int) -> int:
+                return len(
+                    [a for a in out.assignments if a.day == d and a.shift in ("morning", "day12")]
+                )
+
+            weekend_over = [d for d in (0, 6) if s1(d) > 2]
+            if not weekend_over:
+                ok("weekend morning capped at 2 despite the week being set to 3")
+            else:
+                bad("weekend cap", f"days {weekend_over} exceeded 2 in the morning")
+
+            weekdays_at_3 = [d for d in (1, 2, 3, 4, 5) if s1(d) == 3]
+            if weekdays_at_3:
+                ok(f"weekdays reach the raised target ({len(weekdays_at_3)} of 5 at 3)")
+            else:
+                bad("weekday target", "no working day reached 3 -- target 3 not applied")
+
         if name.startswith("05-"):
             by_guard: dict[str, dict[int, str]] = {}
             for a in out.assignments:

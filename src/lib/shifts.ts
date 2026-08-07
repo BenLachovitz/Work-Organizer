@@ -19,6 +19,27 @@ export type ShiftType = (typeof SHIFT_TYPES)[number];
 export const SEGMENTS = ['S1', 'S2', 'S3', 'S4'] as const;
 export type Segment = (typeof SEGMENTS)[number];
 
+// ---------------------------------------------------------------------------
+// Working week
+//
+// This is an American school: Saturday and Sunday are the days off and Friday
+// is a normal working day. The roster week still starts on Sunday (index 0),
+// which keeps the five working days as a contiguous block 1..5 and lets the UI
+// render Sunday-first the way a US calendar does.
+// ---------------------------------------------------------------------------
+
+/** Day indices that are days off: Sunday (0) and Saturday (6). */
+export const WEEKEND_DAYS = [0, 6] as const;
+
+export function isWeekendDay(dayIndex: number): boolean {
+  return dayIndex === 0 || dayIndex === 6;
+}
+
+/** Monday..Friday. The only days that can carry the raised morning target. */
+export function isWorkingDay(dayIndex: number): boolean {
+  return !isWeekendDay(dayIndex);
+}
+
 export interface ShiftDef {
   readonly id: ShiftType;
   readonly he: string;
@@ -125,14 +146,38 @@ export const SEGMENT_DEFS: Record<Segment, SegmentDef> = {
 
 export type MorningTarget = 2 | 3;
 
-/** Ceiling per segment. The solver never staffs above this (H6). */
-export function segmentTargets(morningTarget: MorningTarget): Record<Segment, number> {
-  return { S1: morningTarget, S2: 2, S3: 2, S4: 2 };
+/**
+ * The morning target actually in force on a given day.
+ *
+ * The raised target (3) applies only to working days, Monday to Friday.
+ * Saturday and Sunday are days off at the school and always run 2 in the
+ * morning no matter what the week is set to.
+ */
+export function morningTargetForDay(weekSetting: MorningTarget, dayIndex: number): number {
+  return isWorkingDay(dayIndex) ? weekSetting : 2;
+}
+
+/**
+ * Ceiling per segment for one day. The solver never staffs above this (H6).
+ *
+ * dayIndex is required rather than optional on purpose: every caller has to
+ * state which day it means, so a site that forgets the weekend rule fails to
+ * compile instead of silently over-staffing Saturday.
+ */
+export function segmentTargets(
+  weekSetting: MorningTarget,
+  dayIndex: number,
+): Record<Segment, number> {
+  return { S1: morningTargetForDay(weekSetting, dayIndex), S2: 2, S3: 2, S4: 2 };
 }
 
 /** Critical floor per segment (spec 2.4). Soft, but penalised at weight 1000. */
-export function segmentFloors(morningTarget: MorningTarget): Record<Segment, number> {
-  return { S1: morningTarget === 3 ? 2 : 1, S2: 1, S3: 1, S4: 1 };
+export function segmentFloors(
+  weekSetting: MorningTarget,
+  dayIndex: number,
+): Record<Segment, number> {
+  const morning = morningTargetForDay(weekSetting, dayIndex);
+  return { S1: morning === 3 ? 2 : 1, S2: 1, S3: 1, S4: 1 };
 }
 
 /** Which shift types contribute coverage to a given segment. */

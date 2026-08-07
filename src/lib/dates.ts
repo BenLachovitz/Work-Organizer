@@ -67,16 +67,16 @@ export function todayInIsrael(): DateKey {
 
 /**
  * The roster week currently open for submissions: the earliest upcoming week
- * whose Thursday 20:00 deadline has not yet passed.
+ * whose Wednesday 19:00 deadline has not yet passed.
  *
- * Naively returning "next Sunday's week" is wrong from Thursday 20:00 onward --
+ * Naively returning "next Sunday's week" is wrong from Wednesday 19:00 onward --
  * that week's window has already closed, so the guard would be shown a locked
  * form with nothing to do. Once the deadline passes we roll forward to the next
  * week, which is the one they can actually still submit for.
  */
 export function currentSubmissionWeek(now: Date = new Date()): DateKey {
   let candidate = addDays(weekStartOf(todayInIsrael()), 7);
-  // At most two rolls: the deadline sits 3 days before its own week start.
+  // At most two rolls: the deadline sits 4 days before its own week start.
   for (let i = 0; i < 3; i++) {
     if (submissionDeadline(candidate).getTime() > now.getTime()) return candidate;
     candidate = addDays(candidate, 7);
@@ -89,17 +89,21 @@ export function isSubmissionOpen(weekStart: DateKey, now: Date = new Date()): bo
   return submissionDeadline(weekStart).getTime() > now.getTime();
 }
 
+/** Submissions close this many days before the roster week starts. */
+export const DEADLINE_DAYS_BEFORE = 4; // Sunday start - 4 = the Wednesday before
+export const DEADLINE_HOUR = 19;
+
 /**
- * Submissions close on the Thursday before the roster week, at 20:00 local
- * (spec 3.5). week_start is a Sunday, so that Thursday is week_start - 3.
+ * Submissions close on the Wednesday before the roster week, at 19:00 local
+ * (spec 3.5). week_start is a Sunday, so that Wednesday is week_start - 4.
  *
  * Built by asking Intl what the UTC offset is on that specific date rather than
  * assuming +03, so the value stays correct across the IDT/IST changeover.
  */
 export function submissionDeadline(weekStart: DateKey): Date {
-  const thursday = addDays(weekStart, -3);
-  const [y, m, d] = thursday.split('-').map(Number);
-  const naiveUtc = Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1, 20, 0, 0);
+  const wednesday = addDays(weekStart, -DEADLINE_DAYS_BEFORE);
+  const [y, m, d] = wednesday.split('-').map(Number);
+  const naiveUtc = Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1, DEADLINE_HOUR, 0, 0);
   // Offset that Asia/Jerusalem is running at on that date.
   const probe = new Date(naiveUtc);
   const local = new Date(probe.toLocaleString('en-US', { timeZone: ISRAEL_TZ }));

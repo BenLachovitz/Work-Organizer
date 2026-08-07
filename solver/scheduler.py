@@ -1,7 +1,7 @@
 """CP-SAT scheduling model (spec 6).
 
 The whole design goal is that this NEVER returns INFEASIBLE for real input. A
-manager pressing Generate on a Thursday night needs a roster plus an
+manager pressing Generate on a Wednesday evening needs a roster plus an
 explanation, not a solver error they cannot act on. So the hard constraint set
 is kept to physics and safety only (H1-H7), and every business goal -- coverage
 floors, coverage targets, כמות -- is soft with a weighted penalty.
@@ -35,8 +35,6 @@ def solve(inp: SolverInput, time_limit_s: float = 20.0, workers: int = 8) -> Sol
     model = cp_model.CpModel()
     guards = inp.guards
     w = inp.weights
-    targets = segment_targets(inp.morning_target_slots)
-    floors = segment_floors(inp.morning_target_slots)
 
     # --- variables ------------------------------------------------------------
     # x[g, d, s] == 1 iff guard g works shift s on day d.
@@ -99,6 +97,11 @@ def solve(inp: SolverInput, time_limit_s: float = 20.0, workers: int = 8) -> Sol
     floor_gaps: list[cp_model.IntVar] = []
     target_gaps: list[cp_model.IntVar] = []
     for d in range(DAYS):
+        # Per day: the raised morning target applies Mon-Fri only, so Saturday
+        # and Sunday cap at 2 in the morning even when the week is set to 3.
+        targets = segment_targets(inp.morning_target_slots, d)
+        floors = segment_floors(inp.morning_target_slots, d)
+
         for seg in SEGMENTS:
             covering = [
                 x[gi, d, s]

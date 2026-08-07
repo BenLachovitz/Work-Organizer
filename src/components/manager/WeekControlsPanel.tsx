@@ -23,7 +23,9 @@ export function WeekControlsPanel({
   const deadline = week ? new Date(week.submission_deadline) : null;
   const left = deadline ? timeUntil(deadline) : null;
   const target = (week?.morning_target_slots ?? 2) as MorningTarget;
-  const floor = segmentFloors(target).S1;
+  // Day index 1 (Monday) stands for a working day; the setting only ever
+  // differs between Mon-Fri and the weekend.
+  const workingFloor = segmentFloors(target, 1).S1;
 
   return (
     <Card className="space-y-4">
@@ -76,9 +78,11 @@ export function WeekControlsPanel({
 
           {/* ---------------- morning capacity ---------------- */}
           <div>
-            <p className="mb-1 text-sm font-bold text-slate-700">יעד משמרת בוקר</p>
+            <p className="mb-1 text-sm font-bold text-slate-700">
+              יעד משמרת בוקר <span className="font-normal text-slate-400">· ימי שני-שישי</span>
+            </p>
             <p className="mb-2 text-xs text-slate-500">
-              מספר המאבטחים הרצוי במשמרת הבוקר. הרצפה נגזרת אוטומטית.
+              מספר המאבטחים הרצוי במשמרת הבוקר בימי העבודה. הרצפה נגזרת אוטומטית.
             </p>
             <div className="grid grid-cols-2 gap-2">
               {([2, 3] as MorningTarget[]).map((t) => (
@@ -96,13 +100,16 @@ export function WeekControlsPanel({
                 >
                   <span className="block text-lg font-extrabold text-slate-900">{t}</span>
                   <span className="block text-[11px] text-slate-500">
-                    רצפה {segmentFloors(t).S1}
+                    רצפה {segmentFloors(t, 1).S1}
                   </span>
                 </button>
               ))}
             </div>
             <p className="mt-2 text-xs text-slate-500">
-              יעד {target} - לפחות {floor} מאבטחים חייבים להיות במשמרת.
+              ימי שני-שישי: יעד {target}, לפחות {workingFloor} מאבטחים במשמרת.
+            </p>
+            <p className="mt-1 text-xs text-amber-700">
+              שבת וראשון הם ימי מנוחה - יעד הבוקר בהם תמיד 2, גם כשנבחר 3.
             </p>
           </div>
 

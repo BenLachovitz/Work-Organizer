@@ -60,13 +60,15 @@ CREATE TABLE profiles (
 
 -- ----------------------------------------------------------------------------
 -- 3. roster_weeks
---    One row per schedulable week. week_start must be a Sunday: the Israeli
---    work week starts Sunday and the solver indexes days 0..6 from it.
+--    One row per schedulable week. week_start must be a Sunday, and the solver
+--    indexes days 0..6 from it. This is an American school, so Sunday (0) and
+--    Saturday (6) are the days off -- which conveniently leaves Mon..Fri as the
+--    contiguous block 1..5 that the raised morning target applies to.
 -- ----------------------------------------------------------------------------
 CREATE TABLE roster_weeks (
   week_start           DATE PRIMARY KEY CHECK (EXTRACT(DOW FROM week_start) = 0),
   morning_target_slots INT NOT NULL DEFAULT 2 CHECK (morning_target_slots IN (2, 3)),
-  -- Hard lock for guard edits. Default Thursday 20:00 Asia/Jerusalem (spec 3.5).
+  -- Hard lock for guard edits. Default Wednesday 19:00 Asia/Jerusalem (spec 3.5).
   submission_deadline  TIMESTAMPTZ NOT NULL,
   status               week_status NOT NULL DEFAULT 'open',
   created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()

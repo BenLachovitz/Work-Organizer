@@ -233,7 +233,7 @@ async function run() {
     /row-level security/i,
   );
 
-  console.log('\n\x1b[1m2. Submission deadline (Thursday 20:00) enforced by the engine\x1b[0m');
+  console.log('\n\x1b[1m2. Submission deadline (Wednesday 19:00) enforced by the engine\x1b[0m');
   await expectOk(
     'guard CAN submit while the week is open',
     GUARD_A,

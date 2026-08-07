@@ -38,7 +38,7 @@ GRANT EXECUTE ON FUNCTION public.is_manager() TO authenticated;
 -- ----------------------------------------------------------------------------
 -- is_week_open(week_start)
 --
--- The Thursday 20:00 submission lock (spec 3.5), enforced by the database
+-- The Wednesday 19:00 submission lock (spec 3.5), enforced by the database
 -- engine rather than by the UI. A guard who crafts a raw PostgREST call after
 -- the deadline is refused just the same as one clicking a disabled button.
 --

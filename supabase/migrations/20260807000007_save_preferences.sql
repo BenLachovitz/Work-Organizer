@@ -9,7 +9,7 @@
 --
 -- SECURITY INVOKER is deliberate and load-bearing. The function runs as the
 -- CALLING guard, so every statement inside it is still filtered by RLS:
--- ownership (guard_id = auth.uid()) and the Thursday 20:00 deadline are
+-- ownership (guard_id = auth.uid()) and the Wednesday 19:00 deadline are
 -- enforced exactly as they are for a direct table write. SECURITY DEFINER here
 -- would silently bypass both.
 -- ============================================================================
