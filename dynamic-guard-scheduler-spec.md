@@ -875,7 +875,7 @@ Management API is the only route in.
 ### 11.1 Render Setup
 
 1. Push the repository to GitHub (Render deploys from a Git remote).
-2. render.com → **New → Blueprint** → select the repo. It reads `solver/render.yaml` and configures
+2. render.com → **New → Blueprint** → select the repo. It reads `render.yaml` at the repo root and configures
    the service itself: Python, `rootDir: solver`, `pip install -r requirements.txt`,
    `uvicorn main:app`, health check on `/health`.
 3. In the Render dashboard set **`SOLVER_SECRET`** to any long random string. It is marked

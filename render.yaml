@@ -1,0 +1,25 @@
+# Render blueprint for the CP-SAT solver service.
+#
+# MUST live at the repository ROOT -- Render only looks for render.yaml here,
+# not inside subdirectories. `rootDir` below is what points it at the service
+# code in solver/.
+#
+# Deploy: render.com -> New -> Blueprint -> select this repo.
+# Render then prompts for SOLVER_SECRET, which must match the value stored in
+# the Supabase Edge Function secrets.
+services:
+  - type: web
+    name: guard-solver
+    runtime: python
+    plan: free
+    rootDir: solver # the FastAPI service lives here; build/start run inside it
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health # also used to wake the free tier after it sleeps
+    envVars:
+      - key: SOLVER_SECRET
+        sync: false # set by hand in the dashboard; never committed
+      - key: SOLVER_TIME_LIMIT
+        value: "20"
+      - key: PYTHON_VERSION
+        value: "3.12.7"
