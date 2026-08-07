@@ -1,9 +1,9 @@
+import { useEffect, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { ShiftLegend } from '@/components/ShiftChip';
 import { Alert, Badge, Card, EmptyState, Spinner, cn } from '@/components/ui';
 import { useAuth } from '@/contexts/AuthContext';
-import { useActiveWeek, useRosterWeeks } from '@/hooks/useWeeks';
-import { usePublishedRoster } from '@/hooks/useGuardPortal';
+import { useVisibleRosters } from '@/hooks/useGuardPortal';
 import { useRosterRealtime } from '@/hooks/useRosterRealtime';
 import {
   HEBREW_DAYS,
@@ -19,24 +19,26 @@ import { SHIFTS, isWeekendDay } from '@/lib/shifts';
  * The published roster as a guard sees it: the whole team, so people can see
  * who they are on with, with their own shifts highlighted.
  *
- * Shows the CURRENT week rather than the submission week -- a guard opening
- * this mid-week wants to know who is on tonight, not what they asked for next
- * week. Past weeks are invisible to guards by RLS (manager-only archive).
+ * Which weeks appear is decided by RLS, not by this component guessing. A guard
+ * gets the current week and the next one; the previous week lingers until 07:00
+ * on Sunday so an in-progress night shift stays readable. A manager gets all of
+ * them and can page back through the archive here too.
  */
 export function RosterView() {
   const { profile } = useAuth();
-  const { data: weeks } = useRosterWeeks();
-  const { data: active } = useActiveWeek();
+  const { data, isLoading } = useVisibleRosters();
+  const { lastChangeAt } = useRosterRealtime(weekStartOf(todayInIsrael()));
 
+  const weeks = data?.weeks ?? [];
+  const guards = data?.guards ?? [];
   const currentStart = weekStartOf(todayInIsrael());
-  // Prefer the week in progress; fall back to whatever is open.
-  const weekStart =
-    weeks?.find((w) => w.week_start === currentStart)?.week_start ?? active.weekStart;
 
-  const { data, isLoading } = usePublishedRoster(weekStart);
-  // Pushes an edit to the screen instead of waiting for the guard to reopen
-  // the app -- the difference between the app holding the roster and being it.
-  const { lastChangeAt } = useRosterRealtime(weekStart);
+  const [selected, setSelected] = useState<string | null>(null);
+  useEffect(() => {
+    if (selected || weeks.length === 0) return;
+    // Open on the week in progress; fall back to the earliest available.
+    setSelected(weeks.find((w) => w.weekStart === currentStart)?.weekStart ?? weeks[0]!.weekStart);
+  }, [weeks, selected, currentStart]);
 
   if (isLoading) {
     return (
@@ -48,14 +50,9 @@ export function RosterView() {
     );
   }
 
-  const assignments = data?.assignments ?? [];
-  const guards = data?.guards ?? [];
-  const dates = weekDates(weekStart);
-  const nameOf = (id: string) => guards.find((g) => g.id === id)?.display_name ?? '—';
-
-  if (assignments.length === 0) {
+  if (weeks.length === 0) {
     return (
-      <AppShell title="סידור שבועי" subtitle={formatWeekRange(weekStart)}>
+      <AppShell title="סידור שבועי">
         <Card className="p-0">
           <EmptyState
             icon="🗓️"
@@ -67,8 +64,12 @@ export function RosterView() {
     );
   }
 
+  const week = weeks.find((w) => w.weekStart === selected) ?? weeks[0]!;
+  const dates = weekDates(week.weekStart);
+  const nameOf = (id: string) => guards.find((g) => g.id === id)?.display_name ?? '—';
+
   return (
-    <AppShell title="סידור שבועי" subtitle={formatWeekRange(weekStart)}>
+    <AppShell title="סידור שבועי" subtitle={formatWeekRange(week.weekStart)}>
       <div className="space-y-3">
         {lastChangeAt && (
           <Alert tone="info">
@@ -77,12 +78,32 @@ export function RosterView() {
           </Alert>
         )}
 
+        {weeks.length > 1 && (
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {weeks.map((w) => (
+              <button
+                key={w.runId}
+                type="button"
+                onClick={() => setSelected(w.weekStart)}
+                className={cn(
+                  'shrink-0 rounded-xl px-3 py-2 text-sm font-semibold transition-colors',
+                  w.weekStart === week.weekStart
+                    ? 'bg-brand-600 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                )}
+              >
+                {w.weekStart === currentStart ? 'השבוע' : formatWeekRange(w.weekStart)}
+              </button>
+            ))}
+          </div>
+        )}
+
         <Card className="py-3">
           <ShiftLegend />
         </Card>
 
         {dates.map((date, dayIdx) => {
-          const onDay = assignments
+          const onDay = week.assignments
             .filter((a) => a.target_date === date)
             .sort((a, b) => SHIFTS[a.shift].startH - SHIFTS[b.shift].startH);
           const isToday = date === todayInIsrael();
@@ -129,7 +150,9 @@ export function RosterView() {
                           <p
                             className={cn(
                               'truncate text-sm',
-                              mine ? 'font-extrabold text-brand-800' : 'font-semibold text-slate-800',
+                              mine
+                                ? 'font-extrabold text-brand-800'
+                                : 'font-semibold text-slate-800',
                             )}
                           >
                             {nameOf(a.guard_id)}

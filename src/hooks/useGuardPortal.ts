@@ -116,6 +116,69 @@ export function useSavePreferences() {
   });
 }
 
+export interface WeekRoster {
+  weekStart: DateKey;
+  runId: string;
+  assignments: ScheduleAssignment[];
+}
+
+/**
+ * Every published roster this user is allowed to see, oldest week first.
+ *
+ * Deliberately asks no question about weeks: RLS already answers it. A guard
+ * gets the current week and anything after it (plus the previous week until
+ * 07:00 on Sunday, so an in-progress night shift stays readable); a manager
+ * gets everything. In practice that is the current week and the next one.
+ *
+ * This exists because the guard home page used to ask "which week is open for
+ * SUBMISSIONS?" and then look for a roster on that week. Those are two
+ * different cycles -- submissions open on Saturday evening, the roster rolls
+ * over on Sunday -- and conflating them meant a published roster went unseen
+ * whenever no submission window happened to be open.
+ */
+export function useVisibleRosters() {
+  const { profile } = useAuth();
+
+  return useQuery({
+    queryKey: ['visibleRosters', profile?.id ?? ''],
+    enabled: Boolean(profile?.id),
+    queryFn: async (): Promise<{ weeks: WeekRoster[]; guards: Profile[] }> => {
+      const db = requireSupabase();
+
+      const { data: runs, error } = await db
+        .from('schedule_runs')
+        .select('id, week_start')
+        .eq('is_published', true)
+        .order('week_start', { ascending: true });
+      if (error) throw new Error(error.message);
+
+      const list = (runs ?? []) as { id: string; week_start: string }[];
+      if (!list.length) return { weeks: [], guards: [] };
+
+      const [assignRes, guardRes] = await Promise.all([
+        db
+          .from('schedule_assignments')
+          .select('*')
+          .in('run_id', list.map((r) => r.id))
+          .order('target_date', { ascending: true }),
+        db.from('profiles').select('*'),
+      ]);
+      if (assignRes.error) throw new Error(assignRes.error.message);
+      if (guardRes.error) throw new Error(guardRes.error.message);
+
+      const assignments = (assignRes.data as ScheduleAssignment[]) ?? [];
+      return {
+        weeks: list.map((r) => ({
+          weekStart: r.week_start,
+          runId: r.id,
+          assignments: assignments.filter((a) => a.run_id === r.id),
+        })),
+        guards: (guardRes.data as Profile[]) ?? [],
+      };
+    },
+  });
+}
+
 /**
  * The whole published roster for a week, plus the names to render it.
  *
