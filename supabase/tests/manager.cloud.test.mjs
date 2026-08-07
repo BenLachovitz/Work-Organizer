@@ -24,7 +24,8 @@ const MGR = '990301';
 const G1 = '990302';
 const G2 = '990303';
 const PIN = 'Mgr-12345';
-const WEEK = '2026-09-06'; // a Sunday
+const WEEK = '2026-09-06'; // a Sunday, well clear of the live weeks
+const PAST_WEEK = '2026-07-19'; // a Sunday whose canonical deadline has passed
 
 let passed = 0;
 const failures = [];
@@ -43,7 +44,7 @@ async function sql(query) {
 }
 
 const cleanup = () => sql(`
-  DELETE FROM roster_weeks WHERE week_start = '${WEEK}';
+  DELETE FROM roster_weeks WHERE week_start IN ('${WEEK}', '${PAST_WEEK}');
   DELETE FROM auth.users WHERE email LIKE '9903%@guards.local';
   DELETE FROM roster_codes WHERE employee_code LIKE '9903%';`);
 
@@ -300,12 +301,51 @@ async function run() {
     });
     error ? ok('a guard cannot call set_week_status') : bad('set_week_status', 'guard succeeded');
   }
+  {
+    // Locking again must DROP the reopen extension. Otherwise the week reads
+    // "23 hours left" while locked, and a later reopen silently inherits
+    // whatever remained of the old window.
+    //
+    // This needs a week whose CANONICAL deadline has genuinely passed, which
+    // WEEK's has not -- it is in the future. So the check runs against its own
+    // already-finished week.
+    await sql(`INSERT INTO roster_weeks (week_start, morning_target_slots, submission_deadline, status)
+               VALUES ('${PAST_WEEK}'::date, 2, NOW() + INTERVAL '12 hours', 'open')
+               ON CONFLICT (week_start) DO UPDATE
+                 SET submission_deadline = NOW() + INTERVAL '12 hours', status = 'open'`);
+
+    await mgr.rpc('set_week_status', { p_week_start: PAST_WEEK, p_status: 'locked' });
+    const rows = await sql(`SELECT status::text,
+                                   submission_deadline = deadline_for_week('${PAST_WEEK}') AS reset_to_canonical,
+                                   is_week_open('${PAST_WEEK}') AS can
+                              FROM roster_weeks WHERE week_start='${PAST_WEEK}'`);
+    rows[0].status === 'locked' && rows[0].reset_to_canonical === true && rows[0].can === false
+      ? ok('locking again resets the deadline to the canonical Wednesday')
+      : bad('lock reset', JSON.stringify(rows));
+  }
+  {
+    // ...but locking EARLY must not move the deadline forward, or an early
+    // lock would quietly become an extension.
+    await sql(`UPDATE roster_weeks
+                  SET status='open', submission_deadline = NOW() + INTERVAL '5 days',
+                      status_overridden_at = NULL
+                WHERE week_start='${WEEK}'`);
+    await mgr.rpc('set_week_status', { p_week_start: WEEK, p_status: 'locked' });
+    const rows = await sql(`SELECT submission_deadline > NOW() AS still_future
+                              FROM roster_weeks WHERE week_start='${WEEK}'`);
+    rows[0].still_future === true
+      ? ok('locking early leaves the deadline untouched')
+      : bad('early lock', JSON.stringify(rows));
+  }
 
   console.log('\n\x1b[1m6. Coverage / override maths against real rows\x1b[0m');
   {
     // Set this section's own state rather than inheriting whatever earlier
     // sections left behind -- a test that depends on another test's leftovers
     // breaks the moment one is added in between, which is exactly what happened.
+    // The section above deliberately leaves the week locked, so reopen it --
+    // a section must never inherit another's end state.
+    await mgr.rpc('set_week_status', { p_week_start: WEEK, p_status: 'open', p_extend_hours: 48 });
     await g1.rpc('save_week_preferences', {
       p_week_start: WEEK,
       p_slots: [

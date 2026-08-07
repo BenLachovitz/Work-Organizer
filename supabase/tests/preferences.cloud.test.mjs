@@ -26,8 +26,17 @@ const REF = env.VITE_SUPABASE_URL.match(/https:\/\/([a-z0-9]+)\./)[1];
 const CODE = '990201';
 const CODE2 = '990202';
 const PIN = 'Pref-1234';
-const OPEN_WEEK = '2026-08-16';
-const LOCKED_WEEK = '2026-08-09';
+// Weeks this suite OWNS, so no assertion depends on today's date.
+const OPEN_WEEK = '2026-10-18';
+const LOCKED_WEEK = '2026-10-25';
+
+/** week_start + n days, as YYYY-MM-DD. */
+const addDays = (iso, n) => {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
 
 let passed = 0;
 const failures = [];
@@ -47,11 +56,17 @@ async function sql(query) {
 
 const cleanup = () => sql(`
   DELETE FROM auth.users WHERE email LIKE '9902%@guards.local';
-  DELETE FROM roster_codes WHERE employee_code LIKE '9902%';`);
+  DELETE FROM roster_codes WHERE employee_code LIKE '9902%';
+  DELETE FROM roster_weeks WHERE week_start IN ('${OPEN_WEEK}', '${LOCKED_WEEK}');`);
 
 async function setup() {
   await cleanup();
   await sql(`
+    INSERT INTO roster_weeks (week_start, morning_target_slots, submission_deadline, status) VALUES
+      ('${OPEN_WEEK}'::date,   2, NOW() + INTERVAL '30 days', 'open'),
+      ('${LOCKED_WEEK}'::date, 2, NOW() - INTERVAL '2 days',  'locked')
+    ON CONFLICT (week_start) DO NOTHING;
+
     INSERT INTO roster_codes (employee_code, display_name, initial_role) VALUES
       ('${CODE}',  'בדיקת-העדפות', 'guard'),
       ('${CODE2}', 'בדיקת-שכן',    'guard');
@@ -115,9 +130,9 @@ async function run() {
   console.log('\x1b[1m1. Save and reload\x1b[0m');
   {
     const { error } = await savePrefs(guard, OPEN_WEEK, [
-      { date: '2026-08-16', shift: 'morning', allows12h: true },
-      { date: '2026-08-17', shift: 'night', allows12h: false },
-      { date: '2026-08-19', shift: 'afternoon', allows12h: false },
+      { date: addDays(OPEN_WEEK, 0), shift: 'morning', allows12h: true },
+      { date: addDays(OPEN_WEEK, 1), shift: 'night', allows12h: false },
+      { date: addDays(OPEN_WEEK, 3), shift: 'afternoon', allows12h: false },
     ]);
     error ? bad('save 3 slots', error.message) : ok('save 3 slots succeeds');
   }
@@ -140,7 +155,7 @@ async function run() {
   {
     // An afternoon shift cannot extend; the flag must be dropped, not stored.
     await savePrefs(guard, OPEN_WEEK, [
-      { date: '2026-08-16', shift: 'afternoon', allows12h: true },
+      { date: addDays(OPEN_WEEK, 0), shift: 'afternoon', allows12h: true },
     ]);
     const rows = await readPrefs(guard, OPEN_WEEK);
     rows.length === 1 && rows[0].allows_12h === false
@@ -151,10 +166,10 @@ async function run() {
   console.log('\n\x1b[1m2. Re-saving replaces rather than appends\x1b[0m');
   {
     await savePrefs(guard, OPEN_WEEK, [
-      { date: '2026-08-20', shift: 'morning', allows12h: false },
+      { date: addDays(OPEN_WEEK, 4), shift: 'morning', allows12h: false },
     ]);
     const rows = await readPrefs(guard, OPEN_WEEK);
-    rows.length === 1 && rows[0].target_date === '2026-08-20'
+    rows.length === 1 && rows[0].target_date === addDays(OPEN_WEEK, 4)
       ? ok('second save replaces the previous set (1 row, not 4)')
       : bad('replace semantics', JSON.stringify(rows));
   }
@@ -172,13 +187,13 @@ async function run() {
     // AFTER the DELETE has already run inside the transaction. If the function
     // were not atomic, the guard's week would now be empty.
     const { error } = await savePrefs(guard, OPEN_WEEK, [
-      { date: '2026-08-21', shift: 'morning', allows12h: false },
+      { date: addDays(OPEN_WEEK, 5), shift: 'morning', allows12h: false },
       { date: '2026-12-25', shift: 'night', allows12h: false }, // outside the week
     ]);
     if (!error) bad('atomicity', 'invalid slot was accepted');
     else {
       const rows = await readPrefs(guard, OPEN_WEEK);
-      rows.length === 1 && rows[0].target_date === '2026-08-20'
+      rows.length === 1 && rows[0].target_date === addDays(OPEN_WEEK, 4)
         ? ok('failed save rolled back; previous week intact (not wiped)')
         : bad('atomicity', `week left as ${JSON.stringify(rows)}`);
     }
@@ -200,7 +215,7 @@ async function run() {
 
   console.log('\n\x1b[1m5. Deadline enforcement\x1b[0m');
   {
-    const { error } = await savePrefs(guard, LOCKED_WEEK, [{ date: '2026-08-10', shift: 'morning', allows12h: false }]);
+    const { error } = await savePrefs(guard, LOCKED_WEEK, [{ date: addDays(LOCKED_WEEK, 1), shift: 'morning', allows12h: false }]);
     error && (error.code === '42501' || /closed/i.test(error.message))
       ? ok('save to a locked week rejected with a clean error')
       : bad('locked week', error ? `${error.code}: ${error.message}` : 'save succeeded');
@@ -213,7 +228,7 @@ async function run() {
   console.log('\n\x1b[1m6. Isolation between guards\x1b[0m');
   {
     const neighbour = await signedIn(CODE2);
-    await savePrefs(neighbour, OPEN_WEEK, [{ date: '2026-08-18', shift: 'night', allows12h: false }]);
+    await savePrefs(neighbour, OPEN_WEEK, [{ date: addDays(OPEN_WEEK, 2), shift: 'night', allows12h: false }]);
     const mine = await readPrefs(guard, OPEN_WEEK);
     const theirs = await readPrefs(neighbour, OPEN_WEEK);
     mine.length === 0 && theirs.length === 1

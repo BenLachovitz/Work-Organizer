@@ -33,10 +33,20 @@ const MANAGER = { code: '900001', name: 'בדיקה-מנהל', role: 'manager', 
 const GUARD_A = { code: '900002', name: 'בדיקה-א', role: 'guard', pin: 'Test-1234' };
 const GUARD_B = { code: '900003', name: 'בדיקה-ב', role: 'guard', pin: 'Test-1234' };
 
-const OPEN_WEEK = '2026-08-16';
-const LOCKED_WEEK = '2026-08-09';
-// Strictly before current_week_start(), so it exercises the archive cut.
-const PAST_WEEK = '2026-07-26';
+// Weeks this suite OWNS. Nothing here borrows whichever weeks the lifecycle
+// happens to have produced: a test whose meaning depends on today's date
+// reports a broken app on a date when nothing is actually broken.
+const OPEN_WEEK = '2026-10-04';   // created open, deadline far in the future
+const LOCKED_WEEK = '2026-10-11'; // created locked, deadline already past
+const PAST_WEEK = '2026-07-26';   // before current_week_start(): the archive cut
+
+/** week_start + n days, as YYYY-MM-DD. */
+const addDays = (iso, n) => {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
 
 let passed = 0;
 const failures = [];
@@ -125,6 +135,14 @@ async function setup() {
   await sql(`
     DELETE FROM auth.users WHERE email LIKE '9000%@guards.local';
 
+    -- Weeks owned by this suite, deadlines set explicitly rather than derived,
+    -- so every assertion holds on any calendar date.
+    INSERT INTO roster_weeks (week_start, morning_target_slots, submission_deadline, status) VALUES
+      ('${OPEN_WEEK}'::date,   2, NOW() + INTERVAL '30 days', 'open'),
+      ('${LOCKED_WEEK}'::date, 2, NOW() - INTERVAL '2 days',  'locked'),
+      ('${PAST_WEEK}'::date,   2, NOW() - INTERVAL '60 days', 'published')
+    ON CONFLICT (week_start) DO NOTHING;
+
     INSERT INTO auth.users (
       instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
       raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
@@ -153,13 +171,13 @@ async function setup() {
     -- Casts are required: across UNION branches Postgres infers text for bare
     -- literals and will not implicitly coerce them to date / base_shift.
     INSERT INTO weekly_wish_preferences (guard_id, week_start, target_date, shift)
-    SELECT id, '${OPEN_WEEK}'::date, '2026-08-16'::date, 'morning'::base_shift
+    SELECT id, '${OPEN_WEEK}'::date, '${OPEN_WEEK}'::date, 'morning'::base_shift
       FROM profiles WHERE employee_code = '900002'
     UNION ALL
-    SELECT id, '${OPEN_WEEK}'::date, '2026-08-17'::date, 'night'::base_shift
+    SELECT id, '${OPEN_WEEK}'::date, ('${OPEN_WEEK}'::date + 1), 'night'::base_shift
       FROM profiles WHERE employee_code = '900002'
     UNION ALL
-    SELECT id, '${OPEN_WEEK}'::date, '2026-08-16'::date, 'afternoon'::base_shift
+    SELECT id, '${OPEN_WEEK}'::date, '${OPEN_WEEK}'::date, 'afternoon'::base_shift
       FROM profiles WHERE employee_code = '900003';
 
     INSERT INTO weekly_guard_targets (week_start, guard_id, configured_kamut)
@@ -167,24 +185,19 @@ async function setup() {
     UNION ALL
     SELECT '${OPEN_WEEK}'::date, id, 4 FROM profiles WHERE employee_code = '900003';
 
-    -- A finished week, for the manager-only archive check.
-    INSERT INTO roster_weeks (week_start, morning_target_slots, submission_deadline, status)
-    VALUES ('${PAST_WEEK}'::date, 2, deadline_for_week('${PAST_WEEK}'::date), 'published')
-    ON CONFLICT (week_start) DO NOTHING;
-
     INSERT INTO schedule_runs (id, week_start, version, solver_status, is_published) VALUES
       ('cccccccc-0000-0000-0000-000000000001', '${OPEN_WEEK}'::date,   99, 'TEST', FALSE),
       ('cccccccc-0000-0000-0000-000000000002', '${LOCKED_WEEK}'::date, 99, 'TEST', TRUE),
       ('cccccccc-0000-0000-0000-000000000003', '${PAST_WEEK}'::date,   99, 'TEST', TRUE);
 
     INSERT INTO schedule_assignments (run_id, target_date, shift, guard_id)
-    SELECT 'cccccccc-0000-0000-0000-000000000001'::uuid, '2026-08-16'::date,
+    SELECT 'cccccccc-0000-0000-0000-000000000001'::uuid, '${OPEN_WEEK}'::date,
            'morning'::shift_type, id
       FROM profiles WHERE employee_code = '900002'
     UNION ALL
     -- The guard's OWN shift in a finished week. The archive cut is absolute,
     -- so they must not see even this.
-    SELECT 'cccccccc-0000-0000-0000-000000000003'::uuid, '2026-07-27'::date,
+    SELECT 'cccccccc-0000-0000-0000-000000000003'::uuid, ('${PAST_WEEK}'::date + 1),
            'morning'::shift_type, id
       FROM profiles WHERE employee_code = '900002';
   `);
@@ -195,7 +208,7 @@ async function teardown() {
     DELETE FROM schedule_runs WHERE version = 99;
     DELETE FROM auth.users WHERE email LIKE '9000%@guards.local';
     -- Only the throwaway archive week; leaves the real lifecycle weeks alone.
-    DELETE FROM roster_weeks WHERE week_start = '${PAST_WEEK}';
+    DELETE FROM roster_weeks WHERE week_start IN ('${OPEN_WEEK}', '${LOCKED_WEEK}', '${PAST_WEEK}');
   `);
 }
 
@@ -224,7 +237,7 @@ async function run() {
     method: 'POST',
     body: JSON.stringify({
       guard_id: idOf('900003'), week_start: OPEN_WEEK,
-      target_date: '2026-08-18', shift: 'morning',
+      target_date: addDays(OPEN_WEEK, 2), shift: 'morning',
     }),
   });
 
@@ -233,14 +246,14 @@ async function run() {
     method: 'POST',
     body: JSON.stringify({
       guard_id: idOf('900002'), week_start: OPEN_WEEK,
-      target_date: '2026-08-19', shift: 'afternoon',
+      target_date: addDays(OPEN_WEEK, 3), shift: 'afternoon',
     }),
   });
   await expectDenied('guard CANNOT submit for the locked week', a, 'weekly_wish_preferences', {
     method: 'POST',
     body: JSON.stringify({
       guard_id: idOf('900002'), week_start: LOCKED_WEEK,
-      target_date: '2026-08-10', shift: 'morning',
+      target_date: addDays(LOCKED_WEEK, 1), shift: 'morning',
     }),
   });
   await expectDenied('guard cannot move the deadline to reopen a week', a,
@@ -276,7 +289,7 @@ async function run() {
     `weekly_guard_targets?select=id&week_start=eq.${OPEN_WEEK}&guard_id=eq.${idOf('900003')}`, 0);
   await expectDenied('guard cannot create a roster week', a, 'roster_weeks', {
     method: 'POST',
-    body: JSON.stringify({ week_start: '2026-09-06', submission_deadline: '2026-09-03T17:00:00Z' }),
+    body: JSON.stringify({ week_start: '2026-11-15', submission_deadline: '2026-11-11T17:00:00Z' }),
   });
 
   console.log('\n\x1b[1m5. Badge codes sealed\x1b[0m');

@@ -25,8 +25,18 @@ const MANAGER = '11111111-1111-1111-1111-111111111111'; // בן   - manager + ac
 const GUARD_A = '22222222-2222-2222-2222-222222222222'; // יובל - plain guard
 const GUARD_B = '33333333-3333-3333-3333-333333333333'; // לוק  - plain guard
 
-const OPEN_WEEK = '2026-08-16'; // deadline in the future -> writable
-const LOCKED_WEEK = '2026-08-09'; // status 'locked'       -> read-only
+// Weeks this suite OWNS. The seed no longer creates fixed weeks -- it calls
+// ensure_roster_weeks(), whose output depends on today's date -- so borrowing
+// one would make this suite fail on a future date rather than on a regression.
+const OPEN_WEEK = '2026-11-01';   // created open, deadline far in the future
+const LOCKED_WEEK = '2026-11-08'; // created locked, deadline already past
+
+/** week_start + n days, as YYYY-MM-DD. Keeps fixtures inside their own week. */
+const addDays = (iso, n) => {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
 
 let db;
 let passed = 0;
@@ -170,15 +180,22 @@ async function setup() {
       ('${GUARD_A}', '100001', 'יובל', 'guard',   TRUE),
       ('${GUARD_B}', '100002', 'לוק',  'guard',   TRUE);
 
+    -- Weeks owned by this suite, with explicit deadlines so the assertions
+    -- hold on any calendar date.
+    INSERT INTO roster_weeks (week_start, morning_target_slots, submission_deadline, status) VALUES
+      ('${OPEN_WEEK}',   2, NOW() + INTERVAL '30 days', 'open'),
+      ('${LOCKED_WEEK}', 2, NOW() - INTERVAL '2 days',  'locked')
+    ON CONFLICT (week_start) DO NOTHING;
+
     -- Both guards submitted for the open week.
     INSERT INTO weekly_submissions (guard_id, week_start) VALUES
       ('${GUARD_A}', '${OPEN_WEEK}'),
       ('${GUARD_B}', '${OPEN_WEEK}');
 
     INSERT INTO weekly_wish_preferences (guard_id, week_start, target_date, shift) VALUES
-      ('${GUARD_A}', '${OPEN_WEEK}', '2026-08-16', 'morning'),
-      ('${GUARD_A}', '${OPEN_WEEK}', '2026-08-17', 'night'),
-      ('${GUARD_B}', '${OPEN_WEEK}', '2026-08-16', 'afternoon');
+      ('${GUARD_A}', '${OPEN_WEEK}', '${OPEN_WEEK}'::date + 0, 'morning'),
+      ('${GUARD_A}', '${OPEN_WEEK}', '${OPEN_WEEK}'::date + 1, 'night'),
+      ('${GUARD_B}', '${OPEN_WEEK}', '${OPEN_WEEK}'::date + 0, 'afternoon');
 
     INSERT INTO weekly_guard_targets (week_start, guard_id, configured_kamut) VALUES
       ('${OPEN_WEEK}', '${GUARD_A}', 3),
@@ -190,8 +207,8 @@ async function setup() {
       ('aaaaaaaa-0000-0000-0000-000000000002', '${LOCKED_WEEK}', 1, 'OPTIMAL', TRUE);
 
     INSERT INTO schedule_assignments (run_id, target_date, shift, guard_id) VALUES
-      ('aaaaaaaa-0000-0000-0000-000000000001', '2026-08-16', 'morning', '${GUARD_A}'),
-      ('aaaaaaaa-0000-0000-0000-000000000002', '2026-08-09', 'morning', '${GUARD_A}');
+      ('aaaaaaaa-0000-0000-0000-000000000001', '${OPEN_WEEK}'::date + 0, 'morning', '${GUARD_A}'),
+      ('aaaaaaaa-0000-0000-0000-000000000002', '${LOCKED_WEEK}'::date + 0, 'morning', '${GUARD_A}');
   `);
 }
 
@@ -235,8 +252,8 @@ async function run() {
     "guard cannot INSERT a preference under another guard's id",
     GUARD_A,
     `INSERT INTO weekly_wish_preferences (guard_id, week_start, target_date, shift)
-     VALUES ($1, $2, '2026-08-18', 'morning')`,
-    [GUARD_B, OPEN_WEEK],
+     VALUES ($1, $2, $3, 'morning')`,
+    [GUARD_B, OPEN_WEEK, addDays(OPEN_WEEK, 2)],
     /row-level security/i,
   );
 
@@ -245,23 +262,23 @@ async function run() {
     'guard CAN submit while the week is open',
     GUARD_A,
     `INSERT INTO weekly_wish_preferences (guard_id, week_start, target_date, shift)
-     VALUES ($1, $2, '2026-08-18', 'afternoon')`,
-    [GUARD_A, OPEN_WEEK],
+     VALUES ($1, $2, $3, 'afternoon')`,
+    [GUARD_A, OPEN_WEEK, addDays(OPEN_WEEK, 2)],
   );
   await expectError(
     'guard CANNOT submit for a locked week',
     GUARD_A,
     `INSERT INTO weekly_wish_preferences (guard_id, week_start, target_date, shift)
-     VALUES ($1, $2, '2026-08-10', 'morning')`,
-    [GUARD_A, LOCKED_WEEK],
+     VALUES ($1, $2, $3, 'morning')`,
+    [GUARD_A, LOCKED_WEEK, addDays(LOCKED_WEEK, 1)],
     /row-level security/i,
   );
   await expectOk(
     'MANAGER can still edit a locked week',
     MANAGER,
     `INSERT INTO weekly_wish_preferences (guard_id, week_start, target_date, shift)
-     VALUES ($1, $2, '2026-08-10', 'morning')`,
-    [GUARD_A, LOCKED_WEEK],
+     VALUES ($1, $2, $3, 'morning')`,
+    [GUARD_A, LOCKED_WEEK, addDays(LOCKED_WEEK, 1)],
   );
   await expectNoRowsAffected(
     'guard cannot move the deadline to reopen a week',
@@ -317,7 +334,7 @@ async function run() {
     'guard cannot create a roster week',
     GUARD_A,
     `INSERT INTO roster_weeks (week_start, submission_deadline)
-     VALUES ('2026-08-30', NOW() + INTERVAL '5 days')`,
+     VALUES ('2026-11-22', NOW() + INTERVAL '5 days')`,
     [],
     /row-level security/i,
   );
@@ -325,7 +342,7 @@ async function run() {
     'MANAGER can create a roster week',
     MANAGER,
     `INSERT INTO roster_weeks (week_start, submission_deadline)
-     VALUES ('2026-08-30', NOW() + INTERVAL '5 days')`,
+     VALUES ('2026-11-22', NOW() + INTERVAL '5 days')`,
   );
   await expectNoRowsAffected(
     'guard cannot raise their own כמות',
@@ -338,7 +355,7 @@ async function run() {
     GUARD_A,
     `INSERT INTO weekly_guard_targets (week_start, guard_id, configured_kamut)
      VALUES ($1, $2, 5)`,
-    ['2026-08-23', GUARD_A],
+    [OPEN_WEEK, GUARD_A],
     /row-level security/i,
   );
   await expectCount(
@@ -405,8 +422,8 @@ async function run() {
     'guard cannot assign themselves a shift',
     GUARD_A,
     `INSERT INTO schedule_assignments (run_id, target_date, shift, guard_id)
-     VALUES ('aaaaaaaa-0000-0000-0000-000000000002', '2026-08-11', 'morning', $1)`,
-    [GUARD_A],
+     VALUES ('aaaaaaaa-0000-0000-0000-000000000002', $2, 'morning', $1)`,
+    [GUARD_A, addDays(LOCKED_WEEK, 2)],
     /row-level security/i,
   );
   // Note: this is silently filtered rather than rejected. No policy grants a
@@ -449,16 +466,16 @@ async function run() {
     'a preference cannot escape its own week',
     MANAGER,
     `INSERT INTO weekly_wish_preferences (guard_id, week_start, target_date, shift)
-     VALUES ($1, $2, '2026-09-30', 'morning')`,
-    [GUARD_A, OPEN_WEEK],
+     VALUES ($1, $2, $3, 'morning')`,
+    [GUARD_A, OPEN_WEEK, '2026-12-25'],
     /date_within_week/i,
   );
   await expectError(
     'a guard cannot be double-booked on one day (manual override guard-rail)',
     MANAGER,
     `INSERT INTO schedule_assignments (run_id, target_date, shift, guard_id)
-     VALUES ('aaaaaaaa-0000-0000-0000-000000000001', '2026-08-16', 'night', $1)`,
-    [GUARD_A],
+     VALUES ('aaaaaaaa-0000-0000-0000-000000000001', $2, 'night', $1)`,
+    [GUARD_A, addDays(OPEN_WEEK, 0)],
     /one_shift_per_guard_per_day/i,
   );
   // Must use a fresh version number: reusing version 1 would trip the
@@ -482,7 +499,7 @@ async function run() {
     'a roster week must start on a Sunday',
     MANAGER,
     `INSERT INTO roster_weeks (week_start, submission_deadline)
-     VALUES ('2026-08-19', NOW() + INTERVAL '5 days')`,
+     VALUES ('2026-11-16', NOW() + INTERVAL '5 days')`,
     [],
     /roster_weeks_week_start_check|check constraint/i,
   );
