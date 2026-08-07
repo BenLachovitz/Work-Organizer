@@ -35,6 +35,8 @@ const GUARD_B = { code: '900003', name: 'בדיקה-ב', role: 'guard', pin: 'Te
 
 const OPEN_WEEK = '2026-08-16';
 const LOCKED_WEEK = '2026-08-09';
+// Strictly before current_week_start(), so it exercises the archive cut.
+const PAST_WEEK = '2026-07-26';
 
 let passed = 0;
 const failures = [];
@@ -165,12 +167,24 @@ async function setup() {
     UNION ALL
     SELECT '${OPEN_WEEK}'::date, id, 4 FROM profiles WHERE employee_code = '900003';
 
+    -- A finished week, for the manager-only archive check.
+    INSERT INTO roster_weeks (week_start, morning_target_slots, submission_deadline, status)
+    VALUES ('${PAST_WEEK}'::date, 2, deadline_for_week('${PAST_WEEK}'::date), 'published')
+    ON CONFLICT (week_start) DO NOTHING;
+
     INSERT INTO schedule_runs (id, week_start, version, solver_status, is_published) VALUES
       ('cccccccc-0000-0000-0000-000000000001', '${OPEN_WEEK}'::date,   99, 'TEST', FALSE),
-      ('cccccccc-0000-0000-0000-000000000002', '${LOCKED_WEEK}'::date, 99, 'TEST', TRUE);
+      ('cccccccc-0000-0000-0000-000000000002', '${LOCKED_WEEK}'::date, 99, 'TEST', TRUE),
+      ('cccccccc-0000-0000-0000-000000000003', '${PAST_WEEK}'::date,   99, 'TEST', TRUE);
 
     INSERT INTO schedule_assignments (run_id, target_date, shift, guard_id)
     SELECT 'cccccccc-0000-0000-0000-000000000001'::uuid, '2026-08-16'::date,
+           'morning'::shift_type, id
+      FROM profiles WHERE employee_code = '900002'
+    UNION ALL
+    -- The guard's OWN shift in a finished week. The archive cut is absolute,
+    -- so they must not see even this.
+    SELECT 'cccccccc-0000-0000-0000-000000000003'::uuid, '2026-07-27'::date,
            'morning'::shift_type, id
       FROM profiles WHERE employee_code = '900002';
   `);
@@ -180,6 +194,8 @@ async function teardown() {
   await sql(`
     DELETE FROM schedule_runs WHERE version = 99;
     DELETE FROM auth.users WHERE email LIKE '9000%@guards.local';
+    -- Only the throwaway archive week; leaves the real lifecycle weeks alone.
+    DELETE FROM roster_weeks WHERE week_start = '${PAST_WEEK}';
   `);
 }
 
@@ -272,7 +288,12 @@ async function run() {
 
   console.log('\n\x1b[1m6. Draft rosters do not leak\x1b[0m');
   await expectRows('guard sees only the published run', a, 'schedule_runs?select=id&version=eq.99', 1);
-  await expectRows('manager sees draft + published', mgr, 'schedule_runs?select=id&version=eq.99', 2);
+  await expectRows(
+    'manager sees draft + published + archived',
+    mgr,
+    'schedule_runs?select=id&version=eq.99',
+    3,
+  );
   await expectRows('guard sees no assignment from a draft run', a,
     'schedule_assignments?select=id&run_id=eq.cccccccc-0000-0000-0000-000000000001', 0);
   await expectDenied('guard cannot assign themselves a shift', a, 'schedule_assignments', {
@@ -295,6 +316,40 @@ async function run() {
     if (res.status === 401 || res.status === 403 || empty) ok(`anon blocked on ${t}`);
     else bad(`anon blocked on ${t}`, `HTTP ${res.status}: ${JSON.stringify(body).slice(0, 120)}`);
   }
+
+  console.log('\n\x1b[1m8. Manager-only archive (past weeks)\x1b[0m');
+  await expectRows(
+    'guard cannot see a published roster from a finished week',
+    a,
+    `schedule_runs?select=id&week_start=eq.${PAST_WEEK}`,
+    0,
+  );
+  // The cut is absolute by decision: a guard sees nothing from a past week,
+  // not even a shift they personally worked.
+  await expectRows(
+    'guard cannot see even their OWN shift in a finished week',
+    a,
+    'schedule_assignments?select=id&run_id=eq.cccccccc-0000-0000-0000-000000000003',
+    0,
+  );
+  await expectRows(
+    'MANAGER can read the archived roster',
+    mgr,
+    `schedule_runs?select=id&week_start=eq.${PAST_WEEK}`,
+    1,
+  );
+  await expectRows(
+    'MANAGER can read archived assignments',
+    mgr,
+    'schedule_assignments?select=id&run_id=eq.cccccccc-0000-0000-0000-000000000003',
+    1,
+  );
+  await expectRows(
+    'guard still sees the current/future published roster',
+    a,
+    `schedule_runs?select=id&week_start=eq.${LOCKED_WEEK}&version=eq.99`,
+    1,
+  );
 
   await teardown();
 

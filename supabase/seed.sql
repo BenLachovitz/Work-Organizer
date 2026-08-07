@@ -35,30 +35,18 @@ ON CONFLICT (employee_code) DO NOTHING;
 
 
 -- ----------------------------------------------------------------------------
--- Schedulable weeks (spec 12)
+-- Schedulable weeks
 --
--- Submissions for a roster week run during the PRECEDING week and close on that
--- Wednesday at 19:00 Asia/Jerusalem. So the deadline for a week starting Sunday
--- is always (week_start - 4 days) at 19:00 local.
+-- Weeks are NOT seeded by hand any more. ensure_roster_weeks() (migration 10)
+-- owns the lifecycle: it creates the current week and walks forward until one
+-- week is open for submissions, deriving every deadline from the Wednesday
+-- 19:00 Asia/Jerusalem rule.
 --
--- Written as `TIMESTAMPTZ '... Asia/Jerusalem'` rather than a fixed +03 offset
--- so the value stays correct across the IDT/IST daylight-saving boundary.
+-- Hand-seeded weeks were scaffolding for the test suites (a locked one, an open
+-- one, and one at morning target 3). Those paths are covered by the suites now,
+-- which build their own throwaway weeks rather than relying on fixtures that
+-- silently go stale as real dates pass.
+--
+-- Idempotent, so this is safe on every db:apply.
 -- ----------------------------------------------------------------------------
-
--- The spec's original target week. Its Wednesday deadline (2026-08-05 19:00)
--- has already passed, so it is seeded as `locked`. Useful precisely because it
--- exercises the closed-week path: is_week_open() must return FALSE for it.
-INSERT INTO roster_weeks (week_start, morning_target_slots, submission_deadline, status) VALUES
-  ('2026-08-09', 2, TIMESTAMPTZ '2026-08-05 19:00:00 Asia/Jerusalem', 'locked')
-ON CONFLICT (week_start) DO NOTHING;
-
--- The live week guards can actually submit for right now.
-INSERT INTO roster_weeks (week_start, morning_target_slots, submission_deadline, status) VALUES
-  ('2026-08-16', 2, TIMESTAMPTZ '2026-08-12 19:00:00 Asia/Jerusalem', 'open')
-ON CONFLICT (week_start) DO NOTHING;
-
--- A third week with the morning target raised to 3, so the 2-vs-3 capacity
--- rule and its floor of 2 can be exercised without editing data by hand.
-INSERT INTO roster_weeks (week_start, morning_target_slots, submission_deadline, status) VALUES
-  ('2026-08-23', 3, TIMESTAMPTZ '2026-08-19 19:00:00 Asia/Jerusalem', 'open')
-ON CONFLICT (week_start) DO NOTHING;
+SELECT public.ensure_roster_weeks();

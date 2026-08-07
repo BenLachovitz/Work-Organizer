@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { requireSupabase } from '@/lib/supabase';
 import type { RosterWeek } from '@/types/database';
-import { currentSubmissionWeek, type DateKey } from '@/lib/dates';
+import { currentSubmissionWeek, todayInIsrael, weekStartOf, type DateKey } from '@/lib/dates';
 
 export const weekKeys = {
   all: ['roster_weeks'] as const,
@@ -11,12 +11,24 @@ export const weekKeys = {
  * All schedulable weeks. The database is the authority on which weeks exist --
  * the client-side date maths in dates.ts is only a fallback for when no week
  * has been created yet.
+ *
+ * ensure_roster_weeks() runs first. It is idempotent and creates the current
+ * week plus however many forward weeks are needed for one to be open for
+ * submissions, so weeks roll over on their own rather than needing a cron job
+ * or a manager remembering to add one.
  */
 export function useRosterWeeks() {
   return useQuery({
     queryKey: weekKeys.all,
     queryFn: async (): Promise<RosterWeek[]> => {
-      const { data, error } = await requireSupabase()
+      const db = requireSupabase();
+
+      // A failure here must not blank the dashboard: the weeks that already
+      // exist are still perfectly usable.
+      const { error: ensureErr } = await db.rpc('ensure_roster_weeks');
+      if (ensureErr) console.warn('ensure_roster_weeks failed:', ensureErr.message);
+
+      const { data, error } = await db
         .from('roster_weeks')
         .select('*')
         .order('week_start', { ascending: true });
@@ -24,6 +36,26 @@ export function useRosterWeeks() {
       return data ?? [];
     },
   });
+}
+
+/**
+ * Live weeks versus the archive.
+ *
+ * Live = the current week and anything after it: the roster in progress plus
+ * whatever is open for submissions. Archive = finished weeks, which RLS makes
+ * manager-only, so a guard calling this simply gets an empty archive.
+ */
+export function useSplitWeeks() {
+  const query = useRosterWeeks();
+  const currentStart = weekStartOf(todayInIsrael());
+  const weeks = query.data ?? [];
+
+  return {
+    ...query,
+    live: weeks.filter((w) => w.week_start >= currentStart),
+    archive: weeks.filter((w) => w.week_start < currentStart).reverse(), // newest first
+    currentStart,
+  };
 }
 
 export interface ActiveWeek {

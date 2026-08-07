@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Badge, Button, Card, cn } from '@/components/ui';
 import { formatDeadline, formatWeekRange, timeUntil } from '@/lib/dates';
 import { segmentFloors, type MorningTarget } from '@/lib/shifts';
@@ -5,6 +6,7 @@ import type { RosterWeek } from '@/types/database';
 
 export function WeekControlsPanel({
   weeks,
+  archive,
   selected,
   onSelect,
   week,
@@ -12,7 +14,10 @@ export function WeekControlsPanel({
   onSetStatus,
   saving,
 }: {
+  /** Live weeks: the current one and anything after it. */
   weeks: RosterWeek[];
+  /** Finished weeks. RLS makes these manager-only. */
+  archive: RosterWeek[];
   selected: string;
   onSelect: (weekStart: string) => void;
   week: RosterWeek | null;
@@ -20,6 +25,7 @@ export function WeekControlsPanel({
   onSetStatus: (s: RosterWeek['status']) => void;
   saving: boolean;
 }) {
+  const [showArchive, setShowArchive] = useState(false);
   const deadline = week ? new Date(week.submission_deadline) : null;
   const left = deadline ? timeUntil(deadline) : null;
   const target = (week?.morning_target_slots ?? 2) as MorningTarget;
@@ -31,9 +37,23 @@ export function WeekControlsPanel({
     <Card className="space-y-4">
       {/* ---------------- week picker ---------------- */}
       <div>
-        <p className="mb-2 text-sm font-bold text-slate-700">שבוע</p>
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-sm font-bold text-slate-700">
+            {showArchive ? 'ארכיון' : 'שבועות פעילים'}
+          </p>
+          {archive.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowArchive((v) => !v)}
+              className="text-xs font-semibold text-brand-600 hover:text-brand-700"
+            >
+              {showArchive ? '← חזרה לשבועות הפעילים' : `ארכיון (${archive.length}) →`}
+            </button>
+          )}
+        </div>
+
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {weeks.map((w) => (
+          {(showArchive ? archive : weeks).map((w) => (
             <button
               key={w.week_start}
               type="button"
@@ -48,7 +68,16 @@ export function WeekControlsPanel({
               {formatWeekRange(w.week_start)}
             </button>
           ))}
+          {showArchive && archive.length === 0 && (
+            <p className="py-2 text-sm text-slate-400">אין עדיין שבועות שהסתיימו</p>
+          )}
         </div>
+
+        {showArchive && (
+          <p className="mt-1.5 text-xs text-slate-500">
+            שבועות שהסתיימו גלויים לך בלבד. מאבטחים אינם רואים אותם כלל.
+          </p>
+        )}
       </div>
 
       {week && (

@@ -4,7 +4,7 @@ import { CoverageMatrix } from '@/components/manager/CoverageMatrix';
 import { TeamTable } from '@/components/manager/TeamTable';
 import { WeekControlsPanel } from '@/components/manager/WeekControlsPanel';
 import { Alert, Button, Card, Spinner } from '@/components/ui';
-import { useRosterWeeks } from '@/hooks/useWeeks';
+import { useSplitWeeks } from '@/hooks/useWeeks';
 import {
   buildCoverage,
   buildGuardRows,
@@ -17,19 +17,19 @@ import { formatWeekRange, weekDates } from '@/lib/dates';
 import type { MorningTarget } from '@/lib/shifts';
 
 export function ManagerDashboard() {
-  const { data: weeks, isLoading: weeksLoading } = useRosterWeeks();
+  const { data: weeks, live, archive, isLoading: weeksLoading } = useSplitWeeks();
   const [selected, setSelected] = useState<string>('');
 
   // Default to the first week still accepting submissions -- that is the one a
   // manager is almost always here to work on.
   useEffect(() => {
-    if (selected || !weeks?.length) return;
+    if (selected || !live.length) return;
     const now = Date.now();
-    const open = weeks.find(
+    const open = live.find(
       (w) => w.status === 'open' && new Date(w.submission_deadline).getTime() > now,
     );
-    setSelected(open?.week_start ?? weeks[weeks.length - 1]!.week_start);
-  }, [weeks, selected]);
+    setSelected(open?.week_start ?? live[0]!.week_start);
+  }, [live, selected]);
 
   const { data, isLoading, error } = useManagerWeek(selected);
   const { data: codes } = useRosterCodeStatus();
@@ -82,7 +82,8 @@ export function ManagerDashboard() {
     <AppShell title="ניהול" subtitle={selected ? formatWeekRange(selected) : undefined}>
       <div className="space-y-4">
         <WeekControlsPanel
-          weeks={weeks}
+          weeks={live}
+          archive={archive}
           selected={selected}
           onSelect={setSelected}
           week={week}
