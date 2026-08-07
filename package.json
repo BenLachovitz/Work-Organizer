@@ -21,7 +21,9 @@
     "test:fixtures": "node --experimental-strip-types solver/tests/run-fixtures.mjs",
     "test:compare": "node --experimental-strip-types solver/tests/compare-engines.mjs",
     "solver:dev": "uvicorn main:app --app-dir solver --reload --port 8099",
-    "test:generate": "node --experimental-strip-types supabase/tests/generate.cloud.test.mjs"
+    "test:generate": "node --experimental-strip-types supabase/tests/generate.cloud.test.mjs",
+    "seed:testweek": "node supabase/tests/seed-testweek.mjs",
+    "preview:week": "node --experimental-strip-types supabase/tests/preview-week.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.2",
