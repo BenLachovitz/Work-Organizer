@@ -73,16 +73,19 @@ function Chip({
   return (
     <span
       className={cn(
-        'block truncate rounded px-1.5 py-1 text-center text-[11px] font-semibold text-white',
+        'flex items-center justify-center gap-1 rounded px-1.5 py-1',
+        'text-[11px] font-semibold text-white',
         className,
       )}
       style={{ backgroundColor: SHIFTS[assignment.shift].colorVar }}
       title={`${SHIFTS[assignment.shift].he} ${SHIFTS[assignment.shift].label}`}
     >
-      {name}
-      {/* ms-1 rather than a literal space: JSX strips whitespace at a line
-          boundary, which is why this rendered as "בןמ 18:45". */}
-      {suffix && <span className="num ms-1 font-normal opacity-90">{suffix}</span>}
+      {/* Flex `gap`, not a margin. A literal space is stripped by JSX at a line
+          boundary, and `ms-1` resolves against the SUFFIX's own direction --
+          which .num sets to ltr -- so the margin landed on the far side and the
+          text still read "בןמ 18:45". gap is direction-agnostic. */}
+      <span className="truncate">{name}</span>
+      {suffix && <span className="num shrink-0 font-normal opacity-90">{suffix}</span>}
     </span>
   );
 }
@@ -236,7 +239,10 @@ export function RosterGrid({
                                 suffix="עד 18:45"
                               />
                             ) : (
-                              <Gap label="עד 18:45" />
+                              // The uncovered WINDOW, not "עד 18:45" -- that
+                              // phrasing describes a 12h shift, and writing it
+                              // on an empty half implies one exists.
+                              <Gap window="14:45-18:45" />
                             )}
                             {r.late ? (
                               <Chip
@@ -245,7 +251,7 @@ export function RosterGrid({
                                 suffix="מ 18:45"
                               />
                             ) : (
-                              <Gap label="מ 18:45" />
+                              <Gap window="18:45-22:45" />
                             )}
                           </div>
                         ),
@@ -301,11 +307,18 @@ function Empty() {
   );
 }
 
-/** An uncovered half of a handover -- shown, not hidden. */
-function Gap({ label }: { label?: string }) {
+/**
+ * An uncovered half of a handover -- shown, not hidden.
+ *
+ * Labelled with the window that is empty rather than with a 12h suffix: "עד
+ * 18:45" describes a shift somebody is working, so putting it on an empty half
+ * reads as though a 12h guard is there when nobody is.
+ */
+function Gap({ window }: { window: string }) {
   return (
-    <span className="block rounded bg-rose-100 px-1.5 py-1 text-center text-[11px] font-bold text-rose-600 ring-1 ring-rose-200">
-      —{label && <span className="num ms-1 font-normal opacity-70">{label}</span>}
+    <span className="flex items-center justify-center gap-1 rounded bg-rose-100 px-1.5 py-1 text-[11px] font-bold text-rose-600 ring-1 ring-rose-200">
+      <span>ריק</span>
+      <span className="num shrink-0 font-normal opacity-70">{window}</span>
     </span>
   );
 }
