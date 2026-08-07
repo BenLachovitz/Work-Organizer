@@ -959,7 +959,7 @@ has genuinely passed, so locking a week *early* cannot accidentally become an ex
 | **B** | Badge-code + PIN auth, `claim-code` Edge Function | ✅ complete, deployed |
 | **C** | Guard preference submission, atomic save RPC | ✅ complete |
 | **D** | Manager dashboard: week controls, coverage matrix, כמות editor | ✅ complete |
-| **E** | Solver contract, twin referees, mock + CP-SAT, generate → publish | ✅ built; **CP-SAT not deployed** |
+| **E** | Solver contract, twin referees, mock + CP-SAT, generate → publish | ✅ complete; **CP-SAT deployed** |
 | **F1–F5** | Fine-tuning batch (per-day 12h, week lifecycle, Mon–Fri target, archive, US week) | ✅ complete |
 
 ### 14.2 Verification
@@ -984,11 +984,15 @@ below the mock.
 
 | # | Task | Blocked on |
 |---|---|---|
-| 1 | **Push to GitHub** | Ben creating the repo |
-| 2 | **Deploy the solver to Render** (§11.1), flip `VITE_SOLVER_MODE=remote` | (1) |
-| 3 | **Deploy the frontend to Vercel** — the only step that puts this on guards' phones | (1) |
-| 4 | Collect the team's real badge codes and replace `100001`–`100009` | Ben |
-| 5 | Decide open item 6 (soft availability) | Ben |
+| 1 | **Deploy the frontend to Vercel** — the only step that puts this on guards' phones | Ben |
+| 2 | Collect the team's real badge codes and replace `100001`–`100009` | Ben |
+| 3 | Decide open item 6 (soft availability) | Ben |
+
+**Completed since v2.2 was drafted:** repository pushed to
+`github.com/BenLachovitz/Work-Organizer`; the CP-SAT service is live at
+`https://guard-solver.onrender.com`; `SOLVER_URL` and `SOLVER_SECRET` are set as Supabase Edge
+Function secrets; `VITE_SOLVER_MODE=remote`. Verified end to end — a guard calling
+`generate-schedule` is rejected 403, a manager receives `OPTIMAL` in roughly 2.5 seconds.
 
 ### 14.4 Local development
 

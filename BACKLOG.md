@@ -27,7 +27,7 @@ Ben (`005396`) is both the manager **and** an active guard.
 | B | Badge code + PIN auth, `claim-code` Edge Function | ✅ deployed |
 | C | Preference submission, atomic save | ✅ |
 | D | Manager dashboard | ✅ |
-| E | Solver contract, twin referees, mock + CP-SAT, generate → publish | ✅ built, **CP-SAT not deployed** |
+| E | Solver contract, twin referees, mock + CP-SAT, generate → publish | ✅ **CP-SAT deployed and live** |
 | F1–F5 | Fine-tuning batch | ✅ |
 
 **Eight test suites green.** `npm run test:rls`, `npm run test:cloud`, `npm run test:fixtures`,
@@ -37,22 +37,24 @@ Ben (`005396`) is both the manager **and** an active guard.
 
 ## What is left
 
-1. **Push to GitHub** — Ben is creating the repo. Needed for both deployments below.
-2. **Deploy the solver to Render** — see spec §11.1. Then `VITE_SOLVER_MODE=remote`.
-3. **Deploy the frontend to Vercel** — the only step that puts this on guards' phones.
-4. **Replace placeholder badge codes** `100001`–`100009` with the team's real ones.
-5. **Decide open item 6** — should availability be soft? (spec §3.2)
+1. **Deploy the frontend to Vercel** — the only remaining step that puts this on guards' phones.
+2. **Replace placeholder badge codes** `100001`–`100009` with the team's real ones.
+3. **Decide open item 6** — should availability be soft? (spec §3.2)
+
+Done: repo pushed to `github.com/BenLachovitz/Work-Organizer`; solver live at
+`https://guard-solver.onrender.com`; `VITE_SOLVER_MODE=remote`.
 
 ---
 
-## The one thing to know before judging a roster
+## Solver
 
-`VITE_SOLVER_MODE` is currently `mock`. The mock is a **fallback**, not the product: a greedy
-hill-climber that is always *legal* but never optimal. On the first real week it produced 2 empty
-shifts where CP-SAT produced 0 (spec §9.4).
+`VITE_SOLVER_MODE=remote` — generation calls CP-SAT on Render through the `generate-schedule` Edge
+Function. Verified end to end: a guard is rejected 403, a manager gets `OPTIMAL` in ~2.5s.
 
-**Do not tune the model against mock output.** Use `npm run preview:cpsat` to see what the real
-engine does with the same data.
+The in-browser mock remains the automatic fallback if Render is unreachable (its free tier sleeps
+after 15 minutes idle, ~50s cold start). The mock is always *legal* but never optimal — on the first
+real week it left 2 shifts empty where CP-SAT left 0 (spec §9.4). If a roster looks wrong, check
+`solver_status`: `MOCK` means the fallback ran.
 
 ---
 
@@ -63,6 +65,8 @@ engine does with the same data.
 - ⚠️ Outbound Postgres ports (5432/6543) are **firewalled on this machine**. `DATABASE_URL` will not
   work; migrations go over HTTPS through the Supabase Management API via `npm run db:apply`.
 - Edge Functions `claim-code` and `generate-schedule` are deployed
+- Solver live at `https://guard-solver.onrender.com`; `SOLVER_URL` and `SOLVER_SECRET` are set as
+  Supabase Edge Function secrets
 - 12 migrations applied, tracked in a `schema_migrations` ledger
 
 ### Current database contents
