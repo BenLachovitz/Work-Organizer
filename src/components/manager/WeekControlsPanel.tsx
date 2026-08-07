@@ -39,7 +39,10 @@ export function WeekControlsPanel({
       <div>
         <div className="mb-2 flex items-center justify-between">
           <p className="text-sm font-bold text-slate-700">
-            {showArchive ? 'ארכיון' : 'שבועות פעילים'}
+            {showArchive ? 'שבועות אחרים' : 'שבועות פעילים'}
+            {!showArchive && (
+              <span className="font-normal text-slate-400"> · נוכחי והבא</span>
+            )}
           </p>
           {archive.length > 0 && (
             <button
@@ -47,7 +50,7 @@ export function WeekControlsPanel({
               onClick={() => setShowArchive((v) => !v)}
               className="text-xs font-semibold text-brand-600 hover:text-brand-700"
             >
-              {showArchive ? '← חזרה לשבועות הפעילים' : `ארכיון (${archive.length}) →`}
+              {showArchive ? '← חזרה לפעילים' : `שבועות אחרים (${archive.length}) →`}
             </button>
           )}
         </div>
@@ -168,6 +171,9 @@ export function WeekControlsPanel({
           </div>
           <p className="text-xs text-slate-400">
             נעילה חוסמת עריכה של מאבטחים ברמת מסד הנתונים, לא רק בממשק.
+            {week.status !== 'open' && new Date(week.submission_deadline) <= new Date() && (
+              <> פתיחה מחדש תאריך את מועד הסגירה ב-24 שעות מעכשיו.</>
+            )}
           </p>
         </>
       )}

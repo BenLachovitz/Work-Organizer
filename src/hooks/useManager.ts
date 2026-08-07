@@ -86,16 +86,33 @@ export function useUpdateWeek() {
       status?: RosterWeek['status'];
       deadline?: string;
     }) => {
+      const db = requireSupabase();
+
+      // Status goes through set_week_status, NOT a plain UPDATE. That RPC also
+      // stamps status_overridden_at so ensure_roster_weeks() stops managing the
+      // week, and extends the deadline when reopening one that had expired --
+      // without which the reopen changes a flag but nothing observable, because
+      // is_week_open() also requires NOW() < submission_deadline.
+      if (input.status !== undefined) {
+        const { error } = await db.rpc('set_week_status', {
+          p_week_start: input.weekStart,
+          p_status: input.status,
+          p_extend_hours: 24,
+        });
+        if (error) throw new Error(error.message);
+      }
+
       const patch: Record<string, unknown> = {};
       if (input.morningTarget !== undefined) patch.morning_target_slots = input.morningTarget;
-      if (input.status !== undefined) patch.status = input.status;
       if (input.deadline !== undefined) patch.submission_deadline = input.deadline;
 
-      const { error } = await requireSupabase()
-        .from('roster_weeks')
-        .update(patch)
-        .eq('week_start', input.weekStart);
-      if (error) throw new Error(error.message);
+      if (Object.keys(patch).length > 0) {
+        const { error } = await db
+          .from('roster_weeks')
+          .update(patch)
+          .eq('week_start', input.weekStart);
+        if (error) throw new Error(error.message);
+      }
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: weekKeys.all });

@@ -240,8 +240,80 @@ async function run() {
     data?.length === 0 ? ok("guard still cannot read another guard's submission") : bad('guard read leak', JSON.stringify(data));
   }
 
-  console.log('\n\x1b[1m5. Coverage / override maths against real rows\x1b[0m');
+  console.log('\n\x1b[1m5. Reopening a week whose deadline has passed\x1b[0m');
   {
+    // The bug this covers: "פתח הגשות מחדש" flipped status but left the
+    // deadline in the past, so is_week_open() stayed false and guards still
+    // could not submit -- and the next ensure_roster_weeks() sweep re-locked
+    // the week anyway, so the button appeared to do nothing at all.
+    await sql(`UPDATE roster_weeks
+                  SET status = 'locked',
+                      submission_deadline = NOW() - INTERVAL '2 days',
+                      status_overridden_at = NULL
+                WHERE week_start = '${WEEK}'`);
+
+    const before = await sql(`SELECT is_week_open('${WEEK}') AS can FROM roster_weeks WHERE week_start='${WEEK}'`);
+    before[0].can === false
+      ? ok('precondition: the expired week is closed to guards')
+      : bad('precondition', JSON.stringify(before));
+
+    const { error } = await mgr.rpc('set_week_status', {
+      p_week_start: WEEK, p_status: 'open', p_extend_hours: 24,
+    });
+    error ? bad('reopen', error.message) : ok('manager reopens the expired week');
+
+    const after = await sql(`SELECT status::text, is_week_open('${WEEK}') AS can,
+                                    submission_deadline > NOW() AS future_deadline,
+                                    status_overridden_at IS NOT NULL AS overridden
+                               FROM roster_weeks WHERE week_start='${WEEK}'`);
+    const a = after[0];
+    a.status === 'open' && a.future_deadline
+      ? ok('reopening EXTENDED the deadline, not just the status flag')
+      : bad('deadline extension', JSON.stringify(a));
+    a.can === true
+      ? ok('is_week_open() now returns true -- guards can actually submit')
+      : bad('is_week_open', JSON.stringify(a));
+    a.overridden === true
+      ? ok('status_overridden_at is stamped, so the sweep will leave it alone')
+      : bad('override flag', JSON.stringify(a));
+  }
+  {
+    // And the guard can genuinely write again, which is the point.
+    const { error } = await g1.rpc('save_week_preferences', {
+      p_week_start: WEEK,
+      p_slots: [{ date: '2026-09-09', shift: 'afternoon', allows12h: false }],
+    });
+    error ? bad('guard write after reopen', error.message) : ok('guard can submit again after the reopen');
+  }
+  {
+    // The sweep must not undo a manager's decision.
+    await sql('SELECT ensure_roster_weeks()');
+    const after = await sql(`SELECT status::text, is_week_open('${WEEK}') AS can
+                               FROM roster_weeks WHERE week_start='${WEEK}'`);
+    after[0].status === 'open' && after[0].can === true
+      ? ok('the automatic sweep does not re-lock a manually reopened week')
+      : bad('sweep override', JSON.stringify(after));
+  }
+  {
+    const { error } = await g1.rpc('set_week_status', {
+      p_week_start: WEEK, p_status: 'locked', p_extend_hours: 24,
+    });
+    error ? ok('a guard cannot call set_week_status') : bad('set_week_status', 'guard succeeded');
+  }
+
+  console.log('\n\x1b[1m6. Coverage / override maths against real rows\x1b[0m');
+  {
+    // Set this section's own state rather than inheriting whatever earlier
+    // sections left behind -- a test that depends on another test's leftovers
+    // breaks the moment one is added in between, which is exactly what happened.
+    await g1.rpc('save_week_preferences', {
+      p_week_start: WEEK,
+      p_slots: [
+        { date: '2026-09-06', shift: 'morning', allows12h: false },
+        { date: '2026-09-06', shift: 'night', allows12h: false },
+      ],
+    });
+
     // G1 marked 2 slots on ONE day. With kamut 5, the binding limit is days (1),
     // so the solver target must come out as 1, not 5 and not 2.
     const rows = await sql(`

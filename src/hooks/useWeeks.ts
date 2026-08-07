@@ -1,7 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { requireSupabase } from '@/lib/supabase';
 import type { RosterWeek } from '@/types/database';
-import { currentSubmissionWeek, todayInIsrael, weekStartOf, type DateKey } from '@/lib/dates';
+import {
+  addDays,
+  currentSubmissionWeek,
+  todayInIsrael,
+  weekStartOf,
+  type DateKey,
+} from '@/lib/dates';
 
 export const weekKeys = {
   all: ['roster_weeks'] as const,
@@ -48,13 +54,24 @@ export function useRosterWeeks() {
 export function useSplitWeeks() {
   const query = useRosterWeeks();
   const currentStart = weekStartOf(todayInIsrael());
+  const nextStart = addDays(currentStart, 7);
   const weeks = query.data ?? [];
+
+  // Exactly two: the week being worked, and the week being filled in. Under the
+  // Saturday-20:00 window these are the only two that can be in play, apart
+  // from a few hours each Saturday evening while the next one opens.
+  const live = weeks.filter((w) => w.week_start === currentStart || w.week_start === nextStart);
 
   return {
     ...query,
-    live: weeks.filter((w) => w.week_start >= currentStart),
-    archive: weeks.filter((w) => w.week_start < currentStart).reverse(), // newest first
+    live,
+    // Everything else -- finished weeks and any stray future one. Guards cannot
+    // see past weeks at all; RLS enforces that, not this filter.
+    archive: weeks
+      .filter((w) => w.week_start !== currentStart && w.week_start !== nextStart)
+      .sort((a, b) => b.week_start.localeCompare(a.week_start)),
     currentStart,
+    nextStart,
   };
 }
 
