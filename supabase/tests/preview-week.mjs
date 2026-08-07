@@ -92,6 +92,16 @@ const input = solverInputSchema.parse({
   }),
 });
 
+// --dump <path> writes the solver input so the Python CP-SAT engine can be run
+// against exactly the same data, which is how we tell a model problem apart
+// from the greedy mock simply being suboptimal.
+const dumpIdx = process.argv.indexOf('--dump');
+if (dumpIdx !== -1 && process.argv[dumpIdx + 1]) {
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(process.argv[dumpIdx + 1], JSON.stringify(input, null, 2), 'utf8');
+  console.log(`solver input written to ${process.argv[dumpIdx + 1]}`);
+}
+
 const out = mockSolve(input);
 const v = verifySchedule(input, out);
 const nameOf = (id) => guards.find((g) => g.id === id)?.display_name ?? '?';

@@ -44,7 +44,11 @@ async function sql(query) {
 // day 0 = Sunday 09/08 ... day 6 = Saturday 15/08
 // 'm' morning, 'a' afternoon, 'n' night; a trailing 12 means that shift extends.
 const M = 'morning', A = 'afternoon', N = 'night';
-const OPEN = [[M], [A], [N]]; // "פתוח" -- available for all three
+
+// "פתוח" -- all three shifts AND willing to extend at both ends, so the day is
+// eligible for day12 (06:45-18:45) and night12 (18:45-06:45) as well. Confirmed
+// by Ben; his manual roster has עידן on "עד 18:45" for a פתוח Saturday.
+const OPEN = [[M, 12], [A], [N, 12]];
 
 const GUARDS = [
   { code: '100001', name: 'יובל', kamut: 5, days: [
@@ -80,14 +84,14 @@ const GUARDS = [
     [[N]],                       // ו
     [[A], [N]],                  // ש
   ]},
-  // NOTE: "צהריים+12" on א/ג/ד is ambiguous and is loaded as a PLAIN afternoon
-  // for now. Only morning can extend to day12 (06:45-18:45) and only night to
-  // night12 (18:45-06:45); an afternoon shift has no 12h form. Awaiting Ben.
+  // "צהריים+12" was dropped at Ben's instruction: an afternoon shift has no 12h
+  // form (only morning extends to day12, only night to night12), so those days
+  // are a plain afternoon.
   { code: '100005', name: 'ים', kamut: 5, days: [
-    [[M], [A]],                  // א  בוקר, צהריים+12  <-- ambiguous
+    [[M], [A]],                  // א
     [[M]],                       // ב
-    [[A]],                       // ג  צהריים+12        <-- ambiguous
-    [[M], [A]],                  // ד  בוקר, צהריים+12  <-- ambiguous
+    [[A]],                       // ג
+    [[M], [A]],                  // ד
     [[M, 12]],                   // ה  בוקר+12
     [[M]],                       // ו
     [],                          // ש  -
