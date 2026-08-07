@@ -9,6 +9,7 @@ import { CoverageReportPanel } from '@/components/manager/CoverageReportPanel';
 import { Alert, Badge, Button, Card, Spinner } from '@/components/ui';
 import {
   buildSolverInput,
+  useCarryIn,
   useGenerateSchedule,
   usePublishRun,
   useSaveRunAssignments,
@@ -50,6 +51,7 @@ export function ManagerDashboard() {
   const saveEdits = useSaveRunAssignments();
   const [editing, setEditing] = useState(false);
   const { data: runsRaw } = useScheduleRuns(selected);
+  const { data: carryIn } = useCarryIn(selected);
 
   const runsData = runsRaw ?? { runs: [], assignments: [] };
   // Runs come back newest-version first, so the published one wins if there is
@@ -209,12 +211,14 @@ export function ManagerDashboard() {
                 assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
                 guards={data.guards}
                 // The referee must judge an edit against exactly what the solver
-                // saw, or a hand edit could be called illegal for the wrong reason.
+                // saw -- including last Saturday's shifts, or a manual Sunday
+                // assignment could create a clopen across the week boundary
+                // that nothing would catch.
                 solverInput={buildSolverInput(
                   selected,
                   (week?.morning_target_slots ?? 2) as MorningTarget,
                   data,
-                  {},
+                  carryIn ?? {},
                 )}
                 saving={saveEdits.isPending}
                 onCancel={() => setEditing(false)}

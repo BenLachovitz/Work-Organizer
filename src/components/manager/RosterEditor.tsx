@@ -11,6 +11,7 @@ import {
 import {
   SHIFTS,
   SHIFT_TYPES,
+  classifyRest,
   isWeekendDay,
   segmentFloors,
   segmentTargets,
@@ -370,6 +371,20 @@ function SlotEditor({
     return true;
   };
 
+  /**
+   * What this guard worked last Saturday. Only Sunday can collide with it, so
+   * the hint is shown there and nowhere else -- a night-ending shift makes
+   * Sunday morning a 0-hour rest, which the referee blocks outright.
+   */
+  const carriedIn = (guardId: string): ShiftType | null =>
+    dayIdx === 0 ? (solverInput.carry_in?.[guardId] ?? null) : null;
+
+  const carryNote = (guardId: string) => {
+    const prev = carriedIn(guardId);
+    if (!prev) return '';
+    return `  (שבת: ${SHIFTS[prev].he})`;
+  };
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-end bg-black/40 sm:place-items-center">
       <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl">
@@ -386,6 +401,12 @@ function SlotEditor({
             ✕
           </button>
         </div>
+
+        {dayIdx === 0 && Object.keys(solverInput.carry_in ?? {}).length > 0 && (
+          <p className="mb-2 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">
+            יום ראשון: המנוחה נבדקת גם מול משמרות שבת של השבוע הקודם.
+          </p>
+        )}
 
         <div className="space-y-2">
           {rows.length === 0 && (
@@ -406,6 +427,7 @@ function SlotEditor({
                     <option key={g.id} value={g.id}>
                       {g.display_name}
                       {marked(g.id, r.shift) ? '' : '  (לא סימן)'}
+                      {carryNote(g.id)}
                     </option>
                   ))}
                 </select>
@@ -433,6 +455,14 @@ function SlotEditor({
                   ⚠ לא סומן על ידי המאבטח - שיבוץ ידני
                 </p>
               )}
+              {carriedIn(r.guard_id) && (
+                <p className="text-xs text-slate-600">
+                  עבד {SHIFTS[carriedIn(r.guard_id)!].he} בשבת שעברה
+                  {classifyRest(carriedIn(r.guard_id)!, r.shift) === 'blocked' && (
+                    <span className="font-bold text-rose-700"> — מנוחה קצרה מדי, לא ניתן לשמור</span>
+                  )}
+                </p>
+              )}
             </div>
           ))}
         </div>
@@ -451,6 +481,7 @@ function SlotEditor({
                 <option key={g.id} value={g.id}>
                   {g.display_name}
                   {marked(g.id, addShift) ? '' : '  (לא סימן)'}
+                  {carryNote(g.id)}
                 </option>
               ))}
             </select>

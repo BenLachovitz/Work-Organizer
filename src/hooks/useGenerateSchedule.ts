@@ -77,6 +77,35 @@ export function buildSolverInput(
   });
 }
 
+/**
+ * Each guard's shift on the Saturday before this week, from the previous week's
+ * published roster.
+ *
+ * Needed by the editor as well as the solver: a manual Sunday assignment can
+ * create a clopen against last week just as easily as an automatic one, and
+ * without this the referee would judge the edit blind to the week boundary.
+ *
+ * An empty map is a normal answer — the previous week may not exist or may
+ * never have been published.
+ */
+export function useCarryIn(weekStart: DateKey) {
+  return useQuery({
+    queryKey: ['carryIn', weekStart] as const,
+    enabled: Boolean(weekStart),
+    queryFn: async (): Promise<Record<string, ShiftType | null>> => {
+      const { data, error } = await requireSupabase().rpc('carry_in_shifts', {
+        p_week_start: weekStart,
+      });
+      if (error) throw new Error(error.message);
+      const map: Record<string, ShiftType | null> = {};
+      for (const row of (data ?? []) as { guard_id: string; shift: ShiftType }[]) {
+        map[row.guard_id] = row.shift;
+      }
+      return map;
+    },
+  });
+}
+
 /** Rosters generated for a week, newest first. Drafts are manager-only by RLS. */
 export function useScheduleRuns(weekStart: DateKey) {
   return useQuery({
