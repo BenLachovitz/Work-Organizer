@@ -1,5 +1,5 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
-**Version:** 2.0 (revised after Checkpoint 1 review)
+**Version:** 2.1 (revised after the F1-F5 fine-tuning batch)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 6 August 2026
@@ -31,6 +31,17 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | 11 | Auth = **6-digit badge code + personal PIN** (set on first login) | A 6-digit code alone is not a credential |
 | 12 | Solver hosted on **Render/Railway**, not Supabase Edge Functions | Edge Functions are Deno; they cannot run Python/OR-Tools |
 
+### 1.2 Changes in Version 2.1
+
+| # | Change | Rationale |
+|---|---|---|
+| 13 | **US work week**: Saturday and Sunday are the days off; Friday is a working day | This is an American school, not an Israeli-calendar workplace |
+| 14 | Submission deadline moves to **Wednesday 19:00** Asia/Jerusalem | Replaces Thursday 20:00 |
+| 15 | Raised morning target (3) applies **Monday-Friday only**; Sat/Sun always 2 | The weekend runs light regardless of the week setting |
+| 16 | 12h opt-in becomes **per day**, stored as `allows_12h` on the preference row | A guard willing to do one long day should not have to accept a long week |
+| 17 | Weeks are **auto-created** by `ensure_roster_weeks()`; hand-seeded weeks removed | Scaffolding went stale as real dates passed |
+| 18 | Past weeks are **manager-only**, enforced in RLS | A guard holding the publishable key can query PostgREST directly |
+
 ---
 
 ## 2. OPERATIONAL SCHEDULING RULES
@@ -60,8 +71,8 @@ Five shift types across two grids. **A guard works at most ONE shift type per ca
 | `morning` | בוקר | 06:45 – 14:45 | 8 | Standard | All guards |
 | `afternoon` | צהריים | 14:45 – 22:45 | 8 | Standard | All guards |
 | `night` | לילה | 22:45 – 06:45 (+1) | 8 | Standard | All guards |
-| `day12` | יום 12ש׳ | 06:45 – 18:45 | 12 | Extended | Requires `can_work_12h_day` opt-in |
-| `night12` | לילה 12ש׳ | 18:45 – 06:45 (+1) | 12 | Extended | Requires `can_work_12h_night` opt-in |
+| `day12` | יום 12ש׳ | 06:45 – 18:45 | 12 | Extended | Requires `allows_12h` on that day's **morning** row |
+| `night12` | לילה 12ש׳ | 18:45 – 06:45 (+1) | 12 | Extended | Requires `allows_12h` on that day's **night** row |
 
 > **Shift weight:** a 12h shift counts as **1** shift against the guard's כמות and against the 5-shift weekly ceiling — identical to an 8h shift. It is *not* 1.5.
 
@@ -78,9 +89,14 @@ Both grids tile the same 24 hours on four boundaries: **06:45 / 14:45 / 18:45 / 
 
 ### 2.4 Targets vs. Critical Floors
 
+> **The raised morning target applies Monday to Friday only.** Saturday and Sunday are the days
+> off at the school and always run a target of 2 (floor 1) no matter what the week is set to.
+> `segmentTargets()` / `segmentFloors()` therefore take a day index, not just the week setting.
+
 | Segment | Target Capacity | Critical Floor |
 |---|---|---|
-| **S1** (morning window) | Manager-set: **2 or 3** | **1** if target = 2; **2** if target = 3 |
+| **S1** (morning window, **Mon-Fri**) | Manager-set: **2 or 3** | **1** if target = 2; **2** if target = 3 |
+| **S1** (morning window, **Sat/Sun**) | Always **2** | Always **1** |
 | **S2** (early afternoon) | 2 | 1 |
 | **S3** (late afternoon) | 2 | 1 |
 | **S4** (night window) | 2 | 1 |
@@ -102,7 +118,7 @@ Weekly demand in guard-hours at full target, morning target = 2:
 | 8 guards × 5 shifts × 8h | 320h | ❌ Short of target-2 by 16h |
 | 8 guards × 5 shifts × 12h | 480h | ✅ Target-2 reachable |
 | Floor-only coverage (24 guard-hours/day) | 168h needed | ✅ Always safely met |
-| Morning target = 3 | 392h needed | ⚠️ Requires substantial 12h uptake |
+| Morning target = 3 (Mon-Fri only) | ~376h needed | ⚠️ Requires substantial 12h uptake |
 
 **Conclusion:** with 8 guards, floors are always achievable and full target coverage is only achievable with meaningful 12h opt-in. The system is designed to degrade gracefully between the two and to report the gap explicitly.
 
@@ -159,7 +175,7 @@ The current week's Saturday assignments become the next week's carry-in, closing
 Per week, each guard submits:
 1. **Availability:** any subset of the 21 base slots (7 days × בוקר/צהריים/לילה). An empty subset is valid.
 2. ~~**Preference strength** (2-level `יכול` / `מעדיף`)~~ — **deferred for the POC.** The form is single-level: a slot is either marked or not. The `strength` column is reserved in the schema with a default of `1`, so the two-level scale can be switched on later with no migration.
-3. **Two week-level opt-ins:** `can_work_12h_day`, `can_work_12h_night`.
+3. **Per-day 12h opt-ins:** each marked בוקר or לילה slot may carry `allows_12h`, extending that one day only.
 
 ### 3.2 Availability Is Hard
 
@@ -169,8 +185,11 @@ The solver will **never** assign a guard to a slot they did not mark. If that le
 
 | Shift | Assignable when |
 |---|---|
-| `day12` | guard marked **בוקר** that day **AND** `can_work_12h_day = TRUE` |
-| `night12` | guard marked **לילה** that day **AND** `can_work_12h_night = TRUE` |
+| `day12` | guard marked **בוקר** that day **AND** that row has `allows_12h = TRUE` |
+| `night12` | guard marked **לילה** that day **AND** that row has `allows_12h = TRUE` |
+
+Because the flag lives on the preference row, removing the availability removes the opt-in with
+it. There is no reconciliation step and no way to be opted in for a day you no longer work.
 
 The preference form states this explicitly in Hebrew, e.g. *"אם תסמן, ייתכן שתשובץ 06:45–18:45 בימים שסימנת בהם בוקר."*
 
@@ -186,7 +205,7 @@ A guard may submit a completely empty sheet. This is a normal, non-error state. 
 
 ### 3.5 Submission Lock
 
-Guards may create and edit preferences until the week's `submission_deadline` (default **Thursday 20:00 Asia/Jerusalem**). After that, RLS blocks guard writes at the database engine level. Only managers can edit and only managers can trigger generation.
+Guards may create and edit preferences until the week's `submission_deadline` (**Wednesday 19:00 Asia/Jerusalem**, i.e. `week_start - 4`). After that, RLS blocks guard writes at the database engine level. Only managers can edit and only managers can trigger generation.
 
 ---
 
@@ -240,7 +259,7 @@ Rather than writing an algorithm that *builds* a schedule, you **declare** the p
 
 CP-SAT then searches with clause learning across parallel workers and returns a **provably optimal** assignment. At this problem size it returns in well under one second.
 
-Its one sharp edge: a contradictory *hard* constraint yields `INFEASIBLE` with no explanation — a terrible experience for a manager on a Thursday night. This specification therefore keeps the hard set minimal (§4.1) and makes every business goal soft, guaranteeing the solver always returns a schedule plus a readable coverage report.
+Its one sharp edge: a contradictory *hard* constraint yields `INFEASIBLE` with no explanation — a terrible experience for a manager on a Wednesday evening. This specification therefore keeps the hard set minimal (§4.1) and makes every business goal soft, guaranteeing the solver always returns a schedule plus a readable coverage report.
 
 ---
 
@@ -291,15 +310,15 @@ CREATE TABLE roster_weeks (
 -- 4. One row per guard per week: proves submission occurred + holds the 12h opt-ins.
 --    Opt-ins live here (not per-slot) so they cannot self-contradict.
 CREATE TABLE weekly_submissions (
-  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  guard_id           UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  week_start         DATE NOT NULL REFERENCES roster_weeks(week_start) ON DELETE CASCADE,
-  can_work_12h_day   BOOLEAN NOT NULL DEFAULT FALSE,
-  can_work_12h_night BOOLEAN NOT NULL DEFAULT FALSE,
-  submitted_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  guard_id     UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  week_start   DATE NOT NULL REFERENCES roster_weeks(week_start) ON DELETE CASCADE,
+  submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (guard_id, week_start)
 );
+-- v2.1: the 12h flags moved OFF this row onto weekly_wish_preferences, so the
+-- opt-in can differ per day. This row now records only THAT a guard answered.
 
 -- 5. Availability. Row present == available. No row == unavailable.
 CREATE TABLE weekly_wish_preferences (
@@ -308,6 +327,11 @@ CREATE TABLE weekly_wish_preferences (
   week_start  DATE NOT NULL REFERENCES roster_weeks(week_start) ON DELETE CASCADE,
   target_date DATE NOT NULL,
   shift       base_shift NOT NULL,
+  -- v2.1: extend THIS shift on THIS day to 12h. Lives here rather than on the
+  -- submission row so deleting the availability deletes the opt-in with it.
+  allows_12h  BOOLEAN NOT NULL DEFAULT FALSE,
+  CONSTRAINT twelve_h_on_extendable_shift
+    CHECK (NOT allows_12h OR shift IN ('morning', 'night')),
   strength    SMALLINT NOT NULL DEFAULT 1 CHECK (strength IN (1, 2)), -- reserved; POC always 1
   UNIQUE (guard_id, target_date, shift),
   CHECK (target_date >= week_start AND target_date <= week_start + 6)
@@ -535,8 +559,9 @@ The solver secret never reaches the browser. Note that Render's free tier sleeps
   "morning_target_slots": 2,
   "guards": [
     { "id": "uuid", "effective_kamut": 3,
-      "can_work_12h_day": true, "can_work_12h_night": false,
-      "availability": { "0": ["morning"], "1": ["morning","night"] }   // day index → base shifts
+      "availability": { "0": ["morning"], "1": ["morning","night"] },  // day index → base shifts
+      "twelve_hour_day":   [1, 2],   // day indices where day12 is allowed
+      "twelve_hour_night": [1]       // day indices where night12 is allowed
     }
   ],
   "carry_in": { "uuid": "night" },   // previous Saturday's shift, or null
@@ -600,9 +625,11 @@ def generate_schedule(inp):
         for d in range(7):
             avail = set(g['availability'].get(str(d), []))
             for s in SHIFTS:
+                # v2.1: the 12h opt-in is per DAY, so the day index must be in
+                # the guard's opted-in list -- not merely a week-level flag.
                 ok = ((s in ('morning', 'afternoon', 'night') and s in avail)
-                      or (s == 'day12'   and 'morning' in avail and g['can_work_12h_day'])
-                      or (s == 'night12' and 'night'   in avail and g['can_work_12h_night']))
+                      or (s == 'day12'   and 'morning' in avail and d in g['twelve_hour_day'])
+                      or (s == 'night12' and 'night'   in avail and d in g['twelve_hour_night']))
                 x[gi, d, s] = m.NewBoolVar(f'x{gi}_{d}_{s}') if ok else m.NewConstant(0)
 
     # --- H3: one shift per day ---
@@ -714,8 +741,8 @@ def generate_schedule(inp):
 
 ## 12. OPERATIONS WORKFLOW
 
-1. **Sunday–Thursday 20:00 — submission window.** Guards submit availability + 12h opt-ins. Empty submissions are valid. RLS locks writes at the deadline.
-2. **Thursday evening — configuration.** Manager sets the morning target (2 or 3) and each guard's כמות.
+1. **Until Wednesday 19:00 — submission window.** Guards submit availability + per-day 12h opt-ins. Empty submissions are valid. RLS locks writes at the deadline. Weeks are created automatically by `ensure_roster_weeks()`, which always keeps exactly one week open.
+2. **Wednesday evening — configuration.** Manager sets the Mon-Fri morning target (2 or 3) and each guard's כמות.
 3. **Pre-flight.** The system computes `effective_kamut` and shows any auto-overrides for review.
 4. **Generate.** CP-SAT returns an optimal draft plus a coverage report (floor breaches, target gaps, unmet כמות, rest violations).
 5. **Audit.** Manager reviews the colour-coded grid, makes manual swaps, and assigns posts (סריקה / בוטקה / בקרה / שמירה).

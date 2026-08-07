@@ -37,6 +37,14 @@ AS $$
   SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::UUID;
 $$;
 
+-- The migration ledger is created by supabase/apply.mjs, not by a migration,
+-- so it does not exist here unless the shim provides it. Migration 5 revokes
+-- grants on it and would fail against a missing relation.
+CREATE TABLE IF NOT EXISTS public.schema_migrations (
+  name       TEXT PRIMARY KEY,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT USAGE ON SCHEMA auth   TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role;

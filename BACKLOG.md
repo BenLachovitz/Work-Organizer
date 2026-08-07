@@ -9,14 +9,16 @@ Handoff for the next session. Everything below is decided unless marked
 
 | Step | State | Verification |
 |---|---|---|
-| **A** Database, RLS, seed | done | Gate A local 42/42, cloud 26/26 |
+| **A** Database, RLS, seed | done | Gate A local 42/42, cloud 31/31 |
 | **B** Badge auth + PIN | done | Gate B 18/18, client 8/8 |
-| **C** Preference persistence | done | Gate C 12/12 |
+| **C** Preference persistence | done | Gate C 13/13 |
 | **D** Manager dashboard | done | Gate D 18/18 |
-| **E** Scheduling engine | **half done** | mock 42/42, CP-SAT 40/40 all OPTIMAL |
+| **E** Scheduling engine | done | mock 51/51, CP-SAT 49/49 all OPTIMAL |
 | **E** Generate → publish flow | **not started** | — |
+| **F1–F5** Fine-tuning batch | **done** | covered by the suites above |
 
-**164 tests green.** Commits: `ad6de51` → `fbef84c` → `2eee277` → `ad4a897`.
+**230 tests green** across 8 suites. Commits: `ad6de51` → `fbef84c` → `2eee277`
+→ `ad4a897` → `6b046bb` → `7d71ac4` → `fa60120` → `e96848d` → `c3bad9a`.
 
 ### Live environment
 
@@ -27,6 +29,8 @@ Handoff for the next session. Everything below is decided unless marked
   5432/6543 are **blocked on this network**, so `DATABASE_URL` will not work
 - Edge Function `claim-code` deployed and live
 - Solver service written and tested locally; **not deployed**
+- 10 migrations applied. Weeks are now created by `ensure_roster_weeks()`, not
+  seeded by hand.
 
 ### Commands
 
@@ -34,9 +38,9 @@ Handoff for the next session. Everything below is decided unless marked
 npm run dev            # Vite dev server, port 5173
 npm run db:apply       # apply pending migrations (ledger-tracked, safe to re-run)
 npm run db:verify      # RLS + reachability audit
-npm run test:rls       # local PGlite RLS suite
+npm run test:rls       # local PGlite RLS suite (applies ALL migrations)
 npm run test:cloud     # all 5 cloud suites against the live project
-npm run test:fixtures  # mock solver over the 7 golden fixtures
+npm run test:fixtures  # mock solver over the 8 golden fixtures
 npm run test:compare   # CP-SAT vs mock (run the Python suite first)
 
 solver/.venv/Scripts/python solver/tests/test_scheduler.py   # CP-SAT suite
@@ -113,103 +117,34 @@ cannot publish or edit.
 
 ---
 
-## PART 2 — fine-tuning batch
+## PART 2 — fine-tuning batch — COMPLETE
 
-Do these **together**: they overlap heavily in `shifts.ts`, both referees, both
-solvers, the fixtures, and the form.
+All five landed. Kept here as the record of what was decided and why.
 
-### F1. Per-day 12h opt-in *(replaces the week-level toggle)*
-
-Chosen: **inline chips under each day** (locality — "can I do 12h on Monday" is
-a Monday decision; and the chip disappears with the button that enabled it, so
-there is no silent orphan state).
-
-**Schema:**
-```sql
-ALTER TABLE weekly_wish_preferences ADD COLUMN allows_12h BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE weekly_wish_preferences ADD CONSTRAINT twelve_h_on_extendable_shift
-  CHECK (NOT allows_12h OR shift IN ('morning','night'));
-```
-Migrate existing data from `weekly_submissions.can_work_12h_day/night` onto the
-matching morning/night rows, then **drop those two columns** — keeping both
-would recreate the two-sources-of-truth bug called out in spec §1.1.
-
-**Contract:** `can_work_12h_day: bool` → `twelve_hour_day: number[]` (day
-indices), same for night. Eligibility: `day12` on day *d* ⟺ `morning ∈
-availability[d]` **and** `d ∈ twelve_hour_day`.
-
-**UI:** chip only rendered when the enabling base shift is selected; visually
-subordinate to the three shift buttons. Add a **"בכל הימים"** shortcut so
-"always" is still one tap.
-
-**Touches:** migration, `save_week_preferences` RPC, `shifts.ts::isEligible`,
-`solverContract.ts`, `validate.ts`, `mockSolver.ts`, `models.py`, `verify.py`,
-`scheduler.py`, all 7 fixtures, `WeeklyPreferenceForm.tsx`, `useGuardPortal.ts`,
-`useManager.ts`, spec §3.
-
-### F2. Rolling current + next week
-
-Today's three seeded weeks are **test scaffolding, not a product model**
-(locked / open / target-3, one per code path). Replace with a lifecycle:
-
-- Exactly two live weeks: **current** (roster published, in progress) and
-  **next** (open for submissions)
-- Auto-create the next week when the current one rolls over, with its
-  Wednesday 19:00 deadline
-- Delete `2026-08-23` from the seed; the target-3 path moves into the suites
-- Manager week picker shows the pair; archive is separate (see F4)
-
-### F3. Morning target 3 applies Mon–Fri only
-
-`segmentTargets()` / `segmentFloors()` become functions of **(week setting, day
-index)** instead of the week alone.
-
-| Days | set to 2 | set to 3 |
+| | Change | Commit |
 |---|---|---|
-| Mon–Fri (indices 1–5) | target 2, floor 1 | target 3, floor 2 |
-| Sun (0) & Sat (6) | target 2, floor 1 | **target 2, floor 1** |
+| **F1** | 12h opt-in is **per day** (`allows_12h` on the preference row, week-level columns dropped). Chips render under the day they apply to; "בכל הימים" shortcut retained. Fixture 08 pins the semantics. | `e96848d` |
+| **F2** | Weeks auto-created by `ensure_roster_weeks()`. The rule is **"exactly one week open"**, not "current + next" — a Wednesday deadline means next week is already locked for the back half of each week. | `c3bad9a` |
+| **F3** | Raised morning target applies **Mon–Fri only**; Sat/Sun always 2. `segmentTargets/Floors` take a required day index so a forgetful call site fails to compile. | `fa60120` |
+| **F4** | Past weeks **manager-only**, RLS-enforced. Cut is absolute: a guard sees nothing from a finished week, not even their own shift. | `c3bad9a` |
+| **F5** | US work week — weekend is **Sat+Sun**, Friday is a working day. Deadline **Wednesday 19:00**. | `fa60120` |
 
-Weekly demand at target 3 drops from 392 to ~376 guard-hours (19 morning slots,
-not 21).
+Spec updated to **v2.1** with a §1.2 changelog covering all five.
 
-**Touches:** `shifts.ts`, `validate.ts`, `mockSolver.ts`, `models.py`,
-`verify.py`, `scheduler.py`, `CoverageMatrix.tsx`, `WeekControlsPanel.tsx`,
-fixtures, spec §2.4.
+---
 
-### F4. Manager-only archive
+## Known issue — date-coupled test fixtures
 
-Past weeks stay stored, visible only to the manager — **enforced in RLS**, not
-just hidden in the UI, or a guard could still read old rosters through
-PostgREST.
+`OPEN_WEEK = '2026-08-16'` and `LOCKED_WEEK = '2026-08-09'` are hardcoded in
+`rls.test.mjs`, `rls.cloud.test.mjs` and `preferences.cloud.test.mjs`. They work
+today because `ensure_roster_weeks()` happens to produce exactly those weeks,
+but **they will start failing once real time passes 2026-08-12**, when
+2026-08-16 stops being the open week.
 
-Change `runs_read` so guards see published runs only for the current and future
-weeks; managers see everything. Add a read-only archive view.
-
-**DECIDED: absolute cut.** A guard sees nothing from a past week — not even
-their own shifts. Do NOT add a `guard_id = auth.uid()` escape to the assignment
-policy. Consequence to expect: a guard querying a shift from three weeks ago has
-to ask the manager, which is the intended workflow.
-
-### F5. US work week
-
-Ben works at an American school: **Saturday and Sunday are the days off,
-Friday is a normal working day.**
-
-- `WeeklyPreferenceForm` currently tints **Friday + Saturday** as the weekend —
-  wrong. Must be **Saturday + Sunday** (indices 6 and 0).
-- **DECIDED:** deadline moves from **Thursday 20:00** to **Wednesday 19:00**
-  Asia/Jerusalem — i.e. `week_start − 4` at 19:00. Update
-  `submissionDeadline()`, the seed, and spec §3.5 / §12. Grep for `20:00` and
-  `חמישי`; the hour is hard-coded in `dates.ts`, `seed.sql` and several test
-  comments.
-- **Week start stays Sunday.** A Sun–Sat week renders Sunday-first (natural to
-  read, matches a US calendar) *and* makes Mon–Fri a contiguous block for F3.
-  Moving to Monday-start would make the weekend contiguous instead, which is
-  not what the target rule keys on, and would churn the CHECK constraint, day
-  indices, day names, carry-in day, fixtures and seeds for no gain.
-- Solver day index stays `0 = week_start = Sunday`. Two numbering schemes (one
-  for storage, one for the solver) is an off-by-one generator; "Mon–Fri" is
-  simply indices 1–5.
+Fix when it bites: have those suites create their own throwaway weeks the way
+`manager.cloud.test.mjs` already does, rather than leaning on whichever weeks
+the lifecycle produced. Not urgent, but it is a scheduled failure, not a
+flake — worth recognising rather than re-diagnosing.
 
 ---
 

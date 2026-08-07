@@ -14,7 +14,7 @@
  */
 
 import { PGlite } from '@electric-sql/pglite';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -131,11 +131,18 @@ async function setup() {
   db = new PGlite();
   await db.waitReady;
 
+  // Migrations are DISCOVERED, not listed. A hardcoded list silently stops
+  // testing every migration added after it was written -- which is exactly what
+  // happened: the seed began calling a function defined in migration 10 while
+  // this harness was still applying only the first three.
+  const migrations = (await readdir(join(SUPABASE_DIR, 'migrations')))
+    .filter((f) => f.endsWith('.sql'))
+    .sort() // timestamp prefixes make lexical order == chronological order
+    .map((f) => join(SUPABASE_DIR, 'migrations', f));
+
   const files = [
     join(HERE, '_supabase_shim.sql'),
-    join(SUPABASE_DIR, 'migrations', '20260806000001_types_tables.sql'),
-    join(SUPABASE_DIR, 'migrations', '20260806000002_functions_triggers.sql'),
-    join(SUPABASE_DIR, 'migrations', '20260806000003_rls_policies.sql'),
+    ...migrations,
     join(SUPABASE_DIR, 'seed.sql'),
   ];
 
