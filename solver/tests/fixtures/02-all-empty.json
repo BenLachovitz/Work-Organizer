@@ -13,58 +13,58 @@
     {
       "id": "g1",
       "effective_kamut": 0,
-      "can_work_12h_day": false,
-      "can_work_12h_night": false,
-      "availability": {}
+      "availability": {},
+      "twelve_hour_day": [],
+      "twelve_hour_night": []
     },
     {
       "id": "g2",
       "effective_kamut": 0,
-      "can_work_12h_day": false,
-      "can_work_12h_night": false,
-      "availability": {}
+      "availability": {},
+      "twelve_hour_day": [],
+      "twelve_hour_night": []
     },
     {
       "id": "g3",
       "effective_kamut": 0,
-      "can_work_12h_day": false,
-      "can_work_12h_night": false,
-      "availability": {}
+      "availability": {},
+      "twelve_hour_day": [],
+      "twelve_hour_night": []
     },
     {
       "id": "g4",
       "effective_kamut": 0,
-      "can_work_12h_day": false,
-      "can_work_12h_night": false,
-      "availability": {}
+      "availability": {},
+      "twelve_hour_day": [],
+      "twelve_hour_night": []
     },
     {
       "id": "g5",
       "effective_kamut": 0,
-      "can_work_12h_day": false,
-      "can_work_12h_night": false,
-      "availability": {}
+      "availability": {},
+      "twelve_hour_day": [],
+      "twelve_hour_night": []
     },
     {
       "id": "g6",
       "effective_kamut": 0,
-      "can_work_12h_day": false,
-      "can_work_12h_night": false,
-      "availability": {}
+      "availability": {},
+      "twelve_hour_day": [],
+      "twelve_hour_night": []
     },
     {
       "id": "g7",
       "effective_kamut": 0,
-      "can_work_12h_day": false,
-      "can_work_12h_night": false,
-      "availability": {}
+      "availability": {},
+      "twelve_hour_day": [],
+      "twelve_hour_night": []
     },
     {
       "id": "g8",
       "effective_kamut": 0,
-      "can_work_12h_day": false,
-      "can_work_12h_night": false,
-      "availability": {}
+      "availability": {},
+      "twelve_hour_day": [],
+      "twelve_hour_night": []
     }
   ]
 }

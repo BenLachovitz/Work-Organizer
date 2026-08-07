@@ -95,22 +95,25 @@ export function TeamTable({
                       </>
                     )}
                   </p>
-                  {(row.canWork12hDay || row.canWork12hNight) && (
+                  {/* Day counts, not a yes/no: the opt-in is per day now, and
+                      "3 days" is the number that tells a manager how much
+                      extended cover is actually available. */}
+                  {(row.twelveHourDayCount > 0 || row.twelveHourNightCount > 0) && (
                     <div className="mt-1.5 flex gap-1.5">
-                      {row.canWork12hDay && (
+                      {row.twelveHourDayCount > 0 && (
                         <span
                           className="rounded px-1.5 py-0.5 text-[10px] font-bold text-white"
                           style={{ backgroundColor: 'var(--color-shift-day12)' }}
                         >
-                          יום 12ש׳
+                          יום 12ש׳ · {row.twelveHourDayCount} ימים
                         </span>
                       )}
-                      {row.canWork12hNight && (
+                      {row.twelveHourNightCount > 0 && (
                         <span
                           className="rounded px-1.5 py-0.5 text-[10px] font-bold text-white"
                           style={{ backgroundColor: 'var(--color-shift-night12)' }}
                         >
-                          לילה 12ש׳
+                          לילה 12ש׳ · {row.twelveHourNightCount} ימים
                         </span>
                       )}
                     </div>

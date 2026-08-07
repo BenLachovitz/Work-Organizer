@@ -76,9 +76,8 @@ export function useGuardWeek(weekStart: DateKey) {
 
 export interface SavePreferencesInput {
   weekStart: DateKey;
-  slots: { date: DateKey; shift: BaseShift }[];
-  canWork12hDay: boolean;
-  canWork12hNight: boolean;
+  /** allows12h is per slot: the 12h opt-in binds to one day, not the week. */
+  slots: { date: DateKey; shift: BaseShift; allows12h: boolean }[];
 }
 
 /**
@@ -98,8 +97,6 @@ export function useSavePreferences() {
       const { error } = await requireSupabase().rpc('save_week_preferences', {
         p_week_start: input.weekStart,
         p_slots: input.slots,
-        p_12h_day: input.canWork12hDay,
-        p_12h_night: input.canWork12hNight,
       });
       if (error) {
         // 42501 is the insufficient_privilege we raise when the window shut

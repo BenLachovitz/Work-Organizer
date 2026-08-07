@@ -83,18 +83,20 @@ export function verifySchedule(input: SolverInput, output: SolverOutput): Verify
         day: a.day,
       });
     }
-    if (a.shift === 'day12' && !g.can_work_12h_day) {
+    // The opt-in is per day: being willing to do a long Monday says nothing
+    // about Tuesday.
+    if (a.shift === 'day12' && !g.twelve_hour_day.includes(a.day)) {
       violations.push({
         rule: 'H2',
-        message: `${g.id} assigned day12 without the 12h day opt-in`,
+        message: `${g.id} assigned day12 on day ${a.day} without opting that day in`,
         guardId: g.id,
         day: a.day,
       });
     }
-    if (a.shift === 'night12' && !g.can_work_12h_night) {
+    if (a.shift === 'night12' && !g.twelve_hour_night.includes(a.day)) {
       violations.push({
         rule: 'H2',
-        message: `${g.id} assigned night12 without the 12h night opt-in`,
+        message: `${g.id} assigned night12 on day ${a.day} without opting that day in`,
         guardId: g.id,
         day: a.day,
       });

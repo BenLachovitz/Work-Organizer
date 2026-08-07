@@ -164,9 +164,9 @@ async function setup() {
       ('${GUARD_B}', '100002', 'לוק',  'guard',   TRUE);
 
     -- Both guards submitted for the open week.
-    INSERT INTO weekly_submissions (guard_id, week_start, can_work_12h_day) VALUES
-      ('${GUARD_A}', '${OPEN_WEEK}', TRUE),
-      ('${GUARD_B}', '${OPEN_WEEK}', FALSE);
+    INSERT INTO weekly_submissions (guard_id, week_start) VALUES
+      ('${GUARD_A}', '${OPEN_WEEK}'),
+      ('${GUARD_B}', '${OPEN_WEEK}');
 
     INSERT INTO weekly_wish_preferences (guard_id, week_start, target_date, shift) VALUES
       ('${GUARD_A}', '${OPEN_WEEK}', '2026-08-16', 'morning'),

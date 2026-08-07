@@ -95,15 +95,13 @@ async function signedIn(code) {
   return db;
 }
 
-const savePrefs = (db, week, slots, d12 = false, n12 = false) =>
-  db.rpc('save_week_preferences', {
-    p_week_start: week, p_slots: slots, p_12h_day: d12, p_12h_night: n12,
-  });
+const savePrefs = (db, week, slots) =>
+  db.rpc('save_week_preferences', { p_week_start: week, p_slots: slots });
 
 const readPrefs = async (db, week) => {
   const { data } = await db
     .from('weekly_wish_preferences')
-    .select('target_date,shift')
+    .select('target_date,shift,allows_12h')
     .eq('week_start', week)
     .order('target_date');
   return data ?? [];
@@ -117,10 +115,10 @@ async function run() {
   console.log('\x1b[1m1. Save and reload\x1b[0m');
   {
     const { error } = await savePrefs(guard, OPEN_WEEK, [
-      { date: '2026-08-16', shift: 'morning' },
-      { date: '2026-08-17', shift: 'night' },
-      { date: '2026-08-19', shift: 'afternoon' },
-    ], true, false);
+      { date: '2026-08-16', shift: 'morning', allows12h: true },
+      { date: '2026-08-17', shift: 'night', allows12h: false },
+      { date: '2026-08-19', shift: 'afternoon', allows12h: false },
+    ]);
     error ? bad('save 3 slots', error.message) : ok('save 3 slots succeeds');
   }
   {
@@ -130,27 +128,42 @@ async function run() {
       : bad('reload', JSON.stringify(rows));
   }
   {
-    const { data } = await guard.from('weekly_submissions')
-      .select('can_work_12h_day,can_work_12h_night').eq('week_start', OPEN_WEEK).single();
-    data?.can_work_12h_day === true && data?.can_work_12h_night === false
-      ? ok('12h opt-ins persisted on the submission row')
-      : bad('12h opt-ins', JSON.stringify(data));
+    // The 12h opt-in is per slot now, so it has to land on the right row and
+    // only that row.
+    const rows = await readPrefs(guard, OPEN_WEEK);
+    const morning = rows.find((r) => r.shift === 'morning');
+    const night = rows.find((r) => r.shift === 'night');
+    morning?.allows_12h === true && night?.allows_12h === false
+      ? ok('12h opt-in persisted on the specific slot, not the whole week')
+      : bad('per-slot 12h', JSON.stringify(rows));
+  }
+  {
+    // An afternoon shift cannot extend; the flag must be dropped, not stored.
+    await savePrefs(guard, OPEN_WEEK, [
+      { date: '2026-08-16', shift: 'afternoon', allows12h: true },
+    ]);
+    const rows = await readPrefs(guard, OPEN_WEEK);
+    rows.length === 1 && rows[0].allows_12h === false
+      ? ok('12h flag on an afternoon slot is discarded rather than rejected')
+      : bad('afternoon 12h', JSON.stringify(rows));
   }
 
   console.log('\n\x1b[1m2. Re-saving replaces rather than appends\x1b[0m');
   {
-    await savePrefs(guard, OPEN_WEEK, [{ date: '2026-08-20', shift: 'morning' }], false, true);
+    await savePrefs(guard, OPEN_WEEK, [
+      { date: '2026-08-20', shift: 'morning', allows12h: false },
+    ]);
     const rows = await readPrefs(guard, OPEN_WEEK);
     rows.length === 1 && rows[0].target_date === '2026-08-20'
       ? ok('second save replaces the previous set (1 row, not 4)')
       : bad('replace semantics', JSON.stringify(rows));
   }
   {
-    const { data } = await guard.from('weekly_submissions')
-      .select('can_work_12h_day,can_work_12h_night').eq('week_start', OPEN_WEEK).single();
-    data?.can_work_12h_day === false && data?.can_work_12h_night === true
-      ? ok('12h opt-ins updated, not duplicated')
-      : bad('12h update', JSON.stringify(data));
+    // Clearing the 12h flag must actually clear it, not leave a stale true.
+    const rows = await readPrefs(guard, OPEN_WEEK);
+    rows[0]?.allows_12h === false
+      ? ok('12h opt-in cleared on re-save rather than persisting')
+      : bad('12h clear', JSON.stringify(rows));
   }
 
   console.log('\n\x1b[1m3. Atomicity -- a failed save must not wipe the week\x1b[0m');
@@ -159,8 +172,8 @@ async function run() {
     // AFTER the DELETE has already run inside the transaction. If the function
     // were not atomic, the guard's week would now be empty.
     const { error } = await savePrefs(guard, OPEN_WEEK, [
-      { date: '2026-08-21', shift: 'morning' },
-      { date: '2026-12-25', shift: 'night' }, // outside the week
+      { date: '2026-08-21', shift: 'morning', allows12h: false },
+      { date: '2026-12-25', shift: 'night', allows12h: false }, // outside the week
     ]);
     if (!error) bad('atomicity', 'invalid slot was accepted');
     else {
@@ -187,7 +200,7 @@ async function run() {
 
   console.log('\n\x1b[1m5. Deadline enforcement\x1b[0m');
   {
-    const { error } = await savePrefs(guard, LOCKED_WEEK, [{ date: '2026-08-10', shift: 'morning' }]);
+    const { error } = await savePrefs(guard, LOCKED_WEEK, [{ date: '2026-08-10', shift: 'morning', allows12h: false }]);
     error && (error.code === '42501' || /closed/i.test(error.message))
       ? ok('save to a locked week rejected with a clean error')
       : bad('locked week', error ? `${error.code}: ${error.message}` : 'save succeeded');
@@ -200,7 +213,7 @@ async function run() {
   console.log('\n\x1b[1m6. Isolation between guards\x1b[0m');
   {
     const neighbour = await signedIn(CODE2);
-    await savePrefs(neighbour, OPEN_WEEK, [{ date: '2026-08-18', shift: 'night' }]);
+    await savePrefs(neighbour, OPEN_WEEK, [{ date: '2026-08-18', shift: 'night', allows12h: false }]);
     const mine = await readPrefs(guard, OPEN_WEEK);
     const theirs = await readPrefs(neighbour, OPEN_WEEK);
     mine.length === 0 && theirs.length === 1

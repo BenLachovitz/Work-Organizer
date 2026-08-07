@@ -53,8 +53,8 @@ export function mockSolve(input: SolverInput): SolverOutput {
     const marked = g.availability[String(day)] ?? [];
     const def = SHIFTS[shift];
     if (!marked.includes(def.requiresBase)) return false;
-    if (shift === 'day12' && !g.can_work_12h_day) return false;
-    if (shift === 'night12' && !g.can_work_12h_night) return false;
+    if (shift === 'day12' && !g.twelve_hour_day.includes(day)) return false;
+    if (shift === 'night12' && !g.twelve_hour_night.includes(day)) return false;
 
     // H6: never exceed the target ceiling
     for (const seg of def.covers) {

@@ -163,8 +163,10 @@ async function run() {
   {
     const { error } = await g1.rpc('save_week_preferences', {
       p_week_start: WEEK,
-      p_slots: [{ date: '2026-09-06', shift: 'morning' }, { date: '2026-09-07', shift: 'night' }],
-      p_12h_day: false, p_12h_night: false,
+      p_slots: [
+        { date: '2026-09-06', shift: 'morning', allows12h: false },
+        { date: '2026-09-07', shift: 'night', allows12h: false },
+      ],
     });
     error ? bad('guard save while open', error.message) : ok('guard can submit while the week is open');
   }
@@ -177,8 +179,8 @@ async function run() {
     // The whole point of the lock button: it must bind at the database, not
     // just grey out a control in the UI.
     const { error } = await g1.rpc('save_week_preferences', {
-      p_week_start: WEEK, p_slots: [{ date: '2026-09-08', shift: 'morning' }],
-      p_12h_day: false, p_12h_night: false,
+      p_week_start: WEEK,
+      p_slots: [{ date: '2026-09-08', shift: 'morning', allows12h: false }],
     });
     error ? ok('guard save is refused once locked (enforced in the database)') : bad('lock', 'save succeeded while locked');
   }
@@ -190,8 +192,8 @@ async function run() {
   {
     await mgr.from('roster_weeks').update({ status: 'open' }).eq('week_start', WEEK);
     const { error } = await g1.rpc('save_week_preferences', {
-      p_week_start: WEEK, p_slots: [{ date: '2026-09-08', shift: 'morning' }],
-      p_12h_day: false, p_12h_night: false,
+      p_week_start: WEEK,
+      p_slots: [{ date: '2026-09-08', shift: 'morning', allows12h: false }],
     });
     error ? bad('reopen', error.message) : ok('reopening the week restores guard submissions');
   }
@@ -200,12 +202,14 @@ async function run() {
   {
     await g1.rpc('save_week_preferences', {
       p_week_start: WEEK,
-      p_slots: [{ date: '2026-09-06', shift: 'morning' }, { date: '2026-09-06', shift: 'night' }],
-      p_12h_day: true, p_12h_night: false,
+      p_slots: [
+        { date: '2026-09-06', shift: 'morning', allows12h: true },
+        { date: '2026-09-06', shift: 'night', allows12h: false },
+      ],
     });
     const g2c = await signedIn(G2);
     await g2c.rpc('save_week_preferences', {
-      p_week_start: WEEK, p_slots: [], p_12h_day: false, p_12h_night: false,
+      p_week_start: WEEK, p_slots: [],
     });
 
     const [{ data: subs }, { data: prefs }, { data: guards }] = await Promise.all([

@@ -13,8 +13,6 @@
     {
       "id": "g1",
       "effective_kamut": 4,
-      "can_work_12h_day": true,
-      "can_work_12h_night": false,
       "availability": {
         "0": [
           "morning",
@@ -51,13 +49,21 @@
           "afternoon",
           "night"
         ]
-      }
+      },
+      "twelve_hour_day": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "twelve_hour_night": []
     },
     {
       "id": "g2",
       "effective_kamut": 4,
-      "can_work_12h_day": false,
-      "can_work_12h_night": true,
       "availability": {
         "0": [
           "morning",
@@ -94,13 +100,21 @@
           "afternoon",
           "night"
         ]
-      }
+      },
+      "twelve_hour_day": [],
+      "twelve_hour_night": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
     },
     {
       "id": "g3",
       "effective_kamut": 4,
-      "can_work_12h_day": true,
-      "can_work_12h_night": false,
       "availability": {
         "0": [
           "morning",
@@ -137,13 +151,21 @@
           "afternoon",
           "night"
         ]
-      }
+      },
+      "twelve_hour_day": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "twelve_hour_night": []
     },
     {
       "id": "g4",
       "effective_kamut": 4,
-      "can_work_12h_day": false,
-      "can_work_12h_night": true,
       "availability": {
         "0": [
           "morning",
@@ -180,13 +202,21 @@
           "afternoon",
           "night"
         ]
-      }
+      },
+      "twelve_hour_day": [],
+      "twelve_hour_night": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
     },
     {
       "id": "g5",
       "effective_kamut": 4,
-      "can_work_12h_day": true,
-      "can_work_12h_night": false,
       "availability": {
         "0": [
           "morning",
@@ -223,13 +253,21 @@
           "afternoon",
           "night"
         ]
-      }
+      },
+      "twelve_hour_day": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "twelve_hour_night": []
     },
     {
       "id": "g6",
       "effective_kamut": 4,
-      "can_work_12h_day": false,
-      "can_work_12h_night": true,
       "availability": {
         "0": [
           "morning",
@@ -266,13 +304,21 @@
           "afternoon",
           "night"
         ]
-      }
+      },
+      "twelve_hour_day": [],
+      "twelve_hour_night": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
     },
     {
       "id": "g7",
       "effective_kamut": 4,
-      "can_work_12h_day": true,
-      "can_work_12h_night": false,
       "availability": {
         "0": [
           "morning",
@@ -309,13 +355,21 @@
           "afternoon",
           "night"
         ]
-      }
+      },
+      "twelve_hour_day": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "twelve_hour_night": []
     },
     {
       "id": "g8",
       "effective_kamut": 4,
-      "can_work_12h_day": false,
-      "can_work_12h_night": true,
       "availability": {
         "0": [
           "morning",
@@ -352,7 +406,17 @@
           "afternoon",
           "night"
         ]
-      }
+      },
+      "twelve_hour_day": [],
+      "twelve_hour_night": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
     }
   ]
 }

@@ -138,6 +138,20 @@ def main() -> int:
             else:
                 bad("12h", "no extended shifts despite opt-ins")
 
+        if name.startswith("08-"):
+            # Available all week, but only Monday and Tuesday were opted in.
+            # A week-level reading of the flag would place 12h shifts elsewhere.
+            extended = [a for a in out.assignments if a.shift in ("day12", "night12")]
+            strays = [a for a in extended if a.day not in (1, 2)]
+            if not strays:
+                ok(f"12h shifts confined to the opted-in days ({len(extended)} on Mon/Tue)")
+            else:
+                bad("per-day opt-in", f"{len(strays)} extended shifts outside Mon/Tue")
+            if extended:
+                ok("12h shifts still used on the days that were opted in")
+            else:
+                bad("per-day opt-in", "no 12h shift scheduled at all -- opt-in ignored")
+
         if name.startswith("07-"):
             sunday = {a.guard_id: a.shift for a in out.assignments if a.day == 0}
             offenders = [g for g in ("g1", "g2") if sunday.get(g) in ("morning", "day12")]

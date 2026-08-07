@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, Badge, Button, Card, Toggle, cn } from '@/components/ui';
+import { Alert, Badge, Button, Card, cn } from '@/components/ui';
 import {
   HEBREW_DAYS,
   formatDayMonth,
@@ -17,30 +17,44 @@ import {
   type BaseShift,
 } from '@/lib/shifts';
 
-/** Set of "YYYY-MM-DD|shift" keys. Row-present-means-available, matching the DB. */
-export type Selection = Set<string>;
+/**
+ * Selection state.
+ *
+ * Key is "YYYY-MM-DD|shift"; presence means available, and the value says
+ * whether the guard will extend that specific shift to 12 hours. Keeping the
+ * flag inside the same entry is what makes it impossible to be opted in for a
+ * day you are not working -- removing the slot removes the flag with it,
+ * mirroring how `allows_12h` lives on the preference row in the database.
+ */
+export type Selection = Map<string, boolean>;
 
 const slotKey = (date: DateKey, shift: BaseShift) => `${date}|${shift}`;
 
-/** Selection -> the shape save_week_preferences expects. */
-export function selectionToSlots(slots: Selection): { date: DateKey; shift: BaseShift }[] {
-  return [...slots].map((k) => {
+/** Only morning and night can extend (-> day12 / night12). */
+const canExtend = (shift: BaseShift) => shift === 'morning' || shift === 'night';
+
+const EXTENDED_OF: Record<'morning' | 'night', 'day12' | 'night12'> = {
+  morning: 'day12',
+  night: 'night12',
+};
+
+export function selectionToSlots(
+  sel: Selection,
+): { date: DateKey; shift: BaseShift; allows12h: boolean }[] {
+  return [...sel.entries()].map(([k, allows12h]) => {
     const [date, shift] = k.split('|');
-    return { date: date!, shift: shift as BaseShift };
+    return { date: date!, shift: shift as BaseShift, allows12h };
   });
 }
 
-/** Stored preference rows -> Selection. */
 export function rowsToSelection(
-  rows: { target_date: string; shift: BaseShift }[],
+  rows: { target_date: string; shift: BaseShift; allows_12h?: boolean }[],
 ): Selection {
-  return new Set(rows.map((r) => slotKey(r.target_date, r.shift)));
+  return new Map(rows.map((r) => [slotKey(r.target_date, r.shift), Boolean(r.allows_12h)]));
 }
 
 export interface PreferenceFormValue {
   slots: Selection;
-  canWork12hDay: boolean;
-  canWork12hNight: boolean;
 }
 
 export function WeeklyPreferenceForm({
@@ -60,9 +74,7 @@ export function WeeklyPreferenceForm({
   onSubmit: (value: PreferenceFormValue) => void;
   submitting?: boolean;
 }) {
-  const [slots, setSlots] = useState<Selection>(() => new Set(initial?.slots ?? []));
-  const [canWork12hDay, setDay12] = useState(initial?.canWork12hDay ?? false);
-  const [canWork12hNight, setNight12] = useState(initial?.canWork12hNight ?? false);
+  const [slots, setSlots] = useState<Selection>(() => new Map(initial?.slots ?? []));
   const [confirmEmpty, setConfirmEmpty] = useState(false);
 
   const dates = useMemo(() => weekDates(weekStart), [weekStart]);
@@ -71,19 +83,49 @@ export function WeeklyPreferenceForm({
   const toggleSlot = (date: DateKey, shift: BaseShift) => {
     if (locked) return;
     setSlots((prev) => {
-      const next = new Set(prev);
+      const next = new Map(prev);
       const k = slotKey(date, shift);
+      // Deleting the slot drops its 12h flag automatically -- no orphan state.
       if (next.has(k)) next.delete(k);
-      else next.add(k);
+      else next.set(k, false);
       return next;
     });
     setConfirmEmpty(false);
   };
 
+  const toggle12h = (date: DateKey, shift: BaseShift) => {
+    if (locked) return;
+    setSlots((prev) => {
+      const k = slotKey(date, shift);
+      if (!prev.has(k)) return prev; // cannot extend a shift you are not working
+      const next = new Map(prev);
+      next.set(k, !prev.get(k));
+      return next;
+    });
+  };
+
+  /** "בכל הימים" — opt every currently-selected day in (or clear them all). */
+  const setAll12h = (shift: 'morning' | 'night', on: boolean) => {
+    if (locked) return;
+    setSlots((prev) => {
+      const next = new Map(prev);
+      for (const [k] of prev) {
+        if (k.endsWith(`|${shift}`)) next.set(k, on);
+      }
+      return next;
+    });
+  };
+
+  const count12h = (shift: 'morning' | 'night') =>
+    [...slots.entries()].filter(([k, on]) => on && k.endsWith(`|${shift}`)).length;
+
+  const countSelected = (shift: 'morning' | 'night') =>
+    [...slots.keys()].filter((k) => k.endsWith(`|${shift}`)).length;
+
   // A guard works at most one shift per day, so the binding count for the כמות
   // override is DISTINCT DAYS with any availability -- not total slots ticked.
   const availableDays = useMemo(
-    () => new Set([...slots].map((k) => k.split('|')[0])).size,
+    () => new Set([...slots.keys()].map((k) => k.split('|')[0])).size,
     [slots],
   );
   const effective = effectiveKamut(configuredKamut, availableDays);
@@ -95,7 +137,7 @@ export function WeeklyPreferenceForm({
       setConfirmEmpty(true);
       return;
     }
-    onSubmit({ slots, canWork12hDay, canWork12hNight });
+    onSubmit({ slots });
   };
 
   return (
@@ -132,6 +174,7 @@ export function WeeklyPreferenceForm({
             // American school: the days off are Saturday and Sunday, so the
             // tint sits at both ends of the Sunday-first grid, not on Friday.
             const isWeekend = isWeekendDay(dayIdx);
+            const extendable = daySlots.filter(canExtend) as ('morning' | 'night')[];
 
             return (
               <div key={date} className={cn('px-4 py-3', isWeekend && 'bg-amber-50/40')}>
@@ -151,11 +194,6 @@ export function WeeklyPreferenceForm({
                   {BASE_SHIFTS.map((shift) => {
                     const on = slots.has(slotKey(date, shift));
                     const def = SHIFTS[shift];
-                    // Flag when an opt-in makes an extended shift possible here.
-                    const extended =
-                      (shift === 'morning' && canWork12hDay) ||
-                      (shift === 'night' && canWork12hNight);
-
                     return (
                       <button
                         key={shift}
@@ -164,7 +202,7 @@ export function WeeklyPreferenceForm({
                         onClick={() => toggleSlot(date, shift)}
                         aria-pressed={on}
                         className={cn(
-                          'relative flex flex-col items-center gap-0.5 rounded-xl border-2 px-2 py-2.5',
+                          'flex flex-col items-center gap-0.5 rounded-xl border-2 px-2 py-2.5',
                           'transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50',
                           on
                             ? 'border-transparent text-white shadow-sm'
@@ -174,41 +212,91 @@ export function WeeklyPreferenceForm({
                       >
                         <span className="text-[13px] font-bold">{def.he}</span>
                         <span className="num text-[10px] opacity-80">{def.label}</span>
-                        {on && extended && (
-                          <span className="absolute -top-1.5 -start-1.5 rounded-full bg-slate-900 px-1.5 py-0.5 text-[9px] font-bold text-white">
-                            12ש׳
-                          </span>
-                        )}
                       </button>
                     );
                   })}
                 </div>
+
+                {/* 12h chips. Rendered only for shifts actually selected on
+                    this day, so the option appears and disappears with the
+                    button that enables it. */}
+                {extendable.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {extendable.map((shift) => {
+                      const ext = SHIFTS[EXTENDED_OF[shift]];
+                      const on = slots.get(slotKey(date, shift)) === true;
+                      return (
+                        <button
+                          key={shift}
+                          type="button"
+                          disabled={locked}
+                          onClick={() => toggle12h(date, shift)}
+                          aria-pressed={on}
+                          className={cn(
+                            'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5',
+                            'text-[11px] font-semibold transition-all disabled:opacity-50',
+                            on
+                              ? 'border-transparent text-white'
+                              : 'border-dashed border-slate-300 bg-white text-slate-500 hover:border-slate-400',
+                          )}
+                          style={on ? { backgroundColor: ext.colorVar } : undefined}
+                        >
+                          <span>{on ? '✓' : '+'}</span>
+                          <span>12 שעות</span>
+                          <span className="num opacity-80">{ext.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       </Card>
 
-      {/* ---------------- 12h opt-ins ---------------- */}
-      <Card className="p-2">
-        <p className="px-3 pt-2 font-bold text-slate-900">משמרות 12 שעות</p>
-        <p className="px-3 pb-1 text-sm text-slate-500">
-          אופציונלי. משמרת 12 שעות נחשבת כמשמרת אחת בלבד לצורך הכמות השבועית.
-        </p>
-        <Toggle
-          checked={canWork12hDay}
-          onChange={setDay12}
-          disabled={locked}
-          label="יום 12 שעות (06:45-18:45)"
-          description="אם תסמן, ייתכן שתשובץ למשמרת ארוכה בימים שסימנת בהם בוקר."
-        />
-        <Toggle
-          checked={canWork12hNight}
-          onChange={setNight12}
-          disabled={locked}
-          label="לילה 12 שעות (18:45-06:45)"
-          description="אם תסמן, ייתכן שתשובץ למשמרת ארוכה בימים שסימנת בהם לילה."
-        />
+      {/* ---------------- 12h summary + bulk actions ---------------- */}
+      <Card className="space-y-3">
+        <div>
+          <p className="font-bold text-slate-900">משמרות 12 שעות</p>
+          <p className="mt-0.5 text-sm text-slate-500">
+            אופציונלי, ונבחר לכל יום בנפרד. משמרת 12 שעות נחשבת כמשמרת אחת בלבד לצורך הכמות
+            השבועית.
+          </p>
+        </div>
+
+        {(['morning', 'night'] as const).map((shift) => {
+          const ext = SHIFTS[EXTENDED_OF[shift]];
+          const selected = countSelected(shift);
+          const opted = count12h(shift);
+          return (
+            <div
+              key={shift}
+              className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2.5"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-slate-800">
+                  {ext.he} <span className="num font-normal text-slate-500">{ext.label}</span>
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {selected === 0
+                    ? `סמן ${SHIFTS[shift].he} בימים שתרצה, ואז אפשר להאריך אותם`
+                    : `${opted} מתוך ${selected} ימי ${SHIFTS[shift].he} מסומנים`}
+                </p>
+              </div>
+              {selected > 0 && (
+                <Button
+                  size="sm"
+                  variant={opted === selected ? 'secondary' : 'primary'}
+                  disabled={locked}
+                  onClick={() => setAll12h(shift, opted !== selected)}
+                >
+                  {opted === selected ? 'נקה הכול' : 'בכל הימים'}
+                </Button>
+              )}
+            </div>
+          );
+        })}
       </Card>
 
       {/* ---------------- summary ---------------- */}

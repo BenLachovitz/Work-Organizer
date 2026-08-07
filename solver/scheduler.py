@@ -49,9 +49,11 @@ def solve(inp: SolverInput, time_limit_s: float = 20.0, workers: int = 8) -> Sol
             marked = set(g.availability.get(str(d), []))
             for s in SHIFT_TYPES:
                 eligible = REQUIRES_BASE[s] in marked
-                if s == "day12" and not g.can_work_12h_day:
+                # Per-day opt-in: willing to do a long Monday says nothing
+                # about Tuesday.
+                if s == "day12" and d not in g.twelve_hour_day:
                     eligible = False
-                if s == "night12" and not g.can_work_12h_night:
+                if s == "night12" and d not in g.twelve_hour_night:
                     eligible = False
                 x[gi, d, s] = (
                     model.NewBoolVar(f"x_{gi}_{d}_{s}") if eligible else model.NewConstant(0)

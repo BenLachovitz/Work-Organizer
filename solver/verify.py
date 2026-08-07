@@ -60,10 +60,11 @@ def verify(inp: SolverInput, assignments: list[Assignment]) -> tuple[list[str], 
             violations.append(
                 f"H1: {g.id} assigned {a.shift} on day {a.day} without marking {REQUIRES_BASE[a.shift]}"
             )
-        if a.shift == "day12" and not g.can_work_12h_day:
-            violations.append(f"H2: {g.id} assigned day12 without the opt-in")
-        if a.shift == "night12" and not g.can_work_12h_night:
-            violations.append(f"H2: {g.id} assigned night12 without the opt-in")
+        # The opt-in is per day: a long Monday says nothing about Tuesday.
+        if a.shift == "day12" and a.day not in g.twelve_hour_day:
+            violations.append(f"H2: {g.id} assigned day12 on day {a.day} without opting it in")
+        if a.shift == "night12" and a.day not in g.twelve_hour_night:
+            violations.append(f"H2: {g.id} assigned night12 on day {a.day} without opting it in")
 
     # --- H3 one shift per day, H4 weekly ceiling -----------------------------
     by_guard_day: dict[tuple[str, int], list[str]] = {}

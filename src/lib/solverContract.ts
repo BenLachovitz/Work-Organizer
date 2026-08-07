@@ -28,10 +28,16 @@ export const solverGuardSchema = z.object({
   display_name: z.string().optional(),
   /** Already lowered by min(configured, available_days, 5) before it gets here. */
   effective_kamut: z.number().int().min(0).max(5),
-  can_work_12h_day: z.boolean(),
-  can_work_12h_night: z.boolean(),
   /** Day index "0".."6" (Sunday-first) -> the base shifts they marked. */
   availability: z.record(z.string(), z.array(baseShiftSchema)),
+  /**
+   * Day indices on which the guard will extend to a 12h shift. Per day, not
+   * per week: someone can be willing to do a long Monday and a short Tuesday.
+   * Eligibility is the AND of availability and this list --
+   *   day12 on day d  <=>  'morning' in availability[d] and d in twelve_hour_day
+   */
+  twelve_hour_day: z.array(z.number().int().min(0).max(6)).default([]),
+  twelve_hour_night: z.array(z.number().int().min(0).max(6)).default([]),
 });
 
 export const solverInputSchema = z.object({

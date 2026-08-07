@@ -153,6 +153,22 @@ for (const file of files) {
       : bad('12h', 'no extended shifts scheduled despite opt-ins');
   }
 
+  if (file.startsWith('08-')) {
+    // Everyone is available all week but will only extend on Monday and
+    // Tuesday. An engine that still reads the opt-in as week-level would
+    // schedule 12h shifts on other days and fail here.
+    const extended = output.assignments.filter(
+      (a) => a.shift === 'day12' || a.shift === 'night12',
+    );
+    const strays = extended.filter((a) => a.day !== 1 && a.day !== 2);
+    strays.length === 0
+      ? ok(`12h shifts confined to the opted-in days (${extended.length} on Mon/Tue)`)
+      : bad('per-day opt-in', `${strays.length} extended shifts outside Mon/Tue`);
+    extended.length > 0
+      ? ok('12h shifts still used on the days that were opted in')
+      : bad('per-day opt-in', 'no 12h shift scheduled at all -- opt-in ignored entirely');
+  }
+
   if (file.startsWith('07-')) {
     const sunday = new Map(
       output.assignments.filter((a) => a.day === 0).map((a) => [a.guard_id, a.shift]),

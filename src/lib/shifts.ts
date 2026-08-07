@@ -228,24 +228,27 @@ export function isRestViolation(prev: ShiftType, next: ShiftType): boolean {
 // Eligibility (spec 3.3)
 // ---------------------------------------------------------------------------
 
-export interface OptIns {
-  canWork12hDay: boolean;
-  canWork12hNight: boolean;
+/** Which days a guard will extend, per extended shift type. */
+export interface TwelveHourOptIns {
+  day: readonly number[];
+  night: readonly number[];
 }
 
 /**
- * A guard may be assigned `shift` on a day only if they marked the underlying
- * base shift AND, for the extended grid, opted in for that week.
+ * A guard may be assigned `shift` on `dayIndex` only if they marked the
+ * underlying base shift for that day AND, for the extended grid, opted that
+ * specific day in. The opt-in is per day, not per week.
  */
 export function isEligible(
   shift: ShiftType,
+  dayIndex: number,
   markedBaseShifts: readonly BaseShift[],
-  optIns: OptIns,
+  optIns: TwelveHourOptIns,
 ): boolean {
   const def = SHIFTS[shift];
   if (!markedBaseShifts.includes(def.requiresBase)) return false;
-  if (shift === 'day12') return optIns.canWork12hDay;
-  if (shift === 'night12') return optIns.canWork12hNight;
+  if (shift === 'day12') return optIns.day.includes(dayIndex);
+  if (shift === 'night12') return optIns.night.includes(dayIndex);
   return true;
 }
 

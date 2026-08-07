@@ -31,8 +31,6 @@ export interface WeeklySubmission {
   id: string;
   guard_id: string;
   week_start: string;
-  can_work_12h_day: boolean;
-  can_work_12h_night: boolean;
   submitted_at: string;
   updated_at: string;
 }
@@ -43,6 +41,8 @@ export interface WishPreference {
   week_start: string;
   target_date: string;
   shift: BaseShift;
+  /** Extend this specific shift to 12h. morning -> day12, night -> night12. */
+  allows_12h: boolean;
   strength: 1 | 2;
   created_at: string;
 }

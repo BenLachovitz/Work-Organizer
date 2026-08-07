@@ -28,12 +28,7 @@ export function Preferences() {
 
   const handleSubmit = (value: PreferenceFormValue) => {
     save.mutate(
-      {
-        weekStart: active.weekStart,
-        slots: selectionToSlots(value.slots),
-        canWork12hDay: value.canWork12hDay,
-        canWork12hNight: value.canWork12hNight,
-      },
+      { weekStart: active.weekStart, slots: selectionToSlots(value.slots) },
       { onSuccess: () => setSavedAt(new Date()) },
     );
   };
@@ -75,8 +70,6 @@ export function Preferences() {
 
   const initial: PreferenceFormValue = {
     slots: rowsToSelection(guardWeek?.preferences ?? []),
-    canWork12hDay: guardWeek?.submission?.can_work_12h_day ?? false,
-    canWork12hNight: guardWeek?.submission?.can_work_12h_night ?? false,
   };
 
   return (

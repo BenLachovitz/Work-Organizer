@@ -68,6 +68,22 @@ async function signIn(code, pin) {
 const clearAttempts = () =>
   sql(`DELETE FROM claim_attempts WHERE employee_code IN ('${GUARD_CODE}','${MGR_CODE}','999999','000000')`);
 
+/**
+ * Snapshot of the real badge codes taken before the run.
+ *
+ * The invariant is that the tests do not DISTURB real codes -- not that no real
+ * code is ever claimed. Ben has genuinely registered 005396, and asserting a
+ * hard zero here would turn his real usage into a permanent test failure.
+ */
+let realCodeBaseline = '';
+
+const realCodeState = async () => {
+  const rows = await sql(
+    `SELECT employee_code, is_claimed, claim_enabled FROM roster_codes
+      WHERE employee_code NOT LIKE '99%' ORDER BY employee_code`);
+  return JSON.stringify(rows);
+};
+
 async function setup() {
   await sql(`
     DELETE FROM auth.users WHERE email LIKE '9900%@guards.local';
@@ -90,6 +106,7 @@ async function teardown() {
 async function run() {
   console.log('\n\x1b[1mGATE B -- badge registration + login (live Edge Function)\x1b[0m');
   console.log(`project: ${REF}\n`);
+  realCodeBaseline = await realCodeState();
   await setup();
 
   console.log('\x1b[1m1. Code lookup\x1b[0m');
@@ -213,8 +230,10 @@ async function run() {
 
   console.log('\n\x1b[1m6. Real seeded codes remain untouched\x1b[0m');
   {
-    const rows = await sql(`SELECT COUNT(*)::int AS n FROM roster_codes WHERE is_claimed AND employee_code NOT LIKE '99%'`);
-    rows[0].n === 0 ? ok('none of the 10 real badge codes were consumed by tests') : bad('real codes', `${rows[0].n} claimed`);
+    const after = await realCodeState();
+    after === realCodeBaseline
+      ? ok('real badge codes are byte-for-byte unchanged by the test run')
+      : bad('real codes', `state changed\n  before: ${realCodeBaseline}\n  after:  ${after}`);
   }
 
   await teardown();

@@ -13,8 +13,6 @@
     {
       "id": "solo",
       "effective_kamut": 5,
-      "can_work_12h_day": false,
-      "can_work_12h_night": false,
       "availability": {
         "0": [
           "morning",
@@ -51,7 +49,9 @@
           "afternoon",
           "night"
         ]
-      }
+      },
+      "twelve_hour_day": [],
+      "twelve_hour_night": []
     }
   ]
 }
