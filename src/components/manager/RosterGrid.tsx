@@ -73,14 +73,16 @@ function Chip({
   return (
     <span
       className={cn(
-        'block truncate rounded px-1.5 py-1 text-[11px] font-semibold text-white',
+        'block truncate rounded px-1.5 py-1 text-center text-[11px] font-semibold text-white',
         className,
       )}
       style={{ backgroundColor: SHIFTS[assignment.shift].colorVar }}
       title={`${SHIFTS[assignment.shift].he} ${SHIFTS[assignment.shift].label}`}
     >
       {name}
-      {suffix && <span className="num font-normal opacity-90"> {suffix}</span>}
+      {/* ms-1 rather than a literal space: JSX strips whitespace at a line
+          boundary, which is why this rendered as "בןמ 18:45". */}
+      {suffix && <span className="num ms-1 font-normal opacity-90">{suffix}</span>}
     </span>
   );
 }
@@ -133,7 +135,9 @@ export function RosterGrid({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[52rem] border-separate border-spacing-1 p-3">
+        {/* Narrower than before: stacking the handover means a column only has
+            to fit one name, not two side by side. */}
+        <table className="w-full min-w-[38rem] border-separate border-spacing-1 p-3">
           <thead>
             <tr>
               <th className="w-24" />
@@ -216,28 +220,32 @@ export function RosterGrid({
                             name={nameOf(r.full.guard_id)}
                           />
                         ) : (
-                          // The handover, read right-to-left: earlier first.
-                          <div key={i} className="flex items-stretch gap-1">
+                          // The handover, stacked rather than side by side.
+                          // Laid out horizontally it forced every column wide
+                          // enough for two names, which stretched the whole
+                          // grid. Stacked and tightly grouped, the pair still
+                          // reads as one slot: earlier on top, later beneath.
+                          <div
+                            key={i}
+                            className="space-y-0.5 rounded-md bg-white/70 p-0.5 ring-1 ring-slate-200"
+                          >
                             {r.early ? (
                               <Chip
                                 assignment={r.early}
                                 name={nameOf(r.early.guard_id)}
-                                className="min-w-0 flex-1"
+                                suffix="עד 18:45"
                               />
                             ) : (
-                              <Gap />
+                              <Gap label="עד 18:45" />
                             )}
-                            <span className="self-center text-[10px] font-bold text-slate-400">
-                              /
-                            </span>
                             {r.late ? (
                               <Chip
                                 assignment={r.late}
                                 name={nameOf(r.late.guard_id)}
-                                className="min-w-0 flex-1"
+                                suffix="מ 18:45"
                               />
                             ) : (
-                              <Gap />
+                              <Gap label="מ 18:45" />
                             )}
                           </div>
                         ),
@@ -294,10 +302,10 @@ function Empty() {
 }
 
 /** An uncovered half of a handover -- shown, not hidden. */
-function Gap() {
+function Gap({ label }: { label?: string }) {
   return (
-    <span className="grid min-w-0 flex-1 place-items-center rounded bg-rose-100 px-1.5 py-1 text-[11px] font-bold text-rose-600 ring-1 ring-rose-200">
-      —
+    <span className="block rounded bg-rose-100 px-1.5 py-1 text-center text-[11px] font-bold text-rose-600 ring-1 ring-rose-200">
+      —{label && <span className="num ms-1 font-normal opacity-70">{label}</span>}
     </span>
   );
 }
