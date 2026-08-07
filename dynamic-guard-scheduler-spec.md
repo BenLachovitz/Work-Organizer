@@ -1,5 +1,5 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
-**Version:** 2.1 (revised after the F1-F5 fine-tuning batch)
+**Version:** 2.2 (all five build steps complete; solver awaiting deployment)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 6 August 2026
@@ -41,6 +41,18 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | 16 | 12h opt-in becomes **per day**, stored as `allows_12h` on the preference row | A guard willing to do one long day should not have to accept a long week |
 | 17 | Weeks are **auto-created** by `ensure_roster_weeks()`; hand-seeded weeks removed | Scaffolding went stale as real dates passed |
 | 18 | Past weeks are **manager-only**, enforced in RLS | A guard holding the publishable key can query PostgREST directly |
+
+### 1.3 Changes in Version 2.2
+
+| # | Change | Rationale |
+|---|---|---|
+| 19 | Submission window **opens Saturday 20:00** (`week_start − 8`) and closes Wednesday 19:00 | Gives guards the weekend plus Sun–Wed; keeps exactly two weeks live |
+| 20 | `ensure_roster_weeks()` manages **exactly the current week and the next** | An earlier version walked forward until it found an open window, producing a third live week for part of every cycle |
+| 21 | Manager status changes go through **`set_week_status()`** and are permanent | The automatic sweep was silently reverting them — see §12.3 |
+| 22 | Reopening an expired week **extends the deadline**; locking again **clears the extension** | `is_week_open()` also gates on the deadline, so flipping status alone changed nothing observable |
+| 23 | Generation orchestrated **client-side**; the Edge Function is a thin secret-holding proxy | Putting solver logic in Deno would create a third copy of rules that already exist twice |
+| 24 | A generated roster is **refused if it fails the referee**, never stored on the solver's word | Better a visible failure than a roster that quietly contains a clopen |
+| 25 | Roster grid laid out in **three time blocks with an 18:45 handover cell** | Matches the spreadsheet the manager already used; segment rows hid that a `day12` guard covers two windows at once |
 
 ---
 
@@ -104,6 +116,25 @@ Both grids tile the same 24 hours on four boundaries: **06:45 / 14:45 / 18:45 / 
 - The **target is a hard ceiling** — the solver never over-staffs a segment.
 - The **floor is a soft constraint with a heavy penalty** (weight 1000). It is effectively never breached, but a breach returns a readable *coverage report* instead of a bare `INFEASIBLE`.
 - It is fully acceptable for segments to sit between floor and target. The solver satisfies floors first, then כמות, then fills remaining target slots.
+
+### 2.4a Submission Window
+
+A week's submission window is derived, not stored:
+
+```
+week W starts on a Sunday
+  opens   Saturday  (W − 8) at 20:00 Asia/Jerusalem
+  closes  Wednesday (W − 4) at 19:00 Asia/Jerusalem
+```
+
+For W = Sunday 16 Aug: opens Sat 8 Aug 20:00, closes Wed 12 Aug 19:00. Next week's window is
+therefore already open when the current week begins and shuts on the Wednesday — which is what
+keeps exactly **two** weeks live at a time (three for a few hours each Saturday evening, which is
+inherent to a mid-week deadline rather than a defect).
+
+`ensure_roster_weeks()` is idempotent and runs on every app load. It creates the current week and
+the next one, opens or locks them against their windows, and **never touches a week whose status a
+manager has set by hand** (§12.3).
 
 ### 2.5 Capacity Analysis (why floors must be soft)
 
@@ -180,6 +211,13 @@ Per week, each guard submits:
 ### 3.2 Availability Is Hard
 
 The solver will **never** assign a guard to a slot they did not mark. If that leaves a segment below target, the shortfall is reported to the manager rather than silently overridden. This is a deliberate trade: guard trust over automatic coverage.
+
+> **Open tension (§13 item 6).** The manager's stated rule is *"we can't have an unoccupied shift"* —
+> in practice he would phone somebody who had not volunteered. Under the current model the solver
+> cannot do that; it reports the empty shift instead. Making availability **soft** (penalised below a
+> floor breach but above a target gap) would let it draft an unmarked guard only when the alternative
+> is an empty shift. On the first real dataset CP-SAT achieved **zero** floor breaches without it, so
+> this is insurance rather than a fix — but it is a genuine unresolved decision.
 
 ### 3.3 12h Eligibility Derivation
 
@@ -304,6 +342,9 @@ CREATE TABLE roster_weeks (
   morning_target_slots INT NOT NULL DEFAULT 2 CHECK (morning_target_slots IN (2, 3)),
   submission_deadline  TIMESTAMPTZ NOT NULL,
   status               week_status NOT NULL DEFAULT 'open',
+  -- v2.2: set when a manager changes status by hand. ensure_roster_weeks()
+  -- skips such weeks permanently, so automation cannot revert a human decision.
+  status_overridden_at TIMESTAMPTZ,
   created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -407,6 +448,21 @@ RETURNS BOOLEAN LANGUAGE SQL SECURITY DEFINER STABLE SET search_path = public AS
 $$;
 ```
 
+**Other helpers** (full definitions live in `supabase/migrations/`, which is the source of truth —
+the snippets here are illustrative and can drift):
+
+| Function | Purpose |
+|---|---|
+| `current_week_start()` | The Sunday starting the week containing today, in Asia/Jerusalem |
+| `deadline_for_week(d)` | Wednesday 19:00, `week_start − 4` |
+| `opens_for_week(d)` | Saturday 20:00, `week_start − 8` |
+| `ensure_roster_weeks()` | Idempotent lifecycle: creates and opens/locks the current week and the next (§12.1) |
+| `set_week_status(d, s, h)` | Manager override; extends or clears the deadline and stamps `status_overridden_at` (§12.3) |
+| `save_week_preferences(d, jsonb)` | Atomic replace of one guard's week; `SECURITY INVOKER`, so RLS still applies |
+| `carry_in_shifts(d)` | Previous Saturday's published shifts, for cross-week rest (§2.8) |
+| `next_run_version(d)` | Next draft version number for a week |
+| `claim_rate_ok` / `record_claim_attempt` | Badge-claim throttling (§8) |
+
 ### 7.2 Policies
 
 ```sql
@@ -484,9 +540,11 @@ CREATE POLICY targets_read ON weekly_guard_targets
 CREATE POLICY targets_manager_write ON weekly_guard_targets
   FOR ALL TO authenticated USING (is_manager()) WITH CHECK (is_manager());
 
--- schedule_runs: guards see published runs only; drafts are manager-only.
+-- schedule_runs: guards see a published run only for the CURRENT or a future
+-- week. Past weeks are manager-only (§12.2) and the cut is absolute.
 CREATE POLICY runs_read ON schedule_runs
-  FOR SELECT TO authenticated USING (is_published OR is_manager());
+  FOR SELECT TO authenticated
+  USING (is_manager() OR (is_published AND week_start >= current_week_start()));
 CREATE POLICY runs_manager_write ON schedule_runs
   FOR ALL TO authenticated USING (is_manager()) WITH CHECK (is_manager());
 
@@ -494,7 +552,9 @@ CREATE POLICY runs_manager_write ON schedule_runs
 CREATE POLICY assign_read ON schedule_assignments
   FOR SELECT TO authenticated USING (
     EXISTS (SELECT 1 FROM schedule_runs r
-            WHERE r.id = run_id AND (r.is_published OR is_manager()))
+            WHERE r.id = schedule_assignments.run_id
+              AND (is_manager()
+                   OR (r.is_published AND r.week_start >= current_week_start())))
   );
 CREATE POLICY assign_manager_write ON schedule_assignments
   FOR ALL TO authenticated USING (is_manager()) WITH CHECK (is_manager());
@@ -536,19 +596,37 @@ Supabase Edge Functions run Deno and **cannot execute Python or OR-Tools**. The 
 
 ```
 [React / Vercel]
-      │  manager clicks "צור סידור"
+      │  1. manager clicks "צור סידור"
+      │  2. reads guards/prefs/targets/carry-in   (manager RLS)
+      │  3. computes effective_kamut              (§2.7)
+      │  4. builds SolverInput
       ▼
 [Supabase Edge Function: generate-schedule]   ← holds SOLVER_SECRET
-      │  1. verifies caller is a manager
-      │  2. reads prefs/targets/controls/carry-in
-      │  3. computes effective_kamut  (§2.7)
-      │  4. POSTs SolverInput  ──────────────► [Render: FastAPI + CP-SAT]
-      │  5. writes schedule_runs + assignments ◄── SolverOutput
+      │  5. re-checks the caller is a manager, server-side, using their own JWT
+      │  6. forwards SolverInput  ─────────────► [Render: FastAPI + CP-SAT]
+      ▼                                       ◄── SolverOutput
+[React / Vercel]
+      │  7. verifySchedule() re-derives the report and REFUSES an illegal roster
+      │  8. writes schedule_runs + assignments   (manager RLS)
       ▼
 [Supabase Postgres]
 ```
 
-The solver secret never reaches the browser. Note that Render's free tier sleeps after 15 minutes idle (~50s cold start); the UI shows a "מחמם מנוע…" state on first call.
+**The Edge Function is deliberately thin.** It does only the two things the browser cannot: hold
+`SOLVER_SECRET`, and re-check the caller's role server-side. It does *not* gather data, compute
+`effective_kamut`, verify the result or write the roster — that would mean a third Deno copy of
+rules that already exist twice (TypeScript and Python), and the twin-referee design depends on
+there being exactly two implementations held in step by shared fixtures. Every write the client
+makes afterwards is still governed by RLS, which does not trust the client's claim about its role.
+
+**Fallback.** If the solver is unreachable — Render's free tier sleeps after 15 minutes idle, with
+roughly a 50-second cold start — the app falls back to the in-browser mock rather than failing. The
+mock is always *legal* (every hard rule is checked before each assignment) but not optimal; see
+§9.4.
+
+**Nothing is stored on the solver's word.** The assignments come back, `verifySchedule()` recomputes
+the coverage report and objective from scratch, and a roster that breaks a hard rule is refused
+rather than saved.
 
 ### 9.2 Solver Contract
 
@@ -707,6 +785,30 @@ def generate_schedule(inp):
     # ... marshal assignments + coverage_report per §9.2 ...
 ```
 
+### 9.4 Mock versus CP-SAT — measured, not assumed
+
+Both engines are held to the same referee over the same fixtures, so their outputs are directly
+comparable. On the first real week of team availability (8 guards, morning target 2):
+
+| | mock (greedy) | CP-SAT |
+|---|---|---|
+| Assignments | 29 | **33** |
+| Floor breaches (empty shifts) | **2** | **0** |
+| Guards short of כמות | 1 | **0** |
+| Target gaps | 7 | **5** |
+| Objective | −2266 | **−37** |
+
+The mock is a hill-climber: it takes the best single move available and stops when nothing improves
+the score, so it cannot back out of a good-looking early choice that blocks a later one. It got
+*worse* when the input improved, because more 12h options give a greedy algorithm more ways to go
+wrong.
+
+**The mock is a fallback, not the product.** Rosters judged during development should come from
+CP-SAT, or the model will be tuned against an engine that will not ship.
+
+The five remaining target gaps on that dataset were genuine capacity: five of the eight guards sat
+at the 5-shift ceiling. No solver can fix that — only more people, a higher cap, or more 12h uptake.
+
 ---
 
 ## 10. FRONTEND STACK
@@ -721,7 +823,35 @@ def generate_schedule(inp):
 | Backend SDK | `@supabase/supabase-js` v2 |
 | Live updates | Supabase Realtime on `schedule_runs` — publishing pushes to phones instantly |
 
-> **Environment variables:** Vite exposes only `VITE_`-prefixed variables. Use `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` — the `NEXT_PUBLIC_*` names in v1 of this document were a Next.js convention and would resolve to `undefined` here.
+> **Environment variables:** Vite exposes only `VITE_`-prefixed variables. Use `VITE_SUPABASE_URL`
+> and `VITE_SUPABASE_PUBLISHABLE_KEY` (Supabase replaced the legacy `anon` JWT with
+> `sb_publishable_…`; the client accepts either). The `NEXT_PUBLIC_*` names in v1 of this document
+> were a Next.js convention and resolve to `undefined` here.
+>
+> `VITE_SOLVER_MODE` selects the engine: `mock` runs in the browser, `remote` calls the Edge
+> Function. Server-only values — `SUPABASE_ACCESS_TOKEN`, `SOLVER_SECRET`, `SOLVER_URL` — must never
+> carry a `VITE_` prefix, which would publish them in the browser bundle.
+
+### 10.1 Roster Grid Layout
+
+The generated roster is rendered in the **three time blocks the manager's own spreadsheet uses**,
+not as the four raw coverage segments:
+
+```
+בוקר      ניתאי                 a plain 8h morning
+          ים עד 18:45           a day12, working through to 18:45
+צהריים    לוק                   a plain 8h afternoon, covers the whole block
+          ים / שלי              the 18:45 HANDOVER, stacked in one cell
+לילה      שלי מ 18:45           a night12, on since 18:45
+```
+
+A `day12` guard therefore appears **twice** — in the morning block and as the first half of the
+afternoon handover — because that is what they are actually doing. Segment rows showed the same
+facts but in a shape nobody reads a roster in: a morning row and an afternoon row would each look
+short by one while the day was fully staffed.
+
+An uncovered half of a handover is labelled with the **window that is empty** (`ריק 14:45-18:45`)
+rather than with a 12h suffix, which would imply a shift nobody is working.
 
 ---
 
@@ -731,11 +861,31 @@ def generate_schedule(inp):
 [Local]
    │ git push
    ▼
-[GitHub: work-orgenizer] ──► [Vercel]  React app        (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)
+[GitHub: work-orgenizer] ──► [Vercel]  React app        (VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY, VITE_SOLVER_MODE)
                          ──► [Render]  FastAPI + CP-SAT (SOLVER_SECRET)
                                   ▲
-                         [Supabase]  Postgres + Auth + Edge Functions (SERVICE_ROLE_KEY, SOLVER_URL, SOLVER_SECRET)
+                         [Supabase]  Postgres + Auth + Edge Functions (SOLVER_URL, SOLVER_SECRET)
 ```
+
+**Migrations** are applied over HTTPS by `npm run db:apply`, which keeps a `schema_migrations`
+ledger and skips what is already applied. This matters on the current development machine: outbound
+Postgres ports (5432/6543) are firewalled, so `DATABASE_URL` cannot be used and the Supabase
+Management API is the only route in.
+
+### 11.1 Render Setup
+
+1. Push the repository to GitHub (Render deploys from a Git remote).
+2. render.com → **New → Blueprint** → select the repo. It reads `solver/render.yaml` and configures
+   the service itself: Python, `rootDir: solver`, `pip install -r requirements.txt`,
+   `uvicorn main:app`, health check on `/health`.
+3. In the Render dashboard set **`SOLVER_SECRET`** to any long random string. It is marked
+   `sync: false` in the blueprint precisely so it is never committed.
+4. In Supabase → Edge Functions → Secrets, set **the same `SOLVER_SECRET`** plus **`SOLVER_URL`**
+   (the Render URL, no trailing `/solve` — the function appends it).
+5. Set `VITE_SOLVER_MODE=remote` locally and in Vercel.
+
+The secret never reaches the browser: the client calls the Edge Function with its own session, and
+only the function knows the token that Render will accept.
 
 ---
 
@@ -746,19 +896,114 @@ def generate_schedule(inp):
 3. **Pre-flight.** The system computes `effective_kamut` and shows any auto-overrides for review.
 4. **Generate.** CP-SAT returns an optimal draft plus a coverage report (floor breaches, target gaps, unmet כמות, rest violations).
 5. **Audit.** Manager reviews the colour-coded grid, makes manual swaps, and assigns posts (סריקה / בוטקה / בקרה / שמירה).
-6. **Publish.** The run is marked `is_published`; Realtime pushes it to every guard's phone. Saturday's assignments become next week's carry-in.
+6. **Publish.** The run is marked `is_published`. The partial unique index guarantees at most one
+   published roster per week; publishing a different version replaces the previous one. Saturday's
+   assignments become next week's carry-in.
+
+### 12.1 Week Lifecycle
+
+Weeks are never created by hand. `ensure_roster_weeks()` runs on every app load and is idempotent:
+it creates the current week and the next, and opens or locks each against its window (§2.4a). The
+pair advances on its own. Because the deadline is enforced live by `is_week_open()`, a guard cannot
+submit late even if nobody has opened the app for days.
+
+> The sweep only runs when **somebody opens the app**. If that is not good enough, Supabase's
+> `pg_cron` can call `ensure_roster_weeks()` on a schedule. Not currently configured.
+
+### 12.2 Archive
+
+Past weeks remain stored and are **manager-only**, enforced in RLS rather than by hiding a route: a
+guard holding the publishable key can query PostgREST directly. The cut is **absolute** — a guard
+sees nothing from a finished week, not even a shift they personally worked. The manager reaches
+them through the "שבועות אחרים" toggle.
+
+### 12.3 Manager Override Beats Automation
+
+Twice during development an automatic rule silently overruled a human decision, and both were bugs:
+
+1. A badge code auto-disabled after failed claims — which an unauthenticated stranger could trigger,
+   permanently locking a guard out of registering (removed in migration 6).
+2. The week sweep re-locked any week past its deadline, reverting the manager's "reopen" within
+   milliseconds (fixed in migrations 11–12).
+
+The rule that came out of it: **a manager's explicit action is recorded (`status_overridden_at`) and
+the automation hands that week over permanently.** Reopening also extends the deadline, because
+`is_week_open()` gates on the deadline as well as the status — changing the status alone would have
+changed nothing observable. Locking again clears the extension, but only once the canonical deadline
+has genuinely passed, so locking a week *early* cannot accidentally become an extension.
 
 ---
 
 ## 13. OPEN ITEMS
 
-| # | Item | Default if unanswered |
+| # | Item | Status / default |
 |---|---|---|
 | 1 | 2-level preference strength (`יכול` / `מעדיף`) | **Deferred** — column reserved, POC uses the single-level form |
 | 2 | `night → next-day afternoon` is legal at exactly 8h rest | Allowed with −5 penalty, per §2.6 |
-| 5 | `day12 → day12` on consecutive days is unpenalised (12h rest) | Allowed; bounded only by the 5-shift ceiling |
-| 3 | Fairness/rotation of weekend shifts across guards | Not modelled in v2.0 |
-| 4 | Israeli public holidays | Treated as ordinary days |
+| 3 | `day12 → day12` on consecutive days is unpenalised (12h rest) | Allowed; bounded only by the 5-shift ceiling |
+| 4 | Fairness / rotation of weekend and night shifts across guards | Not modelled |
+| 5 | Public holidays | Treated as ordinary days |
+| 6 | **Should availability be soft?** (§3.2) | Currently **hard**. Unresolved — see the note in §3.2 |
+| 7 | Posts (סריקה / בוטקה / בקרה / שמירה) | **Dropped at Ben's request.** Column remains nullable and unused |
+| 8 | `pg_cron` for the week sweep | Not configured; the sweep runs on app load (§12.1) |
 
 ---
-*Specification v2.0 — revised 6 August 2026.*
+
+## 14. BUILD STATUS AND ROADMAP
+
+### 14.1 What is built
+
+| Step | Scope | State |
+|---|---|---|
+| **A** | Schema, RLS, seed, helper functions | ✅ complete |
+| **B** | Badge-code + PIN auth, `claim-code` Edge Function | ✅ complete, deployed |
+| **C** | Guard preference submission, atomic save RPC | ✅ complete |
+| **D** | Manager dashboard: week controls, coverage matrix, כמות editor | ✅ complete |
+| **E** | Solver contract, twin referees, mock + CP-SAT, generate → publish | ✅ built; **CP-SAT not deployed** |
+| **F1–F5** | Fine-tuning batch (per-day 12h, week lifecycle, Mon–Fri target, archive, US week) | ✅ complete |
+
+### 14.2 Verification
+
+Eight suites, all green. Every gate runs against the live project except the PGlite one.
+
+| Suite | Command | Covers |
+|---|---|---|
+| Gate A (local) | `npm run test:rls` | RLS logic in PGlite, all migrations applied from disk |
+| Gate A (cloud) | `node supabase/tests/rls.cloud.test.mjs` | RLS through real PostgREST + GoTrue JWTs |
+| Gate B | `node supabase/tests/auth.cloud.test.mjs` | Badge claim, PIN login, rate limiting |
+| Gate B (client) | `node supabase/tests/client.cloud.test.mjs` | The `supabase-js` path the browser runs |
+| Gate C | `node supabase/tests/preferences.cloud.test.mjs` | Persistence, atomicity, deadline, isolation |
+| Gate D | `node supabase/tests/manager.cloud.test.mjs` | Week controls, כמות, lock/reopen override |
+| Gate E (cloud) | `npm run test:generate` | Generate → verify stored rows → publish |
+| Gate E (engines) | `npm run test:fixtures`, `solver/tests/test_scheduler.py` | 8 golden fixtures, both engines |
+
+`npm run test:cloud` runs all six cloud suites. `npm run test:compare` asserts CP-SAT never scores
+below the mock.
+
+### 14.3 What is left
+
+| # | Task | Blocked on |
+|---|---|---|
+| 1 | **Push to GitHub** | Ben creating the repo |
+| 2 | **Deploy the solver to Render** (§11.1), flip `VITE_SOLVER_MODE=remote` | (1) |
+| 3 | **Deploy the frontend to Vercel** — the only step that puts this on guards' phones | (1) |
+| 4 | Collect the team's real badge codes and replace `100001`–`100009` | Ben |
+| 5 | Decide open item 6 (soft availability) | Ben |
+
+### 14.4 Local development
+
+```bash
+npm run dev              # Vite dev server on :5173
+npm run db:apply         # apply pending migrations (ledger-tracked, idempotent)
+npm run db:verify        # RLS + reachability audit
+npm run seed:testweek    # load a week of guard availability for hands-on testing
+npm run preview:week     # read-only: what the mock would produce, writes nothing
+npm run preview:cpsat    # the same input through CP-SAT, for comparison
+```
+
+Live project: `atojvgyxqdbmhhycdcsa` (eu-central-1). Credentials live in `.env.local`, which is
+gitignored. **End of project:** revoke the Supabase personal access token and rotate the database
+password — both appear in the development transcript.
+
+---
+*Specification v2.2 — revised 7 August 2026.*
