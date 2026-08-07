@@ -19,6 +19,7 @@ import {
   useUnpublishRun,
 } from '@/hooks/useGenerateSchedule';
 import { useSplitWeeks } from '@/hooks/useWeeks';
+import { useRosterRealtime } from '@/hooks/useRosterRealtime';
 import {
   buildCoverage,
   buildGuardRows,
@@ -58,6 +59,9 @@ export function ManagerDashboard() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const { data: runsRaw } = useScheduleRuns(selected);
   const { data: carryIn } = useCarryIn(selected);
+  // Not for the manager's own edits -- the mutation already invalidates those --
+  // but so a second device, or the phone in their pocket, stays truthful.
+  useRosterRealtime(selected || null);
 
   const runsData = runsRaw ?? { runs: [], assignments: [] };
   // The manager may be looking at any version. Default to the published one if

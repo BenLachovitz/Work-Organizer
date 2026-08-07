@@ -1,9 +1,10 @@
 import { AppShell } from '@/components/layout/AppShell';
 import { ShiftLegend } from '@/components/ShiftChip';
-import { Badge, Card, EmptyState, Spinner, cn } from '@/components/ui';
+import { Alert, Badge, Card, EmptyState, Spinner, cn } from '@/components/ui';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveWeek, useRosterWeeks } from '@/hooks/useWeeks';
 import { usePublishedRoster } from '@/hooks/useGuardPortal';
+import { useRosterRealtime } from '@/hooks/useRosterRealtime';
 import {
   HEBREW_DAYS,
   formatDayMonth,
@@ -33,6 +34,9 @@ export function RosterView() {
     weeks?.find((w) => w.week_start === currentStart)?.week_start ?? active.weekStart;
 
   const { data, isLoading } = usePublishedRoster(weekStart);
+  // Pushes an edit to the screen instead of waiting for the guard to reopen
+  // the app -- the difference between the app holding the roster and being it.
+  const { lastChangeAt } = useRosterRealtime(weekStart);
 
   if (isLoading) {
     return (
@@ -66,6 +70,13 @@ export function RosterView() {
   return (
     <AppShell title="סידור שבועי" subtitle={formatWeekRange(weekStart)}>
       <div className="space-y-3">
+        {lastChangeAt && (
+          <Alert tone="info">
+            הסידור עודכן זה עתה (
+            {lastChangeAt.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}).
+          </Alert>
+        )}
+
         <Card className="py-3">
           <ShiftLegend />
         </Card>

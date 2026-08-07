@@ -4,6 +4,7 @@ import { Alert, Badge, ButtonLink, Card, Spinner } from '@/components/ui';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveWeek } from '@/hooks/useWeeks';
 import { useGuardWeek, useMySchedule } from '@/hooks/useGuardPortal';
+import { useRosterRealtime } from '@/hooks/useRosterRealtime';
 import {
   HEBREW_DAYS,
   dayIndex,
@@ -19,6 +20,7 @@ export function GuardHome() {
   const { data: active, isLoading: weekLoading } = useActiveWeek();
   const { data: guardWeek, isLoading: dataLoading } = useGuardWeek(active.weekStart);
   const { data: assignments, isLoading: schedLoading } = useMySchedule(active.weekStart);
+  const { lastChangeAt } = useRosterRealtime(active.weekStart);
 
   if (weekLoading || dataLoading) {
     return (
@@ -38,6 +40,12 @@ export function GuardHome() {
   return (
     <AppShell title="הסידור שלי" subtitle={formatWeekRange(active.weekStart)}>
       <div className="space-y-4">
+        {lastChangeAt && (
+          <Alert tone="info" title="הסידור עודכן">
+            המנהל שינה את הסידור זה עתה. המשמרות שלך מעודכנות למטה.
+          </Alert>
+        )}
+
         {/* ---------------- my published shifts ---------------- */}
         <Card className="bg-gradient-to-bl from-brand-600 to-brand-800 text-white ring-0">
           <p className="text-sm opacity-80">שלום {profile?.display_name}</p>
