@@ -4,11 +4,14 @@ import { CoverageMatrix } from '@/components/manager/CoverageMatrix';
 import { TeamTable } from '@/components/manager/TeamTable';
 import { WeekControlsPanel } from '@/components/manager/WeekControlsPanel';
 import { RosterGrid } from '@/components/manager/RosterGrid';
+import { RosterEditor } from '@/components/manager/RosterEditor';
 import { CoverageReportPanel } from '@/components/manager/CoverageReportPanel';
 import { Alert, Badge, Button, Card, Spinner } from '@/components/ui';
 import {
+  buildSolverInput,
   useGenerateSchedule,
   usePublishRun,
+  useSaveRunAssignments,
   useScheduleRuns,
 } from '@/hooks/useGenerateSchedule';
 import { useSplitWeeks } from '@/hooks/useWeeks';
@@ -44,6 +47,8 @@ export function ManagerDashboard() {
   const setTarget = useSetGuardTarget();
   const generate = useGenerateSchedule();
   const publish = usePublishRun();
+  const saveEdits = useSaveRunAssignments();
+  const [editing, setEditing] = useState(false);
   const { data: runsRaw } = useScheduleRuns(selected);
 
   const runsData = runsRaw ?? { runs: [], assignments: [] };
@@ -197,12 +202,45 @@ export function ManagerDashboard() {
           <>
             <CoverageReportPanel report={latestRun.coverage_report} guards={data?.guards ?? []} />
 
-            <RosterGrid
-              weekStart={selected}
-              morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
-              assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
-              guards={data?.guards ?? []}
-            />
+            {editing && data ? (
+              <RosterEditor
+                weekStart={selected}
+                morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
+                assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
+                guards={data.guards}
+                // The referee must judge an edit against exactly what the solver
+                // saw, or a hand edit could be called illegal for the wrong reason.
+                solverInput={buildSolverInput(
+                  selected,
+                  (week?.morning_target_slots ?? 2) as MorningTarget,
+                  data,
+                  {},
+                )}
+                saving={saveEdits.isPending}
+                onCancel={() => setEditing(false)}
+                onSave={(draft) =>
+                  saveEdits.mutate(
+                    {
+                      runId: latestRun.id,
+                      weekStart: selected,
+                      assignments: draft.map((d) => ({
+                        date: d.date,
+                        shift: d.shift,
+                        guard_id: d.guard_id,
+                      })),
+                    },
+                    { onSuccess: () => setEditing(false) },
+                  )
+                }
+              />
+            ) : (
+              <RosterGrid
+                weekStart={selected}
+                morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
+                assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
+                guards={data?.guards ?? []}
+              />
+            )}
 
             <Card className="space-y-3">
               <div className="flex items-center justify-between gap-3">
@@ -227,12 +265,24 @@ export function ManagerDashboard() {
                 </Alert>
               )}
 
+              {saveEdits.isError && (
+                <Alert tone="error" title="שמירת העריכה נכשלה">
+                  {saveEdits.error instanceof Error ? saveEdits.error.message : 'נסה שוב.'}
+                </Alert>
+              )}
+
               {!latestRun.is_published ? (
                 <>
+                  {!editing && (
+                    <Button variant="secondary" fullWidth onClick={() => setEditing(true)}>
+                      ערוך את הסידור
+                    </Button>
+                  )}
                   <Button
                     fullWidth
                     size="lg"
                     loading={publish.isPending}
+                    disabled={editing}
                     onClick={() =>
                       publish.mutate({ runId: latestRun.id, weekStart: selected })
                     }

@@ -15,7 +15,7 @@
     "db:bundle": "node supabase/apply.mjs --bundle",
     "test:auth": "node supabase/tests/auth.cloud.test.mjs",
     "test:client": "node supabase/tests/client.cloud.test.mjs",
-    "test:cloud": "node supabase/tests/rls.cloud.test.mjs && node supabase/tests/auth.cloud.test.mjs && node supabase/tests/client.cloud.test.mjs && node supabase/tests/preferences.cloud.test.mjs && node supabase/tests/manager.cloud.test.mjs && node --experimental-strip-types supabase/tests/generate.cloud.test.mjs",
+    "test:cloud": "node supabase/tests/rls.cloud.test.mjs && node supabase/tests/auth.cloud.test.mjs && node supabase/tests/client.cloud.test.mjs && node supabase/tests/preferences.cloud.test.mjs && node supabase/tests/manager.cloud.test.mjs && node --experimental-strip-types supabase/tests/generate.cloud.test.mjs && node supabase/tests/edit.cloud.test.mjs",
     "test:prefs": "node supabase/tests/preferences.cloud.test.mjs",
     "test:manager": "node supabase/tests/manager.cloud.test.mjs",
     "test:fixtures": "node --experimental-strip-types solver/tests/run-fixtures.mjs",
@@ -24,7 +24,8 @@
     "test:generate": "node --experimental-strip-types supabase/tests/generate.cloud.test.mjs",
     "seed:testweek": "node supabase/tests/seed-testweek.mjs",
     "preview:week": "node --experimental-strip-types supabase/tests/preview-week.mjs",
-    "preview:cpsat": "solver/.venv/Scripts/python solver/tests/preview_cpsat.py solver/tests/realweek.json"
+    "preview:cpsat": "solver/.venv/Scripts/python solver/tests/preview_cpsat.py solver/tests/realweek.json",
+    "test:edit": "node supabase/tests/edit.cloud.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.2",

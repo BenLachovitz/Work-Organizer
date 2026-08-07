@@ -271,6 +271,38 @@ export function useGenerateSchedule() {
   });
 }
 
+/**
+ * Replaces a draft run's assignments with a hand-edited set.
+ *
+ * Goes through save_run_assignments rather than a delete-then-insert pair from
+ * the client: a half-applied edit would leave the roster missing people, and a
+ * manager who saw "saved" would have no reason to look again.
+ */
+export function useSaveRunAssignments() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: {
+      runId: string;
+      weekStart: DateKey;
+      assignments: { date: DateKey; shift: ShiftType; guard_id: string }[];
+    }) => {
+      const { error } = await requireSupabase().rpc('save_run_assignments', {
+        p_run_id: args.runId,
+        p_assignments: args.assignments,
+      });
+      if (error) {
+        if (/published/i.test(error.message)) {
+          throw new Error('לא ניתן לערוך סידור שכבר פורסם. בטל את הפרסום קודם.');
+        }
+        throw new Error(error.message);
+      }
+    },
+    onSuccess: (_r, args) => {
+      void qc.invalidateQueries({ queryKey: runKeys.forWeek(args.weekStart) });
+    },
+  });
+}
+
 /** Publishes a draft. The partial unique index guarantees one per week. */
 export function usePublishRun() {
   const qc = useQueryClient();
