@@ -6,14 +6,17 @@ import { WeekControlsPanel } from '@/components/manager/WeekControlsPanel';
 import { RosterGrid } from '@/components/manager/RosterGrid';
 import { RosterEditor } from '@/components/manager/RosterEditor';
 import { CoverageReportPanel } from '@/components/manager/CoverageReportPanel';
-import { Alert, Badge, Button, Card, Spinner } from '@/components/ui';
+import { RunVersions } from '@/components/manager/RunVersions';
+import { Alert, Button, Card, Spinner } from '@/components/ui';
 import {
   buildSolverInput,
   useCarryIn,
+  useDeleteRun,
   useGenerateSchedule,
   usePublishRun,
   useSaveRunAssignments,
   useScheduleRuns,
+  useUnpublishRun,
 } from '@/hooks/useGenerateSchedule';
 import { useSplitWeeks } from '@/hooks/useWeeks';
 import {
@@ -49,14 +52,20 @@ export function ManagerDashboard() {
   const generate = useGenerateSchedule();
   const publish = usePublishRun();
   const saveEdits = useSaveRunAssignments();
+  const unpublish = useUnpublishRun();
+  const deleteRun = useDeleteRun();
   const [editing, setEditing] = useState(false);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const { data: runsRaw } = useScheduleRuns(selected);
   const { data: carryIn } = useCarryIn(selected);
 
   const runsData = runsRaw ?? { runs: [], assignments: [] };
-  // Runs come back newest-version first, so the published one wins if there is
-  // one, otherwise the newest draft.
-  const latestRun = runsData.runs.find((r) => r.is_published) ?? runsData.runs[0] ?? null;
+  // The manager may be looking at any version. Default to the published one if
+  // there is one, otherwise the newest draft; fall back if the chosen run was
+  // just deleted.
+  const defaultRun = runsData.runs.find((r) => r.is_published) ?? runsData.runs[0] ?? null;
+  const latestRun =
+    runsData.runs.find((r) => r.id === selectedRunId) ?? defaultRun;
 
   const week = weeks?.find((w) => w.week_start === selected) ?? null;
   const dates = useMemo(() => (selected ? weekDates(selected) : []), [selected]);
@@ -246,64 +255,39 @@ export function ManagerDashboard() {
               />
             )}
 
-            <Card className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-bold text-slate-900">
-                    גרסה {latestRun.version}
-                    {latestRun.is_published && (
-                      <Badge tone="green" className="ms-2">
-                        מפורסם
-                      </Badge>
-                    )}
-                  </p>
-                  <p className="mt-0.5 text-sm text-slate-500">
-                    {latestRun.solver_status} · ניקוד {latestRun.objective_value}
-                  </p>
-                </div>
-              </div>
+            {(publish.isError || saveEdits.isError || deleteRun.isError || unpublish.isError) && (
+              <Alert tone="error" title="הפעולה נכשלה">
+                {[publish.error, saveEdits.error, deleteRun.error, unpublish.error]
+                  .filter((e): e is Error => e instanceof Error)
+                  .map((e) => e.message)
+                  .join(' · ') || 'נסה שוב.'}
+              </Alert>
+            )}
 
-              {publish.isError && (
-                <Alert tone="error" title="הפרסום נכשל">
-                  {publish.error instanceof Error ? publish.error.message : 'נסה שוב.'}
-                </Alert>
-              )}
-
-              {saveEdits.isError && (
-                <Alert tone="error" title="שמירת העריכה נכשלה">
-                  {saveEdits.error instanceof Error ? saveEdits.error.message : 'נסה שוב.'}
-                </Alert>
-              )}
-
-              {!latestRun.is_published ? (
-                <>
-                  {!editing && (
-                    <Button variant="secondary" fullWidth onClick={() => setEditing(true)}>
-                      ערוך את הסידור
-                    </Button>
-                  )}
-                  <Button
-                    fullWidth
-                    size="lg"
-                    loading={publish.isPending}
-                    disabled={editing}
-                    onClick={() =>
-                      publish.mutate({ runId: latestRun.id, weekStart: selected })
-                    }
-                  >
-                    פרסם לצוות
-                  </Button>
-                  <p className="text-xs text-slate-500">
-                    פרסום הופך את הסידור לגלוי לכל המאבטחים בטלפון. אפשר לפרסם גרסה אחרת אחר כך -
-                    היא תחליף את הקודמת.
-                  </p>
-                </>
-              ) : (
-                <Alert tone="success">
-                  הסידור פורסם והוא גלוי כעת לכל המאבטחים.
-                </Alert>
-              )}
-            </Card>
+            <RunVersions
+              runs={runsData.runs}
+              selectedId={latestRun.id}
+              onSelect={(id) => {
+                setSelectedRunId(id);
+                setEditing(false);
+              }}
+              onPublish={(id) => publish.mutate({ runId: id, weekStart: selected })}
+              onUnpublish={(id) => unpublish.mutate({ runId: id, weekStart: selected })}
+              onEdit={(id) => {
+                setSelectedRunId(id);
+                setEditing(true);
+              }}
+              onDelete={(id) =>
+                deleteRun.mutate(
+                  { runId: id, weekStart: selected },
+                  // The deleted run may have been the one on screen; clearing
+                  // the selection lets it fall back to whatever remains.
+                  { onSuccess: () => setSelectedRunId(null) },
+                )
+              }
+              busy={publish.isPending || unpublish.isPending || deleteRun.isPending}
+              disabled={editing}
+            />
           </>
         )}
       </div>

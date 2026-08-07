@@ -14,6 +14,7 @@ import { verifySchedule } from '@/lib/validate';
 import { solverInputSchema, solverOutputSchema, type SolverInput } from '@/lib/solverContract';
 import type { ManagerWeekData } from '@/hooks/useManager';
 import { managerKeys } from '@/hooks/useManager';
+import { weekKeys } from '@/hooks/useWeeks';
 import type { CoverageReport, ScheduleAssignment, ScheduleRun } from '@/types/database';
 
 export const runKeys = {
@@ -328,6 +329,44 @@ export function useSaveRunAssignments() {
     },
     onSuccess: (_r, args) => {
       void qc.invalidateQueries({ queryKey: runKeys.forWeek(args.weekStart) });
+    },
+  });
+}
+
+/**
+ * Deletes a run and its assignments.
+ *
+ * Allowed on a published roster too. A manager who wants to start over should
+ * not have to work around the app, and refusing would only push the change back
+ * to WhatsApp — the thing this replaces.
+ */
+export function useDeleteRun() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { runId: string; weekStart: DateKey }) => {
+      const { error } = await requireSupabase().rpc('delete_schedule_run', {
+        p_run_id: args.runId,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: (_r, args) => {
+      void qc.invalidateQueries({ queryKey: runKeys.forWeek(args.weekStart) });
+      void qc.invalidateQueries({ queryKey: weekKeys.all });
+    },
+  });
+}
+
+/** Takes a roster off the guards' phones without destroying it. */
+export function useUnpublishRun() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { runId: string; weekStart: DateKey }) => {
+      const { error } = await requireSupabase().rpc('unpublish_run', { p_run_id: args.runId });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: (_r, args) => {
+      void qc.invalidateQueries({ queryKey: runKeys.forWeek(args.weekStart) });
+      void qc.invalidateQueries({ queryKey: weekKeys.all });
     },
   });
 }

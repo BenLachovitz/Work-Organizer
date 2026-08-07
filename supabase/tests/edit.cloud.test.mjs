@@ -79,16 +79,57 @@ console.log('\n\x1b[1mEdit a draft roster\x1b[0m');
   const { error } = await g1.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[]});
   error?ok('a guard cannot edit a roster'):bad('guard edit','succeeded');
 }
+
+console.log('');
+console.log('A published roster stays under the manager control');
 {
-  await sql(`UPDATE schedule_runs SET is_published=TRUE WHERE id='${RUN}'`);
+  await sql(`UPDATE schedule_runs SET is_published=TRUE WHERE id='${RUN}';
+             UPDATE roster_weeks SET status='published' WHERE week_start='${WEEK}';`);
+  // Somebody calls in sick mid-week: drop them from the live roster.
   const { error } = await mgr.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[]});
-  error && /published/i.test(error.message)
-    ? ok('editing a PUBLISHED roster is refused')
-    : bad('published edit', error?error.message:'succeeded');
+  error ? bad('edit published',error.message) : ok('manager edits a LIVE published roster');
 }
 {
   const rows=await sql(`SELECT COUNT(*)::int n FROM schedule_assignments WHERE run_id='${RUN}'`);
-  rows[0].n===1 ? ok('the refused edit left the published roster intact') : bad('intact',JSON.stringify(rows));
+  rows[0].n===0 ? ok('the sick guard was removed from the live roster') : bad('live edit',JSON.stringify(rows));
+}
+{
+  // Swap somebody in on a live roster.
+  await mgr.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[
+    {date:WEEK,shift:'morning',guard_id:idOf(G1)},
+  ]});
+  const rows=await sql(`SELECT p.employee_code c FROM schedule_assignments a JOIN profiles p ON p.id=a.guard_id WHERE a.run_id='${RUN}'`);
+  rows.length===1&&rows[0].c===G1 ? ok('a replacement guard can be swapped in live') : bad('live swap',JSON.stringify(rows));
+}
+{
+  const { error } = await g1.rpc('unpublish_run',{p_run_id:RUN});
+  error ? ok('a guard cannot unpublish') : bad('guard unpublish','succeeded');
+}
+{
+  await mgr.rpc('unpublish_run',{p_run_id:RUN});
+  const r=await sql(`SELECT r.is_published p, w.status::text s FROM schedule_runs r JOIN roster_weeks w ON w.week_start=r.week_start WHERE r.id='${RUN}'`);
+  r[0].p===false && r[0].s==='generated'
+    ? ok('unpublish clears the flag AND reverts the week status')
+    : bad('unpublish',JSON.stringify(r));
+}
+{
+  const { error } = await g1.rpc('delete_schedule_run',{p_run_id:RUN});
+  error ? ok('a guard cannot delete a roster') : bad('guard delete','succeeded');
+}
+{
+  // Re-publish, then delete the live roster outright.
+  await sql(`UPDATE schedule_runs SET is_published=TRUE WHERE id='${RUN}';
+             UPDATE roster_weeks SET status='published' WHERE week_start='${WEEK}';`);
+  const { error } = await mgr.rpc('delete_schedule_run',{p_run_id:RUN});
+  error ? bad('delete published',error.message) : ok('manager deletes a PUBLISHED roster');
+}
+{
+  const runs=await sql(`SELECT COUNT(*)::int n FROM schedule_runs WHERE id='${RUN}'`);
+  const asg=await sql(`SELECT COUNT(*)::int n FROM schedule_assignments WHERE run_id='${RUN}'`);
+  const wk=await sql(`SELECT status::text s FROM roster_weeks WHERE week_start='${WEEK}'`);
+  runs[0].n===0 && asg[0].n===0 && wk[0].s==='locked'
+    ? ok('run and assignments gone; week no longer claims to be published')
+    : bad('delete cascade',JSON.stringify({runs,asg,wk}));
 }
 await clean();
 console.log(`\n\x1b[1mResult:\x1b[0m \x1b[32m${pass} passed\x1b[0m, ${fails.length?`\x1b[31m${fails.length} failed\x1b[0m`:'0 failed'}`);
