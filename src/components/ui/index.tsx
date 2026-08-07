@@ -112,9 +112,21 @@ export function Card({
   children,
   ...rest
 }: HTMLAttributes<HTMLDivElement> & { children: ReactNode }) {
+  // Tailwind does not resolve conflicting utilities by their order in the class
+  // string -- whichever lands later in the generated stylesheet wins. So an
+  // unconditional `bg-white` here silently beat a caller's `bg-slate-800`, and
+  // a card passing `text-white` rendered white-on-white: present, populated,
+  // and completely invisible. Only apply the default when the caller has not
+  // supplied a background of their own.
+  const callerSetsBackground = /(^|\s)bg-/.test(className ?? '');
+
   return (
     <div
-      className={cn('rounded-card bg-white p-5 shadow-sm ring-1 ring-slate-200/80', className)}
+      className={cn(
+        'rounded-card p-5 shadow-sm ring-1 ring-slate-200/80',
+        !callerSetsBackground && 'bg-white',
+        className,
+      )}
       {...rest}
     >
       {children}

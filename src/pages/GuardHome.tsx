@@ -92,12 +92,15 @@ export function GuardHome() {
               <Card
                 key={wk.runId}
                 className={cn(
-                  'ring-0',
-                  // The week in progress leads; a future week is visibly quieter
-                  // so the eye lands on what is happening now.
+                  'text-white ring-0',
+                  // Both are gradients rather than flat colours: a gradient sets
+                  // background-IMAGE, so it cannot collide with a background-
+                  // COLOR utility the way `bg-slate-800` did. The week in
+                  // progress leads in brand colour; a future week is quieter so
+                  // the eye lands on what is happening now.
                   isCurrent
-                    ? 'bg-gradient-to-bl from-brand-600 to-brand-800 text-white'
-                    : 'bg-slate-800 text-white',
+                    ? 'bg-gradient-to-bl from-brand-600 to-brand-800'
+                    : 'bg-gradient-to-bl from-slate-600 to-slate-800',
                 )}
               >
                 <div className="flex items-baseline justify-between gap-2">
