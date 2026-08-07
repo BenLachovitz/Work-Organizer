@@ -45,6 +45,19 @@ export function dayIndex(key: DateKey): number {
   return parseDateKey(key).getUTCDay();
 }
 
+/**
+ * Position of `date` within its roster week, 0..6.
+ *
+ * Derived by subtraction rather than from the weekday name, so it stays correct
+ * even if the week ever stops starting on a Sunday. Returns -1 when the date
+ * falls outside the week, which callers should treat as data corruption rather
+ * than silently clamping.
+ */
+export function dayIndexInWeek(weekStart: DateKey, date: DateKey): number {
+  const diff = (parseDateKey(date).getTime() - parseDateKey(weekStart).getTime()) / MS_PER_DAY;
+  return diff >= 0 && diff <= 6 ? diff : -1;
+}
+
 /** The Sunday on or before `key`. */
 export function weekStartOf(key: DateKey): DateKey {
   return addDays(key, -dayIndex(key));

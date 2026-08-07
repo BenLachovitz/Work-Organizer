@@ -3,7 +3,14 @@ import { AppShell } from '@/components/layout/AppShell';
 import { CoverageMatrix } from '@/components/manager/CoverageMatrix';
 import { TeamTable } from '@/components/manager/TeamTable';
 import { WeekControlsPanel } from '@/components/manager/WeekControlsPanel';
-import { Alert, Button, Card, Spinner } from '@/components/ui';
+import { RosterGrid } from '@/components/manager/RosterGrid';
+import { CoverageReportPanel } from '@/components/manager/CoverageReportPanel';
+import { Alert, Badge, Button, Card, Spinner } from '@/components/ui';
+import {
+  useGenerateSchedule,
+  usePublishRun,
+  useScheduleRuns,
+} from '@/hooks/useGenerateSchedule';
 import { useSplitWeeks } from '@/hooks/useWeeks';
 import {
   buildCoverage,
@@ -35,6 +42,14 @@ export function ManagerDashboard() {
   const { data: codes } = useRosterCodeStatus();
   const updateWeek = useUpdateWeek();
   const setTarget = useSetGuardTarget();
+  const generate = useGenerateSchedule();
+  const publish = usePublishRun();
+  const { data: runsRaw } = useScheduleRuns(selected);
+
+  const runsData = runsRaw ?? { runs: [], assignments: [] };
+  // Runs come back newest-version first, so the published one wins if there is
+  // one, otherwise the newest draft.
+  const latestRun = runsData.runs.find((r) => r.is_published) ?? runsData.runs[0] ?? null;
 
   const week = weeks?.find((w) => w.week_start === selected) ?? null;
   const dates = useMemo(() => (selected ? weekDates(selected) : []), [selected]);
@@ -132,17 +147,111 @@ export function ManagerDashboard() {
           </Alert>
         )}
 
-        {/* ---------------- generate (Step E) ---------------- */}
-        <Card>
-          <p className="font-bold text-slate-900">יצירת סידור</p>
-          <p className="mt-1 text-sm text-slate-500">
-            מנוע השיבוץ (Google OR-Tools) ייבנה בשלב הבא. הוא יקרא את הזמינות והכמויות שלמעלה
-            ויחזיר סידור מיטבי יחד עם דוח כיסוי.
-          </p>
-          <Button className="mt-3" fullWidth disabled>
-            צור סידור אוטומטי · בקרוב
+        {/* ---------------- generate ---------------- */}
+        <Card className="space-y-3">
+          <div>
+            <p className="font-bold text-slate-900">יצירת סידור</p>
+            <p className="mt-1 text-sm text-slate-500">
+              המנוע קורא את הזמינות והכמויות שלמעלה ומחזיר סידור יחד עם דוח כיסוי. כל הרצה נשמרת
+              כגרסה חדשה - אפשר לייצר שוב ולהשוות.
+            </p>
+          </div>
+
+          {generate.isError && (
+            <Alert tone="error" title="היצירה נכשלה">
+              <span className="whitespace-pre-line">
+                {generate.error instanceof Error ? generate.error.message : 'נסה שוב.'}
+              </span>
+            </Alert>
+          )}
+
+          {generate.isSuccess && generate.data && (
+            <Alert tone="success" title={`נוצרה גרסה ${generate.data.version}`}>
+              {generate.data.engine === 'cp-sat'
+                ? `מנוע CP-SAT · ${generate.data.status}`
+                : 'מנוע מקומי (mock)'}{' '}
+              · ניקוד {generate.data.objective}
+            </Alert>
+          )}
+
+          <Button
+            fullWidth
+            size="lg"
+            loading={generate.isPending}
+            disabled={!data || rows.length === 0}
+            onClick={() =>
+              data &&
+              generate.mutate({
+                weekStart: selected,
+                morningTarget: (week?.morning_target_slots ?? 2) as MorningTarget,
+                data,
+              })
+            }
+          >
+            {generate.isPending ? 'מחשב סידור…' : 'צור סידור אוטומטי'}
           </Button>
         </Card>
+
+        {/* ---------------- result ---------------- */}
+        {latestRun && (
+          <>
+            <CoverageReportPanel report={latestRun.coverage_report} guards={data?.guards ?? []} />
+
+            <RosterGrid
+              weekStart={selected}
+              morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
+              assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
+              guards={data?.guards ?? []}
+            />
+
+            <Card className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-bold text-slate-900">
+                    גרסה {latestRun.version}
+                    {latestRun.is_published && (
+                      <Badge tone="green" className="ms-2">
+                        מפורסם
+                      </Badge>
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-sm text-slate-500">
+                    {latestRun.solver_status} · ניקוד {latestRun.objective_value}
+                  </p>
+                </div>
+              </div>
+
+              {publish.isError && (
+                <Alert tone="error" title="הפרסום נכשל">
+                  {publish.error instanceof Error ? publish.error.message : 'נסה שוב.'}
+                </Alert>
+              )}
+
+              {!latestRun.is_published ? (
+                <>
+                  <Button
+                    fullWidth
+                    size="lg"
+                    loading={publish.isPending}
+                    onClick={() =>
+                      publish.mutate({ runId: latestRun.id, weekStart: selected })
+                    }
+                  >
+                    פרסם לצוות
+                  </Button>
+                  <p className="text-xs text-slate-500">
+                    פרסום הופך את הסידור לגלוי לכל המאבטחים בטלפון. אפשר לפרסם גרסה אחרת אחר כך -
+                    היא תחליף את הקודמת.
+                  </p>
+                </>
+              ) : (
+                <Alert tone="success">
+                  הסידור פורסם והוא גלוי כעת לכל המאבטחים.
+                </Alert>
+              )}
+            </Card>
+          </>
+        )}
       </div>
     </AppShell>
   );

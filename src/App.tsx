@@ -5,7 +5,8 @@ import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { Login } from '@/pages/Login';
 import { GuardHome } from '@/pages/GuardHome';
 import { Preferences } from '@/pages/Preferences';
-import { NotFound, RosterView } from '@/pages/Placeholders';
+import { RosterView } from '@/pages/RosterView';
+import { NotFound } from '@/pages/Placeholders';
 import { Spinner } from '@/components/ui';
 
 /**

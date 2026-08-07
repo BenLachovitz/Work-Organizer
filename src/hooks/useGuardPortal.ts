@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { requireSupabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import type {
+  Profile,
   ScheduleAssignment,
   WeeklyGuardTarget,
   WeeklySubmission,
@@ -111,6 +112,51 @@ export function useSavePreferences() {
       void queryClient.invalidateQueries({
         queryKey: guardKeys.week(guardId, input.weekStart),
       });
+    },
+  });
+}
+
+/**
+ * The whole published roster for a week, plus the names to render it.
+ *
+ * Returns the entire team rather than just the caller: a guard wants to see who
+ * they are on shift with. RLS still decides whether the run is visible at all --
+ * unpublished drafts and past weeks return nothing without any client-side
+ * filtering, so an empty result here is a legitimate answer, not an error.
+ */
+export function usePublishedRoster(weekStart: DateKey) {
+  const { profile } = useAuth();
+
+  return useQuery({
+    queryKey: ['publishedRoster', weekStart, profile?.id ?? ''],
+    enabled: Boolean(weekStart && profile?.id),
+    queryFn: async (): Promise<{ assignments: ScheduleAssignment[]; guards: Profile[] }> => {
+      const db = requireSupabase();
+
+      const { data: runs, error: runErr } = await db
+        .from('schedule_runs')
+        .select('id')
+        .eq('week_start', weekStart)
+        .eq('is_published', true)
+        .limit(1);
+      if (runErr) throw new Error(runErr.message);
+      if (!runs?.length) return { assignments: [], guards: [] };
+
+      const [assignRes, guardRes] = await Promise.all([
+        db
+          .from('schedule_assignments')
+          .select('*')
+          .eq('run_id', runs[0]!.id)
+          .order('target_date', { ascending: true }),
+        db.from('profiles').select('*'),
+      ]);
+      if (assignRes.error) throw new Error(assignRes.error.message);
+      if (guardRes.error) throw new Error(guardRes.error.message);
+
+      return {
+        assignments: (assignRes.data as ScheduleAssignment[]) ?? [],
+        guards: (guardRes.data as Profile[]) ?? [],
+      };
     },
   });
 }
