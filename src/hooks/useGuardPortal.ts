@@ -119,6 +119,8 @@ export function useSavePreferences() {
 export interface WeekRoster {
   weekStart: DateKey;
   runId: string;
+  /** Needed to render coverage shortfalls; guards may read roster_weeks. */
+  morningTarget: 2 | 3;
   assignments: ScheduleAssignment[];
 }
 
@@ -155,22 +157,31 @@ export function useVisibleRosters() {
       const list = (runs ?? []) as { id: string; week_start: string }[];
       if (!list.length) return { weeks: [], guards: [] };
 
-      const [assignRes, guardRes] = await Promise.all([
+      const [assignRes, guardRes, weekRes] = await Promise.all([
         db
           .from('schedule_assignments')
           .select('*')
           .in('run_id', list.map((r) => r.id))
           .order('target_date', { ascending: true }),
         db.from('profiles').select('*'),
+        db
+          .from('roster_weeks')
+          .select('week_start, morning_target_slots')
+          .in('week_start', list.map((r) => r.week_start)),
       ]);
       if (assignRes.error) throw new Error(assignRes.error.message);
       if (guardRes.error) throw new Error(guardRes.error.message);
+      if (weekRes.error) throw new Error(weekRes.error.message);
 
       const assignments = (assignRes.data as ScheduleAssignment[]) ?? [];
+      const targets = (weekRes.data ?? []) as { week_start: string; morning_target_slots: 2 | 3 }[];
+
       return {
         weeks: list.map((r) => ({
           weekStart: r.week_start,
           runId: r.id,
+          morningTarget:
+            targets.find((w) => w.week_start === r.week_start)?.morning_target_slots ?? 2,
           assignments: assignments.filter((a) => a.run_id === r.id),
         })),
         guards: (guardRes.data as Profile[]) ?? [],

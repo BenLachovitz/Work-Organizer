@@ -64,17 +64,23 @@ function Chip({
   name,
   suffix,
   className,
+  mine,
 }: {
   assignment: ScheduleAssignment;
   name: string;
   suffix?: string;
   className?: string;
+  /** The viewer's own shift. A guard must be able to find themselves at a glance. */
+  mine?: boolean;
 }) {
   return (
     <span
       className={cn(
         'flex items-center justify-center gap-1 rounded px-1.5 py-1',
         'text-[11px] font-semibold text-white',
+        // A ring rather than a different colour: the colour already encodes the
+        // shift type, and overloading it would cost more than it gains.
+        mine && 'ring-2 ring-slate-900 ring-offset-1',
         className,
       )}
       style={{ backgroundColor: SHIFTS[assignment.shift].colorVar }}
@@ -95,11 +101,21 @@ export function RosterGrid({
   morningTarget,
   assignments,
   guards,
+  highlightGuardId,
+  todayDate,
+  title = 'הסידור שנוצר',
 }: {
   weekStart: DateKey;
   morningTarget: MorningTarget;
   assignments: ScheduleAssignment[];
   guards: Profile[];
+  /** Ring this guard's chips. Set on the guard-facing view so a person can
+   *  locate their own shifts without reading every name. */
+  highlightGuardId?: string;
+  /** Emphasise this column. Only meaningful for a week in progress. */
+  todayDate?: DateKey;
+  /** The manager sees "the roster that was generated"; a guard just sees the roster. */
+  title?: string;
 }) {
   const dates = weekDates(weekStart);
   const nameOf = (id: string) => guards.find((g) => g.id === id)?.display_name ?? '—';
@@ -131,7 +147,7 @@ export function RosterGrid({
   return (
     <Card className="p-0">
       <div className="border-b border-slate-200 px-4 py-3">
-        <p className="font-bold text-slate-900">הסידור שנוצר</p>
+        <p className="font-bold text-slate-900">{title}</p>
         <p className="mt-0.5 text-sm text-slate-500">
           משמרת 12 שעות מסומנת ״עד 18:45״ או ״מ 18:45״. תא צהריים עם שני שמות הוא חילוף ב־18:45.
         </p>
@@ -148,8 +164,9 @@ export function RosterGrid({
                 <th key={d} className="pb-1 text-center">
                   <div
                     className={cn(
-                      'text-xs font-bold',
-                      isWeekendDay(i) ? 'text-amber-600' : 'text-slate-700',
+                      'rounded text-xs font-bold',
+                      d === todayDate && 'bg-brand-600 text-white',
+                      d !== todayDate && (isWeekendDay(i) ? 'text-amber-600' : 'text-slate-700'),
                     )}
                   >
                     {HEBREW_DAYS_SHORT[i]}
@@ -188,6 +205,7 @@ export function RosterGrid({
                           assignment={a}
                           name={nameOf(a.guard_id)}
                           suffix={a.shift === 'day12' ? 'עד 18:45' : undefined}
+                          mine={a.guard_id === highlightGuardId}
                         />
                       ))
                     ) : (
@@ -205,6 +223,7 @@ export function RosterGrid({
                           assignment={a}
                           name={nameOf(a.guard_id)}
                           suffix={a.shift === 'night12' ? 'מ 18:45' : undefined}
+                          mine={a.guard_id === highlightGuardId}
                         />
                       ))
                     ) : (
@@ -221,6 +240,7 @@ export function RosterGrid({
                             key={r.full.id}
                             assignment={r.full}
                             name={nameOf(r.full.guard_id)}
+                            mine={r.full.guard_id === highlightGuardId}
                           />
                         ) : (
                           // The handover, stacked rather than side by side.
@@ -237,6 +257,7 @@ export function RosterGrid({
                                 assignment={r.early}
                                 name={nameOf(r.early.guard_id)}
                                 suffix="עד 18:45"
+                                mine={r.early.guard_id === highlightGuardId}
                               />
                             ) : (
                               // The uncovered WINDOW, not "עד 18:45" -- that
@@ -249,6 +270,7 @@ export function RosterGrid({
                                 assignment={r.late}
                                 name={nameOf(r.late.guard_id)}
                                 suffix="מ 18:45"
+                                mine={r.late.guard_id === highlightGuardId}
                               />
                             ) : (
                               <Gap window="18:45-22:45" />

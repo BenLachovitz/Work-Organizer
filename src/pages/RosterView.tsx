@@ -1,28 +1,28 @@
 import { useEffect, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
-import { ShiftLegend } from '@/components/ShiftChip';
-import { Alert, Badge, Card, EmptyState, Spinner, cn } from '@/components/ui';
+import { RosterGrid } from '@/components/RosterGrid';
+import { Alert, Card, EmptyState, Spinner, cn } from '@/components/ui';
 import { useAuth } from '@/contexts/AuthContext';
 import { useVisibleRosters } from '@/hooks/useGuardPortal';
 import { useRosterRealtime } from '@/hooks/useRosterRealtime';
 import {
   HEBREW_DAYS,
+  dayIndex,
   formatDayMonth,
   formatWeekRange,
   todayInIsrael,
-  weekDates,
   weekStartOf,
 } from '@/lib/dates';
-import { SHIFTS, isWeekendDay } from '@/lib/shifts';
+import { SHIFTS } from '@/lib/shifts';
 
 /**
- * The published roster as a guard sees it: the whole team, so people can see
- * who they are on with, with their own shifts highlighted.
+ * The published roster as a guard sees it -- in the SAME grid the manager builds
+ * it in, and the same shape as the spreadsheet the team already reads. The
+ * component is shared rather than duplicated, so the two views cannot drift.
  *
- * Which weeks appear is decided by RLS, not by this component guessing. A guard
- * gets the current week and the next one; the previous week lingers until 07:00
- * on Sunday so an in-progress night shift stays readable. A manager gets all of
- * them and can page back through the archive here too.
+ * The guard's own shifts are ringed, and a summary underneath lists just theirs,
+ * because a grid answers "who is on Tuesday night" well and "when am I working"
+ * poorly. Both questions get asked.
  */
 export function RosterView() {
   const { profile } = useAuth();
@@ -32,11 +32,11 @@ export function RosterView() {
   const weeks = data?.weeks ?? [];
   const guards = data?.guards ?? [];
   const currentStart = weekStartOf(todayInIsrael());
+  const today = todayInIsrael();
 
   const [selected, setSelected] = useState<string | null>(null);
   useEffect(() => {
     if (selected || weeks.length === 0) return;
-    // Open on the week in progress; fall back to the earliest available.
     setSelected(weeks.find((w) => w.weekStart === currentStart)?.weekStart ?? weeks[0]!.weekStart);
   }, [weeks, selected, currentStart]);
 
@@ -65,8 +65,9 @@ export function RosterView() {
   }
 
   const week = weeks.find((w) => w.weekStart === selected) ?? weeks[0]!;
-  const dates = weekDates(week.weekStart);
-  const nameOf = (id: string) => guards.find((g) => g.id === id)?.display_name ?? '—';
+  const mine = week.assignments
+    .filter((a) => a.guard_id === profile?.id)
+    .sort((a, b) => a.target_date.localeCompare(b.target_date));
 
   return (
     <AppShell title="סידור שבועי" subtitle={formatWeekRange(week.weekStart)}>
@@ -98,80 +99,58 @@ export function RosterView() {
           </div>
         )}
 
-        <Card className="py-3">
-          <ShiftLegend />
+        <RosterGrid
+          title="הסידור השבועי"
+          weekStart={week.weekStart}
+          morningTarget={week.morningTarget}
+          assignments={week.assignments}
+          guards={guards}
+          highlightGuardId={profile?.id}
+          todayDate={week.weekStart === currentStart ? today : undefined}
+        />
+
+        {/* A grid answers "who is on Tuesday night" but scanning it for your own
+            name across 21 cells is work. This does that scan for you. */}
+        <Card className="p-0">
+          <div className="border-b border-slate-200 px-4 py-3">
+            <p className="font-bold text-slate-900">המשמרות שלי</p>
+            <p className="mt-0.5 text-sm text-slate-500">
+              {mine.length === 0
+                ? 'אין לך משמרות בשבוע זה'
+                : `${mine.length} משמרות · מסומנות במסגרת בטבלה`}
+            </p>
+          </div>
+          {mine.length > 0 && (
+            <div className="divide-y divide-slate-50">
+              {mine.map((a) => {
+                const def = SHIFTS[a.shift];
+                const isToday = a.target_date === today;
+                return (
+                  <div
+                    key={a.id}
+                    className={cn('flex items-center gap-3 px-4 py-2.5', isToday && 'bg-brand-50/70')}
+                  >
+                    <span
+                      className="w-1.5 self-stretch rounded-full"
+                      style={{ backgroundColor: def.colorVar }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-slate-900">
+                        יום {HEBREW_DAYS[dayIndex(a.target_date)]}
+                        {isToday && <span className="ms-2 text-xs text-brand-700">היום</span>}
+                      </p>
+                      <p className="text-xs text-slate-500">{formatDayMonth(a.target_date)}</p>
+                    </div>
+                    <div className="text-end">
+                      <p className="text-xs font-bold text-slate-700">{def.he}</p>
+                      <p className="num text-[10px] text-slate-400">{def.label}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </Card>
-
-        {dates.map((date, dayIdx) => {
-          const onDay = week.assignments
-            .filter((a) => a.target_date === date)
-            .sort((a, b) => SHIFTS[a.shift].startH - SHIFTS[b.shift].startH);
-          const isToday = date === todayInIsrael();
-
-          return (
-            <Card
-              key={date}
-              className={cn(
-                'p-0',
-                isToday && 'ring-2 ring-brand-500',
-                isWeekendDay(dayIdx) && 'bg-amber-50/40',
-              )}
-            >
-              <div className="flex items-baseline gap-2 border-b border-slate-100 px-4 py-2.5">
-                <span className="font-bold text-slate-900">יום {HEBREW_DAYS[dayIdx]}</span>
-                <span className="text-xs text-slate-400">{formatDayMonth(date)}</span>
-                {isToday && (
-                  <Badge tone="brand" className="ms-auto">
-                    היום
-                  </Badge>
-                )}
-              </div>
-
-              {onDay.length === 0 ? (
-                <p className="px-4 py-3 text-sm text-slate-400">אין שיבוץ</p>
-              ) : (
-                <div className="divide-y divide-slate-50">
-                  {onDay.map((a) => {
-                    const mine = a.guard_id === profile?.id;
-                    const def = SHIFTS[a.shift];
-                    return (
-                      <div
-                        key={a.id}
-                        className={cn(
-                          'flex items-center gap-3 px-4 py-2',
-                          mine && 'bg-brand-50/70',
-                        )}
-                      >
-                        <span
-                          className="w-1.5 self-stretch rounded-full"
-                          style={{ backgroundColor: def.colorVar }}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p
-                            className={cn(
-                              'truncate text-sm',
-                              mine
-                                ? 'font-extrabold text-brand-800'
-                                : 'font-semibold text-slate-800',
-                            )}
-                          >
-                            {nameOf(a.guard_id)}
-                            {mine && ' (אתה)'}
-                          </p>
-                          {a.post && <p className="text-xs text-slate-500">{a.post}</p>}
-                        </div>
-                        <div className="text-end">
-                          <p className="text-xs font-bold text-slate-700">{def.he}</p>
-                          <p className="num text-[10px] text-slate-400">{def.label}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </Card>
-          );
-        })}
       </div>
     </AppShell>
   );

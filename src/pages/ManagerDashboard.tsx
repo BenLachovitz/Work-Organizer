@@ -3,7 +3,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { CoverageMatrix } from '@/components/manager/CoverageMatrix';
 import { TeamTable } from '@/components/manager/TeamTable';
 import { WeekControlsPanel } from '@/components/manager/WeekControlsPanel';
-import { RosterGrid } from '@/components/manager/RosterGrid';
+import { RosterGrid } from '@/components/RosterGrid';
 import { RosterEditor } from '@/components/manager/RosterEditor';
 import { CoverageReportPanel } from '@/components/manager/CoverageReportPanel';
 import { RunVersions } from '@/components/manager/RunVersions';
