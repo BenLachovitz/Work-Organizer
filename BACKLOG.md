@@ -87,6 +87,16 @@ of reverting.
 Fixed and verified in that order — 3, then 2, then 1 — at Ben's request, so each fix stayed
 independently testable against the live broken state before the next one changed it.
 
+**Known, accepted cosmetic nuance:** a week outside the tracked `(current, next)` pair shows under
+`WeekControlsPanel`'s "שבועות אחרים" (archive) regardless of *why* it's outside the pair — genuinely
+finished, or (this edge case) auto-created early by a cursor wobble and now correctly `locked` but
+not yet its actual turn. The archive section's own copy claims everything there "has ended," which
+isn't literally true for the latter. Ben's call (8 August): leave it — the underlying data is
+correct (locked, blocked from submissions, becomes "next" again on its own once the real calendar
+reaches it), this only shows up from deliberately wobbling the open-time setting rather than normal
+week-to-week use, and it's not worth a copy change or a UI split for that. Revisit only if it starts
+mattering in normal operation.
+
 ---
 
 ## State: build steps A–J complete, live and in daily use
