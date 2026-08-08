@@ -192,6 +192,15 @@ Exactly **four** penalised transitions remain, all of them 8-hour rests:
   effective_kamut = min(configured_kamut, distinct_available_days, 5)
   ```
   A guard whose כמות is 4 but who marked only 2 available days is automatically lowered to 2. This is computed before the solver runs and is displayed to the manager as an override notice.
+- **Per-guard default (migration 19):** `configured_kamut` is a per-WEEK value
+  (`weekly_guard_targets`), but it is a per-GUARD steady state — the same 5, 5, 4, 5, 5, 3, 2, 2 the
+  manager was re-entering by hand every week. `profiles.default_kamut` holds that baseline.
+  `ensure_roster_weeks()` seeds `weekly_guard_targets` from it for any (week, guard) pair that does
+  not have a row yet — new week, or a guard registering mid-week — via `ON CONFLICT DO NOTHING`, so
+  a value the manager has already set (by hand, through the Stepper on `TeamTable`) is never
+  overwritten. There is no UI to edit the baseline itself; it is set directly, the same way the seed
+  badge codes are, on the expectation that a guard's steady state changes rarely enough that asking
+  isn't worth a settings screen.
 
 ### 2.8 Cross-Week Carry-In
 
@@ -1016,7 +1025,7 @@ has genuinely passed, so locking a week *early* cannot accidentally become an ex
 | **D** | Manager dashboard: week controls, coverage matrix, כמות editor | ✅ complete |
 | **E** | Solver contract, twin referees, mock + CP-SAT, generate → publish | ✅ complete; **CP-SAT deployed** |
 | **F1–F5** | Fine-tuning batch (per-day 12h, week lifecycle, Mon–Fri target, archive, US week) | ✅ complete |
-| **G** | Manual grid editing, editable/deletable published rosters, Realtime both directions, shared grid, measured columns, image export, free-text submission notes (§3.6) | ✅ complete |
+| **G** | Manual grid editing, editable/deletable published rosters, Realtime both directions, shared grid, measured columns, image export, free-text submission notes (§3.6), per-guard default כמות (§2.7) | ✅ complete |
 
 ### 14.2 Verification
 

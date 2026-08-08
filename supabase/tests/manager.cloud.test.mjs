@@ -368,6 +368,60 @@ async function run() {
       : bad('override maths', JSON.stringify({ days, slots, effective }));
   }
 
+  console.log('\n\x1b[1m7. Default כמות (migration 19)\x1b[0m');
+  {
+    // ensure_roster_weeks() only ever touches the two REAL live weeks (today's
+    // current + next) -- it has no notion of this suite's dedicated future
+    // WEEK -- so this section necessarily runs against them. A dedicated guard
+    // (990305, matched by the same '9903%' cleanup as everything else in this
+    // file) keeps it isolated and self-cleaning.
+    const [{ id: rCurrent }] = await sql(`SELECT public.current_week_start()::text AS id`);
+    const vCurrent = rCurrent;
+    const [{ id: rNext }] = await sql(`SELECT (public.current_week_start() + 7)::text AS id`);
+    const vNext = rNext;
+
+    await sql(`
+      INSERT INTO roster_codes (employee_code, display_name, initial_role)
+      VALUES ('990305', 'בדיקת-כמות', 'guard');
+      INSERT INTO auth.users (
+        instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+        raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+        confirmation_token, recovery_token, email_change_token_new, email_change)
+      VALUES ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated',
+        'authenticated', '990305@guards.local',
+        extensions.crypt('${PIN}', extensions.gen_salt('bf')), NOW(),
+        '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, NOW(), NOW(),
+        '', '', '', '');
+      INSERT INTO profiles (id, employee_code, display_name, role, is_active, default_kamut)
+      SELECT id, '990305', 'בדיקת-כמות', 'guard', TRUE, 4
+        FROM auth.users WHERE email = '990305@guards.local';`);
+    const g3 = await signedIn('990305');
+    const g3Id = await idOf('990305');
+
+    {
+      const { error } = await g3.rpc('ensure_roster_weeks');
+      const rows = await sql(`SELECT week_start::text, configured_kamut FROM weekly_guard_targets
+                               WHERE guard_id='${g3Id}' ORDER BY week_start`);
+      const byWeek = Object.fromEntries(rows.map((r) => [r.week_start, r.configured_kamut]));
+      !error && byWeek[vCurrent] === 4 && byWeek[vNext] === 4
+        ? ok('a new guard is seeded at their default כמות on both live weeks')
+        : bad('default seed', error?.message ?? JSON.stringify(rows));
+    }
+    {
+      // Simulate the manager overriding one week by hand, then reload the
+      // dashboard (ensure_roster_weeks runs on every load). The override must
+      // survive -- this is the entire point of ON CONFLICT DO NOTHING.
+      await sql(`UPDATE weekly_guard_targets SET configured_kamut = 1
+                  WHERE guard_id='${g3Id}' AND week_start='${vCurrent}'`);
+      await g3.rpc('ensure_roster_weeks');
+      const rows = await sql(`SELECT configured_kamut FROM weekly_guard_targets
+                               WHERE guard_id='${g3Id}' AND week_start='${vCurrent}'`);
+      rows[0]?.configured_kamut === 1
+        ? ok("a manager's per-week override survives the next seed (not reset to the default)")
+        : bad('override survives seed', JSON.stringify(rows));
+    }
+  }
+
   await cleanup();
   console.log(`\n\x1b[1mResult:\x1b[0m \x1b[32m${passed} passed\x1b[0m, ` +
     (failures.length ? `\x1b[31m${failures.length} failed\x1b[0m` : '0 failed'));

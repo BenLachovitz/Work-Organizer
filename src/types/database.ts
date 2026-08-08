@@ -17,6 +17,8 @@ export interface Profile {
   role: UserRole;
   is_active: boolean;
   created_at: string;
+  /** Baseline weekly כמות. Seeds weekly_guard_targets for a week that has no row yet. */
+  default_kamut: number;
 }
 
 export interface RosterWeek {

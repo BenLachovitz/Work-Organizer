@@ -97,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       role: base.role,
       is_active: true,
       created_at: new Date().toISOString(),
+      default_kamut: 0,
     };
   }, []);
 
