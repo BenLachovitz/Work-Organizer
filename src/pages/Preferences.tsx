@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import {
   WeeklyPreferenceForm,
@@ -17,12 +17,22 @@ export function Preferences() {
   const save = useSavePreferences();
 
   const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const topRef = useRef<HTMLDivElement>(null);
 
   // Clear the confirmation when the guard edits again, so a stale "saved"
   // banner can never sit above unsaved changes.
   useEffect(() => {
     if (save.isPending) setSavedAt(null);
   }, [save.isPending]);
+
+  // The submit button sits at the bottom of what can be a long form, but the
+  // confirmation banner renders at the top -- without this, a guard who just
+  // submitted stays scrolled down past it and never sees it saved.
+  // scrollIntoView finds whichever ancestor actually scrolls (AppShell's
+  // <main>) on its own; no need to know that structure from here.
+  useEffect(() => {
+    if (savedAt) topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [savedAt]);
 
   const loading = weekLoading || dataLoading;
 
@@ -75,7 +85,7 @@ export function Preferences() {
 
   return (
     <AppShell title="הגשת בקשות" subtitle={formatWeekRange(active.weekStart)}>
-      <div className="space-y-4">
+      <div ref={topRef} className="space-y-4">
         {guardWeek?.hasSubmitted && !savedAt && (
           <Alert tone="success" title="הבקשות שלך נשמרו">
             {guardWeek.preferences.length === 0
