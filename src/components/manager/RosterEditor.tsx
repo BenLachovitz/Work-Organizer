@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Badge, Button, Card, cn } from '@/components/ui';
+import { widestRosterColumn } from '@/lib/measureColumns';
 import {
   HEBREW_DAYS,
   HEBREW_DAYS_SHORT,
@@ -46,6 +47,9 @@ import type { Profile, ScheduleAssignment } from '@/types/database';
 
 const BLOCKING_RULES: Violation['rule'][] = ['H3', 'H5', 'H7'];
 
+/** Width of the block-label column; the day columns divide the rest. */
+const LABEL_COLUMN = 64;
+
 export interface DraftAssignment {
   key: string; // stable local id; assignments are rebuilt wholesale on save
   guard_id: string;
@@ -88,6 +92,30 @@ export function RosterEditor({
 
   const dates = useMemo(() => weekDates(weekStart), [weekStart]);
   const nameOf = (id: string) => guards.find((g) => g.id === id)?.display_name ?? '—';
+
+  // Measuring before the web font loads reads short, so re-measure once it is
+  // ready -- otherwise the columns are sized for the fallback font's metrics.
+  const [fontsReady, setFontsReady] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void document.fonts?.ready.then(() => alive && setFontsReady(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Re-measures as the manager edits: swapping in a longer name widens every
+  // column rather than clipping that one cell.
+  const columnWidth = useMemo(
+    () =>
+      widestRosterColumn(
+        dates,
+        draft.map((d) => ({ target_date: d.date, shift: d.shift, guard_id: d.guard_id })),
+        nameOf,
+        { handover: false },
+      ),
+    [dates, draft, guards, fontsReady],
+  );
 
   // --- referee -------------------------------------------------------------
   const verdict = useMemo(
@@ -153,10 +181,22 @@ export function RosterEditor({
 
       {/* ---------------- grid ---------------- */}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[44rem] table-fixed border-separate border-spacing-1 p-3">
+        {/* Columns all one width, measured from the longest name actually in the
+            table rather than guessed. Stacked layout here, so no handover pair
+            to fit -- see widestRosterColumn. */}
+        <table
+          className="table-fixed border-separate border-spacing-1 p-3"
+          style={{ minWidth: LABEL_COLUMN + columnWidth * 7 + 32 }}
+        >
+          <colgroup>
+            <col style={{ width: LABEL_COLUMN }} />
+            {dates.map((d) => (
+              <col key={d} style={{ width: columnWidth }} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
-              <th className="w-16" />
+              <th />
               {dates.map((d, i) => (
                 <th key={d} className="pb-1 text-center">
                   <div

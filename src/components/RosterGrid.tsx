@@ -1,4 +1,6 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Card, cn } from '@/components/ui';
+import { widestRosterColumn } from '@/lib/measureColumns';
 import { HEBREW_DAYS_SHORT, formatDayMonth, weekDates, type DateKey } from '@/lib/dates';
 import {
   SHIFTS,
@@ -26,6 +28,9 @@ import type { Profile, ScheduleAssignment } from '@/types/database';
  * actually doing. Listing the four raw coverage segments as separate rows shows
  * the same facts but in a shape nobody reads a roster in.
  */
+
+/** Width of the block-label column; the day columns divide the rest. */
+const LABEL_COLUMN = 64;
 
 interface AfternoonRow {
   early: ScheduleAssignment | null; // 14:45-18:45
@@ -120,6 +125,25 @@ export function RosterGrid({
   const dates = weekDates(weekStart);
   const nameOf = (id: string) => guards.find((g) => g.id === id)?.display_name ?? '—';
 
+  // Text measured with the web font still loading comes back too narrow, so
+  // re-measure once it is ready. Without this the first paint sets a width
+  // based on the fallback font and the names clip.
+  const [fontsReady, setFontsReady] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void document.fonts?.ready.then(() => alive && setFontsReady(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Every column takes the width of the WIDEST cell in the table -- almost
+  // always an afternoon handover, which holds two names and a slash.
+  const columnWidth = useMemo(
+    () => widestRosterColumn(dates, assignments, nameOf),
+    [weekStart, assignments, guards, fontsReady],
+  );
+
   const onDay = (date: DateKey) => assignments.filter((a) => a.target_date === date);
 
   /** Coverage of one segment on one day, for the shortfall colouring. */
@@ -155,12 +179,22 @@ export function RosterGrid({
       </div>
 
       <div className="overflow-x-auto">
-        {/* Narrower than before: stacking the handover means a column only has
-            to fit one name, not two side by side. */}
-        <table className="w-full min-w-[44rem] table-fixed border-separate border-spacing-1 p-3">
+        {/* Equal columns, but the width is MEASURED rather than guessed: see
+            widestRosterColumn. A hardcoded width was wide enough for a single
+            name and clipped "יובל / שלי" down to "יו... / ע...". */}
+        <table
+          className="table-fixed border-separate border-spacing-1 p-3"
+          style={{ minWidth: LABEL_COLUMN + columnWidth * 7 + 32 }}
+        >
+          <colgroup>
+            <col style={{ width: LABEL_COLUMN }} />
+            {dates.map((d) => (
+              <col key={d} style={{ width: columnWidth }} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
-              <th className="w-16" />
+              <th />
               {dates.map((d, i) => (
                 <th key={d} className="pb-1 text-center">
                   <div
