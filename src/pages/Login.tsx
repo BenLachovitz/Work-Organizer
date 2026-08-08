@@ -87,7 +87,14 @@ export function Login() {
   }, [claim, code, pin, pinConfirm]);
 
   return (
-    <div className="grid min-h-dvh place-items-center bg-gradient-to-b from-slate-900 via-slate-900 to-brand-950 px-4 py-10">
+    // svh, not dvh: on first paint some mobile browsers resolve `dvh` against
+    // the LARGE viewport (as if the address bar were already hidden) before
+    // the first scroll/resize event corrects it, which centers this block
+    // against a taller-than-actually-visible height -- content sits above the
+    // true visual centre with a lopsided gap left below it. `svh` is always
+    // the smallest possible viewport, so it matches what's on screen from the
+    // very first frame regardless of address-bar state.
+    <div className="grid min-h-svh place-items-center bg-gradient-to-b from-slate-900 via-slate-900 to-brand-950 px-4 py-10">
       <div className="w-full max-w-sm">
         {/* Brand */}
         <div className="mb-8 text-center">

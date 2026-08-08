@@ -33,7 +33,8 @@ const queryClient = new QueryClient({
 
 function FullScreenLoader() {
   return (
-    <div className="grid min-h-dvh place-items-center bg-slate-100">
+    // svh, not dvh -- see the comment on the same swap in Login.tsx.
+    <div className="grid min-h-svh place-items-center bg-slate-100">
       <Spinner className="size-8 text-brand-600" />
     </div>
   );
