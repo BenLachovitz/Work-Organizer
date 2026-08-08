@@ -301,6 +301,67 @@ async function run() {
       : bad('note isolation', `mine=${JSON.stringify(mine)} theirs=${JSON.stringify(theirs)}`);
   }
 
+  console.log('\n\x1b[1m9. Cancelling a submission outright (delete_week_submission)\x1b[0m');
+  {
+    // Fresh, known state to cancel: a real submission with slots and a note,
+    // not the leftover empty-but-submitted state section 8 left behind.
+    await savePrefs(
+      guard, OPEN_WEEK,
+      [
+        { date: addDays(OPEN_WEEK, 0), shift: 'morning', allows12h: false },
+        { date: addDays(OPEN_WEEK, 1), shift: 'night', allows12h: false },
+      ],
+      'הערה לפני ביטול',
+    );
+    const before = await readPrefs(guard, OPEN_WEEK);
+    before.length === 2
+      ? ok('precondition: 2 slots saved before cancelling')
+      : bad('precondition', JSON.stringify(before));
+  }
+  {
+    const { error } = await guard.rpc('delete_week_submission', { p_week_start: OPEN_WEEK });
+    error ? bad('cancel submission', error.message) : ok('cancel submission succeeds');
+  }
+  {
+    const rows = await readPrefs(guard, OPEN_WEEK);
+    const { data: sub } = await guard.from('weekly_submissions')
+      .select('id').eq('week_start', OPEN_WEEK).maybeSingle();
+    rows.length === 0 && !sub
+      ? ok('both preferences and the submission row itself are gone -- genuinely "never submitted"')
+      : bad('cancel result', `prefs=${rows.length} sub=${Boolean(sub)}`);
+  }
+  {
+    // The guard might double-tap, or the UI might be a beat stale -- cancelling
+    // with nothing left to cancel must not surface as an error.
+    const { error } = await guard.rpc('delete_week_submission', { p_week_start: OPEN_WEEK });
+    !error
+      ? ok('cancelling again with nothing to cancel is a harmless no-op')
+      : bad('idempotent cancel', error.message);
+  }
+  {
+    const { error } = await guard.rpc('delete_week_submission', { p_week_start: LOCKED_WEEK });
+    error && (error.code === '42501' || /closed/i.test(error.message))
+      ? ok('cancelling a locked week is rejected with a clean error')
+      : bad('locked week cancel', error ? `${error.code}: ${error.message}` : 'cancel succeeded');
+  }
+  {
+    // Isolation, same guarantee as saving: cancelling my own submission must
+    // never touch a neighbour's.
+    const neighbour = await signedIn(CODE2);
+    await savePrefs(neighbour, OPEN_WEEK, [
+      { date: addDays(OPEN_WEEK, 2), shift: 'afternoon', allows12h: false },
+    ]);
+    await savePrefs(guard, OPEN_WEEK, [
+      { date: addDays(OPEN_WEEK, 3), shift: 'morning', allows12h: false },
+    ]);
+    await guard.rpc('delete_week_submission', { p_week_start: OPEN_WEEK });
+    const mine = await readPrefs(guard, OPEN_WEEK);
+    const theirs = await readPrefs(neighbour, OPEN_WEEK);
+    mine.length === 0 && theirs.length === 1
+      ? ok("cancelling my own submission leaves a neighbour's untouched")
+      : bad('cancel isolation', `mine=${JSON.stringify(mine)} theirs=${JSON.stringify(theirs)}`);
+  }
+
   await cleanup();
   console.log(`\n\x1b[1mResult:\x1b[0m \x1b[32m${passed} passed\x1b[0m, ` +
     (failures.length ? `\x1b[31m${failures.length} failed\x1b[0m` : '0 failed'));

@@ -118,6 +118,38 @@ export function useSavePreferences() {
   });
 }
 
+/**
+ * Cancels a guard's own submission for a week outright, via
+ * delete_week_submission (migration 30) -- not an edit down to an empty
+ * week (spec 3.4's "submitted, empty" is a distinct, deliberate state), but
+ * genuinely back to "never submitted", so the guard can reconsider and
+ * submit fresh later, or not at all.
+ */
+export function useDeleteSubmission() {
+  const queryClient = useQueryClient();
+  const { profile } = useAuth();
+  const guardId = profile?.id ?? '';
+
+  return useMutation({
+    mutationFn: async (weekStart: DateKey) => {
+      const { error } = await requireSupabase().rpc('delete_week_submission', {
+        p_week_start: weekStart,
+      });
+      if (error) {
+        // 42501 is the insufficient_privilege we raise when the window shut
+        // between page load and the click.
+        if (error.code === '42501' || /closed/i.test(error.message)) {
+          throw new Error('חלון ההגשה נסגר. פנה למנהל המשמרת.');
+        }
+        throw new Error(error.message);
+      }
+    },
+    onSuccess: (_data, weekStart) => {
+      void queryClient.invalidateQueries({ queryKey: guardKeys.week(guardId, weekStart) });
+    },
+  });
+}
+
 export interface WeekRoster {
   weekStart: DateKey;
   runId: string;

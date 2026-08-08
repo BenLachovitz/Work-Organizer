@@ -67,20 +67,32 @@ export function WeeklyPreferenceForm({
   locked,
   configuredKamut,
   initial,
+  hasSubmitted = false,
   onSubmit,
   submitting = false,
+  onDelete,
+  deleting = false,
 }: {
   weekStart: DateKey;
   deadline: Date;
   locked: boolean;
   configuredKamut: number;
   initial?: PreferenceFormValue;
+  /** Whether a submission already exists for this week -- the cancel action
+   *  below only makes sense when there is something to cancel. */
+  hasSubmitted?: boolean;
   onSubmit: (value: PreferenceFormValue) => void;
   submitting?: boolean;
+  /** Cancels the existing submission outright (delete_week_submission,
+   *  migration 30) -- distinct from submitting an empty week (spec 3.4),
+   *  which is a deliberate "I am unavailable" answer, not a withdrawal. */
+  onDelete?: () => void;
+  deleting?: boolean;
 }) {
   const [slots, setSlots] = useState<Selection>(() => new Map(initial?.slots ?? []));
   const [notes, setNotes] = useState(initial?.notes ?? '');
   const [confirmEmpty, setConfirmEmpty] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const dates = useMemo(() => weekDates(weekStart), [weekStart]);
   const left = timeUntil(deadline);
@@ -378,6 +390,38 @@ export function WeeklyPreferenceForm({
           {confirmEmpty ? 'אשר הגשה ריקה' : 'שלח בקשות'}
         </Button>
       </Card>
+
+      {/* ---------------- cancel submission ---------------- */}
+      {hasSubmitted && !locked && onDelete && (
+        <Card className="space-y-2">
+          <div>
+            <p className="font-bold text-slate-900">ביטול ההגשה</p>
+            <p className="mt-0.5 text-sm text-slate-500">
+              מוחק את הבקשות ששלחת לשבוע זה ומחזיר אותך למצב ״טרם הגשת״. אפשר להגיש מחדש עד מועד
+              הסגירה.
+            </p>
+          </div>
+
+          {confirmDelete && (
+            <Alert tone="warn">לחיצה נוספת תמחק את ההגשה. אי אפשר לבטל את המחיקה עצמה.</Alert>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant={confirmDelete ? 'danger' : 'ghost'}
+              loading={deleting}
+              onClick={() => (confirmDelete ? onDelete() : setConfirmDelete(true))}
+            >
+              {confirmDelete ? 'לחץ שוב לביטול סופי' : 'ביטול ההגשה'}
+            </Button>
+            {confirmDelete && (
+              <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
+                חזרה
+              </Button>
+            )}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
