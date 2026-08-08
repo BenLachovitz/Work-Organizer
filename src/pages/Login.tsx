@@ -99,8 +99,9 @@ export function Login() {
     // under the status bar and any gesture-nav bar. The top inset is already
     // handled globally -- index.css puts `padding-top: env(safe-area-inset-top)`
     // on <body> itself -- so only the BOTTOM inset needs handling here: this
-    // page has no bottom nav (unlike the authenticated pages, which reserve
-    // space for one via .mb-safe) to already push content up from under a
+    // page has no bottom nav (unlike the authenticated pages' AppShell,
+    // where BottomNav is a normal flex child of the shell and reserves its
+    // own space naturally) to already push content up from under a
     // gesture-nav bar. max() against the original 2.5rem so devices with no
     // inset are unaffected.
     <div

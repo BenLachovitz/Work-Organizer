@@ -83,7 +83,4 @@
   .pb-safe {
     padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
   }
-  .mb-safe {
-    margin-bottom: calc(env(safe-area-inset-bottom) + 4.5rem);
-  }
 }

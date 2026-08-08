@@ -9,7 +9,7 @@ function Header({ title, subtitle }: { title: string; subtitle?: string }) {
   const { profile, signOut } = useAuth();
 
   return (
-    <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/85 backdrop-blur-md">
+    <header className="shrink-0 border-b border-slate-200 bg-white/85 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-3xl items-center gap-3 px-4">
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-lg font-extrabold text-slate-900">{title}</h1>
@@ -116,7 +116,7 @@ function BottomNav() {
   const items = NAV.filter((i) => !i.managerOnly || isManager);
 
   return (
-    <nav className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur-md">
+    <nav className="pb-safe shrink-0 border-t border-slate-200 bg-white/95 backdrop-blur-md">
       <div className="mx-auto flex max-w-3xl">
         {items.map((item) => (
           <NavLink
@@ -164,11 +164,21 @@ export function AppShell({
 }) {
   const { pathname } = useLocation();
 
+  // A flex column filling exactly the viewport height, not a page that
+  // scrolls as a whole under a `position: fixed` header/nav. The fixed
+  // approach fought the mobile browser's own dynamic toolbar: when it
+  // shows or hides mid-scroll, the visual viewport height changes, and a
+  // `fixed` element's position can resettle a beat later than the page's
+  // own scroll position does -- which read as the bottom nav jumping and
+  // landing on top of content, sometimes leaving the page unable to
+  // scroll the last bit further. Here only <main> scrolls; Header and
+  // BottomNav are ordinary flex children that can never be out of sync
+  // with it, because nothing is independently anchored to the viewport.
   return (
-    <div className="min-h-dvh bg-slate-100">
+    <div className="flex h-dvh flex-col bg-slate-100">
       <Header title={title} subtitle={subtitle} />
-      <main key={pathname} className="mb-safe mx-auto max-w-3xl px-4 py-5">
-        {children}
+      <main key={pathname} className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-3xl px-4 py-5">{children}</div>
       </main>
       <BottomNav />
     </div>
