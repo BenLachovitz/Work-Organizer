@@ -56,6 +56,37 @@ likely next place `overflow-x: hidden` would be silently clipping something rath
 breaking — worth checking with DevTools' device toolbar at a few widths (360, 375, 393, 412) before
 assuming it's something new.
 
+### Three bugs found testing the admin week cursor (8 August), all fixed
+
+All three traced back to the same root cause. Ben changed the submission-window open-time to an
+already-past time (confirmed the admin cursor — migration 26 — advances correctly), then changed it
+to a future time expecting the cycle to reverse. It didn't fully: a week (`2026-08-16`) that had been
+auto-opened while the cursor was briefly ahead got stuck `open`, sitting in the archive view instead
+of reverting.
+
+1. **The archived week kept accepting submissions** (migration 28, 29) — `ensure_roster_weeks()`'s
+   open/lock sweep only ever reconciled `(v_current, v_next)`, the currently-tracked pair. The
+   moment a week fell out of that pair — which the admin cursor can now cause, since it (unlike the
+   calendar-only cursor RLS still uses) isn't guaranteed to move only forward — nothing ever swept it
+   again. Migration 28 dropped the pair-scoping entirely; that was too broad on its own (it also
+   swept test suites' own future-dated fixture rows, breaking `rls.cloud.test.mjs` — caught before
+   push), so migration 29 bounds it to a window around the real calendar week
+   (`current_week_start() -7 .. +28`) instead, wide enough for anything the admin cursor could
+   legitimately reach given `open_offset_days`' `[1,20]` range, nowhere near two-months-out test
+   dates.
+2. **Selecting an archived week snapped the picker back to "live weeks"** — `ManagerDashboard.tsx`
+   fully unmounted (down to a bare spinner) on every week switch, which reset `WeekControlsPanel`'s
+   local archive-toggle state. Fixed by keeping the panel mounted and only spinner-ing the
+   week-detail section below it.
+3. **Changing the deadline setting didn't affect the currently-open week's countdown** — by design
+   (spec §12.5), a week's stored deadline was only ever set once, at creation. Too strict for a week
+   nobody has manually decided anything about (`status_overridden_at IS NULL`); migration 27 (later
+   folded into 28/29's broader, bounded scope) keeps such a week's deadline live against
+   `scheduler_settings` on every `ensure_roster_weeks()` call.
+
+Fixed and verified in that order — 3, then 2, then 1 — at Ben's request, so each fix stayed
+independently testable against the live broken state before the next one changed it.
+
 ---
 
 ## State: build steps A–J complete, live and in daily use
