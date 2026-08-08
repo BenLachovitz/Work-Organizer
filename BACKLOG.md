@@ -29,6 +29,33 @@ along the way: the project's **Deployment Protection** ("Vercel Authentication")
 which gated every deployment — including production — behind a Vercel account login, so nobody but
 Ben could reach the site. Disabled in Settings.
 
+Also fixed post-launch, testing on Ben's own Android phone (a Samsung, Chrome):
+
+- **Direct load / refresh 404 on any non-root route** (e.g. reloading while looking at "סידור
+  שבועי") — `vercel.json` was missing entirely, so with `BrowserRouter`'s client-side routing and no
+  SPA rewrite, Vercel 404'd at the edge before React Router loaded. Added a catch-all rewrite to
+  `index.html`.
+- **Login page vertical centering** looked slightly off — tried `min-h-dvh` → `min-h-svh`
+  (`src/pages/Login.tsx`, `src/App.tsx`'s `FullScreenLoader`) and `env(safe-area-inset-*)` padding
+  first; those were real fixes but not the actual culprit.
+- **The actual bug — horizontal overflow on narrow phones.** The 6-digit code boxes
+  (`src/components/auth/CodeInput.tsx`) were fixed at `size-12` + `gap-2`, a hard 328px floor for
+  the row alone (fixed-width flex items don't shrink below their set size). Adding the card's and
+  page's padding, the floor was 400px — wider than several real Android CSS viewports (360–393px).
+  That forced the page to scroll horizontally, which is what exposed a strip of the plain
+  `bg-slate-100` body background down one side and threw off centering once scrolled off its
+  natural rest position. Fixed by shrinking the boxes (`size-10` + `gap-1.5`) so the row fits from
+  ~360px up, and added `overflow-x: hidden` on `html` (`src/index.css`) as a systemic guard against
+  the same class of bug recurring anywhere else in the app.
+
+**If a different phone brand still shows something off**, start here: this was tested on one
+Android/Chrome device only. `size-10` should hold down to a ~360px CSS viewport (verify with that
+phone's actual reported width — Chrome DevTools remote debugging, or just ask what device/browser).
+A phone narrower than that, or a very different browser's own chrome/gesture-bar insets, is the most
+likely next place `overflow-x: hidden` would be silently clipping something rather than it visibly
+breaking — worth checking with DevTools' device toolbar at a few widths (360, 375, 393, 412) before
+assuming it's something new.
+
 ---
 
 ## State: build steps A–J complete, live and in daily use
