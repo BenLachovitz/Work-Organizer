@@ -963,8 +963,8 @@ only the function knows the token that Render will accept.
 
 ### 11.2 Vercel Setup — done, 8 August
 
-Live at `https://work-organizer-ftqvcglmy-work-organizer1.vercel.app/` (per-deployment hashed URL;
-swap in a clean domain from Settings → Domains when one is picked). `npm run build` (Vite,
+Live at `https://work-organizer-iota.vercel.app/` — the stable production alias (Settings → Domains),
+the one to actually share with the team. `npm run build` (Vite,
 auto-detected) needed no extra config beyond the standard steps, run from the repo root by Ben (the
 Vercel account holder — the browser-based login step can't be done on his behalf):
 
@@ -1000,9 +1000,15 @@ Two gotchas hit during the real run, both one-time fixes now resolved:
   logged into the Vercel team — which is everyone, guards included. Disabled in Settings →
   Deployment Protection.
 
-Future redeploys are just `npx vercel --prod` from the repo root (or a GitHub-integration auto-deploy
-on push, if enabled in the dashboard) — both gotchas above were one-time project setup, not part of
-the ongoing redeploy story.
+**GitHub integration is connected** (Settings → Git → `BenLachovitz/Work-Organizer`), so a push to
+`main` deploys automatically — matching the `[Local] → git push → [GitHub] → [Vercel]` diagram at the
+top of this section. `npx vercel --prod` is no longer part of the ongoing workflow; it's only useful
+now for deploying local changes ahead of a push. Both gotchas above were one-time project setup, not
+something to redo per deploy.
+
+Production alias: `work-organizer-iota.vercel.app` (Settings → Domains) — this is the one to actually
+share with the team; the per-deployment hashed URL from §11.2's first live run
+(`work-organizer-ftqvcglmy-...`) changes on every new build and should not be bookmarked.
 
 ---
 
@@ -1210,8 +1216,8 @@ CP-SAT never scores below the mock.
 
 ### 14.3 What is left
 
-Nothing blocking. One loose end: pick a clean production domain in Vercel (Settings → Domains) in
-place of the per-deployment hashed URL §11.2 currently records.
+Nothing. All three items resolved, deploy live on a stable domain (§11.2), GitHub auto-deploy
+connected.
 
 **Completed since v2.2 was drafted:** repository pushed to
 `github.com/BenLachovitz/Work-Organizer`; the CP-SAT service is live at

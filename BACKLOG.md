@@ -21,13 +21,13 @@ Ben (`005396`) is both the manager **and** an active guard.
 
 ---
 
-## Live at https://work-organizer-ftqvcglmy-work-organizer1.vercel.app/
+## Live at https://work-organizer-iota.vercel.app/
 
-Deployed via Vercel CLI (spec §11.2). One gotcha hit along the way: the project's **Deployment
-Protection** ("Vercel Authentication") was on by default, which gated every deployment — including
-production — behind a Vercel account login, so nobody but Ben could reach the site. Disabled in
-Settings. The URL above still carries a per-deployment hash; swap in the clean domain from
-**Settings → Domains** once one is picked, and bookmark that one instead.
+Deployed via Vercel CLI, GitHub integration now connected (spec §11.2) — a push to `main` deploys
+automatically from here on, no manual `vercel --prod` needed for ordinary changes. One gotcha hit
+along the way: the project's **Deployment Protection** ("Vercel Authentication") was on by default,
+which gated every deployment — including production — behind a Vercel account login, so nobody but
+Ben could reach the site. Disabled in Settings.
 
 ---
 
@@ -47,8 +47,7 @@ dead column and fixed a seed-data bug that could resurrect a deleted employee (s
 
 ## What is left
 
-Nothing blocking. One loose end: pick a clean production domain in Vercel (Settings → Domains) to
-replace the per-deployment hashed URL above.
+Nothing. All three items resolved, deploy live on a stable domain, GitHub auto-deploy connected.
 
 ### Resolved
 
