@@ -59,7 +59,7 @@ export function Preferences() {
         <Card>
           <p className="font-bold text-slate-900">אין כרגע שבוע פתוח להגשה</p>
           <p className="mt-1 text-sm text-slate-500">
-            המנהל טרם פתח שבוע חדש, או שכל חלונות ההגשה נסגרו. נסה שוב מאוחר יותר.
+            עדיין לא נפתח שבוע חדש להגשה, או שכל חלונות ההגשה נסגרו. נסה שוב מאוחר יותר.
           </p>
         </Card>
       </AppShell>

@@ -59,7 +59,7 @@ export function GuardHome() {
       <div className="space-y-4">
         {lastChangeAt && (
           <Alert tone="info" title="הסידור עודכן">
-            המנהל שינה את הסידור זה עתה. המשמרות שלך מעודכנות למטה.
+            בוצע שינוי בסידור זה עתה. המשמרות שלך מעודכנות למטה.
           </Alert>
         )}
 
@@ -73,7 +73,7 @@ export function GuardHome() {
             <p className="text-sm opacity-80">שלום {profile?.display_name}</p>
             <p className="mt-1 text-2xl font-extrabold">אין עדיין סידור מפורסם</p>
             <p className="mt-2 text-sm opacity-80">
-              ברגע שהמנהל יפרסם סידור, הוא יופיע כאן אוטומטית.
+              ברגע שיפורסם סידור, הוא יופיע כאן אוטומטית.
             </p>
           </Card>
         ) : (
@@ -186,30 +186,6 @@ export function GuardHome() {
             {submitted ? 'עריכת הבקשות' : 'למילוי הבקשות'}
           </ButtonLink>
         </Card>
-
-        {/* ---------------- weekly target ---------------- */}
-        {guardWeek?.target && (
-          <Card>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-bold text-slate-900">כמות משמרות שהוגדרה לך</p>
-                <p className="mt-0.5 text-sm text-slate-500">
-                  {formatWeekRange(active.weekStart)} · נקבע על ידי המנהל
-                </p>
-              </div>
-              <span className="text-3xl font-extrabold text-brand-600">
-                {guardWeek.target.configured_kamut}
-              </span>
-            </div>
-            {guardWeek.target.effective_kamut !== null &&
-              guardWeek.target.effective_kamut < guardWeek.target.configured_kamut && (
-                <Alert tone="warn" title="היעד הותאם">
-                  לפי הזמינות שהגשת, היעד בפועל לשבוע זה הוא{' '}
-                  <strong>{guardWeek.target.effective_kamut}</strong>.
-                </Alert>
-              )}
-          </Card>
-        )}
       </div>
     </AppShell>
   );

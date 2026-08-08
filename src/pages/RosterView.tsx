@@ -57,7 +57,7 @@ export function RosterView() {
           <EmptyState
             icon="🗓️"
             title="טרם פורסם סידור"
-            description="לאחר שהמנהל יפרסם את הסידור, הוא יופיע כאן אוטומטית."
+            description="לאחר שיפורסם הסידור, הוא יופיע כאן אוטומטית."
           />
         </Card>
       </AppShell>
