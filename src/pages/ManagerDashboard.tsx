@@ -3,6 +3,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { CoverageMatrix } from '@/components/manager/CoverageMatrix';
 import { TeamTable } from '@/components/manager/TeamTable';
 import { WeekControlsPanel } from '@/components/manager/WeekControlsPanel';
+import { SubmissionWindowSettings } from '@/components/manager/SubmissionWindowSettings';
 import { RosterGrid } from '@/components/RosterGrid';
 import { RosterEditor } from '@/components/manager/RosterEditor';
 import { RosterExport } from '@/components/manager/RosterExport';
@@ -33,19 +34,18 @@ import { formatWeekRange, weekDates } from '@/lib/dates';
 import type { MorningTarget } from '@/lib/shifts';
 
 export function ManagerDashboard() {
-  const { data: weeks, live, archive, isLoading: weeksLoading } = useSplitWeeks();
+  const { data: weeks, live, archive, nextStart, isLoading: weeksLoading } = useSplitWeeks();
   const [selected, setSelected] = useState<string>('');
 
-  // Default to the first week still accepting submissions -- that is the one a
-  // manager is almost always here to work on.
+  // Default to NEXT week, not whichever happens to be "open" -- most of a
+  // manager's actual work (setting כמות, generating, publishing) is for the
+  // week ahead, not the one already in progress. Falls back to whatever is
+  // live if next week has not been created yet.
   useEffect(() => {
     if (selected || !live.length) return;
-    const now = Date.now();
-    const open = live.find(
-      (w) => w.status === 'open' && new Date(w.submission_deadline).getTime() > now,
-    );
-    setSelected(open?.week_start ?? live[0]!.week_start);
-  }, [live, selected]);
+    const next = live.find((w) => w.week_start === nextStart);
+    setSelected(next?.week_start ?? live[0]!.week_start);
+  }, [live, selected, nextStart]);
 
   const { data, isLoading, error } = useManagerWeek(selected);
   const { data: codes } = useRosterCodeStatus();
@@ -132,6 +132,8 @@ export function ManagerDashboard() {
           }
           onSetStatus={(s) => updateWeek.mutate({ weekStart: selected, status: s })}
         />
+
+        <SubmissionWindowSettings />
 
         {updateWeek.isError && (
           <Alert tone="error" title="העדכון נכשל">

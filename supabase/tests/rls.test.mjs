@@ -527,6 +527,51 @@ async function run() {
       : bad('delete_employee on a pending code', JSON.stringify(pendingGone.rows));
   }
 
+  console.log('\n\x1b[1m5b. Configurable submission window (migration 22)\x1b[0m');
+  {
+    await expectCount(
+      'defaults match the old hardcoded values (Wed 19:00 close, Sat 20:00 open)',
+      MANAGER,
+      `SELECT 1 FROM scheduler_settings
+        WHERE deadline_offset_days = 4 AND deadline_time = '19:00'
+          AND open_offset_days = 8 AND open_time = '20:00'`,
+      [],
+      1,
+    );
+    await expectNoRowsAffected(
+      'guard cannot change the submission window',
+      GUARD_A,
+      `UPDATE scheduler_settings SET deadline_time = '12:00' WHERE id`,
+      [],
+    );
+    await expectError(
+      'opening after the deadline is rejected (open_before_deadline)',
+      MANAGER,
+      `UPDATE scheduler_settings SET open_offset_days = 2 WHERE id`, // 2 < deadline's 4 -- later in time, not before
+      [],
+      /open_before_deadline|check constraint/i,
+    );
+
+    // Has to persist (COMMIT) so the NEXT statement -- a plain, unimpersonated
+    // deadline_for_week() call -- can observe it actually changed.
+    await withUserCommitted(MANAGER, () =>
+      db.query(`UPDATE scheduler_settings SET deadline_time = '17:30' WHERE id`),
+    );
+    // Converted back to local time explicitly -- relying on the raw value's
+    // string form would only work by accident of whatever timezone the
+    // engine happens to render it in.
+    const moved = await db.query(
+      `SELECT (public.deadline_for_week('2026-08-16') AT TIME ZONE 'Asia/Jerusalem')::TEXT AS d`,
+    );
+    /17:30/.test(moved.rows[0].d)
+      ? ok('deadline_for_week() reflects the new time immediately (STABLE, not IMMUTABLE)')
+      : bad('deadline_for_week reflects setting', JSON.stringify(moved.rows[0]));
+
+    // Restore -- nothing else in this file depends on scheduler_settings, but
+    // leaving it changed would be a silent trap for the next thing that does.
+    await db.exec(`UPDATE scheduler_settings SET deadline_time = '19:00' WHERE id`);
+  }
+
   console.log('\n\x1b[1m6. Draft rosters do not leak before publication\x1b[0m');
   await expectCount(
     'guard sees ONLY the published run',

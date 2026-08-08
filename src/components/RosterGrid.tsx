@@ -236,16 +236,26 @@ export function RosterGrid({
                     const rows = day.filter(
                       (a) => a.shift === 'morning' || a.shift === 'day12',
                     );
+                    const target = segmentTargets(morningTarget, dayIndex).S1;
                     content = rows.length ? (
-                      rows.map((a) => (
-                        <Chip
-                          key={a.id}
-                          assignment={a}
-                          name={nameOf(a.guard_id)}
-                          suffix={a.shift === 'day12' ? 'עד 18:45' : undefined}
-                          mine={a.guard_id === highlightGuardId}
-                        />
-                      ))
+                      <>
+                        {rows.map((a) => (
+                          <Chip
+                            key={a.id}
+                            assignment={a}
+                            name={nameOf(a.guard_id)}
+                            suffix={a.shift === 'day12' ? 'עד 18:45' : undefined}
+                            mine={a.guard_id === highlightGuardId}
+                          />
+                        ))}
+                        {/* Filled but short of target: a dash per missing slot,
+                            same convention as an unpaired handover half --
+                            shown, not hidden. Fully empty stays "ריק" below,
+                            the stronger signal for nobody at all. */}
+                        {Array.from({ length: Math.max(0, target - rows.length) }, (_, i) => (
+                          <Gap key={`gap-${i}`} />
+                        ))}
+                      </>
                     ) : (
                       <Empty />
                     );
@@ -254,16 +264,22 @@ export function RosterGrid({
                     const rows = day.filter(
                       (a) => a.shift === 'night' || a.shift === 'night12',
                     );
+                    const target = segmentTargets(morningTarget, dayIndex).S4;
                     content = rows.length ? (
-                      rows.map((a) => (
-                        <Chip
-                          key={a.id}
-                          assignment={a}
-                          name={nameOf(a.guard_id)}
-                          suffix={a.shift === 'night12' ? 'מ 18:45' : undefined}
-                          mine={a.guard_id === highlightGuardId}
-                        />
-                      ))
+                      <>
+                        {rows.map((a) => (
+                          <Chip
+                            key={a.id}
+                            assignment={a}
+                            name={nameOf(a.guard_id)}
+                            suffix={a.shift === 'night12' ? 'מ 18:45' : undefined}
+                            mine={a.guard_id === highlightGuardId}
+                          />
+                        ))}
+                        {Array.from({ length: Math.max(0, target - rows.length) }, (_, i) => (
+                          <Gap key={`gap-${i}`} />
+                        ))}
+                      </>
                     ) : (
                       <Empty />
                     );
@@ -367,17 +383,20 @@ function Empty() {
 }
 
 /**
- * An uncovered half of a handover -- shown, not hidden.
+ * An uncovered slot -- shown, not hidden.
  *
- * Just a dash, as the spreadsheet writes it ("לוק / -"). Its POSITION says
- * which half is empty: before the slash is 14:45-18:45, after it is
- * 18:45-22:45. Spelling the window out again only repeated what the layout
- * already encodes.
+ * Just a dash, as the spreadsheet writes it ("לוק / -"). Two uses: one half of
+ * an unpaired handover (its POSITION says which half -- before the slash is
+ * 14:45-18:45, after it is 18:45-22:45, so spelling the window out again would
+ * only repeat what the layout already encodes), and a morning or night block
+ * that has some coverage but fewer guards than its target -- one dash per
+ * missing guard, alongside whoever IS assigned. A block with no one at all
+ * still reads "ריק" (Empty, below); the dash is for a partial shortfall.
  */
 function Gap() {
   return (
     <span
-      title="אין כיסוי בחצי הזה של המשמרת"
+      title="אין כיסוי במשבצת הזו"
       className="grid min-w-0 flex-1 place-items-center rounded bg-rose-100 px-1.5 py-1 text-[11px] font-bold text-rose-500 ring-1 ring-rose-200"
     >
       —

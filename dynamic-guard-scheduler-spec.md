@@ -121,18 +121,21 @@ Both grids tile the same 24 hours on four boundaries: **06:45 / 14:45 / 18:45 / 
 
 ### 2.4a Submission Window
 
-A week's submission window is derived, not stored:
+A week's submission window is derived, not stored, from a **configurable** offset and time (migration
+22 — see §12.5; the shape below was a literal before that):
 
 ```
 week W starts on a Sunday
-  opens   Saturday  (W − 8) at 20:00 Asia/Jerusalem
-  closes  Wednesday (W − 4) at 19:00 Asia/Jerusalem
+  opens   (W − open_offset_days)     at open_time     Asia/Jerusalem  -- default Saturday 20:00
+  closes  (W − deadline_offset_days) at deadline_time  Asia/Jerusalem  -- default Wednesday 19:00
 ```
 
-For W = Sunday 16 Aug: opens Sat 8 Aug 20:00, closes Wed 12 Aug 19:00. Next week's window is
-therefore already open when the current week begins and shuts on the Wednesday — which is what
-keeps exactly **two** weeks live at a time (three for a few hours each Saturday evening, which is
-inherent to a mid-week deadline rather than a defect).
+With the defaults, W = Sunday 16 Aug opens Sat 8 Aug 20:00 and closes Wed 12 Aug 19:00. Next week's
+window is therefore already open when the current week begins and shuts midweek — which is what
+keeps exactly **two** weeks live at a time (three for a few hours around the open time, which is
+inherent to a window that opens before the previous one closes rather than a defect). Changing the
+offsets or times preserves this shape as long as `open` stays configured to land before `deadline`
+(enforced by a CHECK, §12.5) — the manager is not required to keep the gap this exact size.
 
 `ensure_roster_weeks()` is idempotent and runs on every app load. It creates the current week and
 the next one, opens or locks them against their windows, and **never touches a week whose status a
@@ -880,6 +883,13 @@ short by one while the day was fully staffed.
 An uncovered half of a handover is labelled with the **window that is empty** (`ריק 14:45-18:45`)
 rather than with a 12h suffix, which would imply a shift nobody is working.
 
+**Short-staffed reads the same way empty does.** A morning or night block with *some* coverage but
+fewer guards than its target (segment target, §2.3/2.4 — 2 or 3 for morning depending on the
+weekday, always 2 for night) shows a `—` per missing guard alongside whoever IS assigned, the same
+convention as an unpaired handover half — shown, not hidden. A block with **nobody** at all still
+reads `ריק`, the stronger signal reserved for nobody rather than short. Both `RosterGrid.tsx` and
+the export (`exportRoster.ts`, which mirrors it rule for rule) implement this identically.
+
 **Column widths are measured, not chosen.** All seven day columns share one width — ragged columns
 read badly — and that width is the widest cell actually in the table, computed in
 `src/lib/measureColumns.ts` by measuring the text on a canvas with the same fonts the chips render
@@ -890,7 +900,7 @@ the columns get sized against the fallback face and clip when Heebo arrives.
 
 ### 10.2 Roster Image Export
 
-The manager can export a **published** roster as a PNG or JPEG (`src/lib/exportRoster.ts`,
+The manager can export a **published** roster as a JPEG (`src/lib/exportRoster.ts`,
 `src/components/manager/RosterExport.tsx`). The team coordinates in a WhatsApp group, so a picture
 is how the roster reaches eight phones regardless of what the app does.
 
@@ -956,7 +966,7 @@ only the function knows the token that Render will accept.
 ## 12. OPERATIONS WORKFLOW
 
 1. **Until Wednesday 19:00 — submission window.** Guards submit availability + per-day 12h opt-ins. Empty submissions are valid. RLS locks writes at the deadline. Weeks are created automatically by `ensure_roster_weeks()`, which always keeps exactly one week open.
-2. **Wednesday evening — configuration.** Manager sets the Mon-Fri morning target (2 or 3) and each guard's כמות.
+2. **Wednesday evening — configuration.** Manager sets the Mon-Fri morning target (2 or 3) and each guard's כמות. `ManagerDashboard` defaults its selected week to **next week**, not whichever week happens to be `open` — nearly all of a manager's actual work (כמות, generate, publish) targets the week ahead, not the one already in progress.
 3. **Pre-flight.** The system computes `effective_kamut` and shows any auto-overrides for review.
 4. **Generate.** CP-SAT returns an optimal draft plus a coverage report (floor breaches, target gaps, unmet כמות, rest violations).
 5. **Audit.** Manager reviews the colour-coded grid, makes manual swaps, and assigns posts (סריקה / בוטקה / בקרה / שמירה).
@@ -1035,6 +1045,49 @@ Three points worth keeping:
    (migration 3) already lets a manager write any guard's `default_kamut` — that part of the page is
    pure UI on top of a policy that already existed.
 
+### 12.5 Configurable Submission Window (migration 22)
+
+`deadline_for_week()` and `opens_for_week()` (§2.4a) used to be literals — `week_start - 4` at
+19:00, `week_start - 8` at 20:00. A single-row `scheduler_settings` table now holds each as
+`(offset_days, time)`, and a manager edits it from a collapsible **חלון הגשת בקשות** card on
+`ManagerDashboard` (`SubmissionWindowSettings.tsx`), collapsed by default since it is changed rarely.
+
+The database still only ever sees an offset — the UI is where "day of week" becomes days-before-
+`week_start`. `src/lib/dates.ts` does the conversion:
+
+```
+offsetForWeekday(weekday, mustExceed = 0)
+  naive = days before a Sunday that `weekday` falls on          -- e.g. Wednesday -> 4
+  if naive <= mustExceed, step back a further 7 days and retry  -- picking the SAME weekday
+                                                                    for both endpoints still
+                                                                    produces something unambiguously
+                                                                    earlier, not a collision
+  → offset
+
+weekdayForOffset(offsetDays)  -- the inverse, for displaying a stored offset as a weekday
+```
+
+Saving computes `deadlineOffset = offsetForWeekday(deadlineWeekday)`, then
+`openOffset = offsetForWeekday(openWeekday, deadlineOffset)` — validated against the current
+defaults: Wednesday → 4 (`mustExceed` not binding), Saturday with `mustExceed=4` → naive 1, which is
+not > 4, so steps back a week → 8. Both match the original literals exactly.
+
+Two things worth keeping:
+
+1. **A CHECK, not just client-side care.** `open_before_deadline` on `scheduler_settings` requires
+   `open_offset_days > deadline_offset_days` (or equal offsets with an earlier `open_time`) — larger
+   offset is earlier in time, since both count backward from `week_start`. The client-computed values
+   satisfy this by construction, but the constraint is what actually stops a bad row, including one
+   written by hand.
+2. **Changing the setting is forward-looking.** `deadline_for_week()`/`opens_for_week()` are read
+   only when `ensure_roster_weeks()` inserts a new `roster_weeks` row or sweeps status against that
+   row's already-*stored* deadline — an existing week's stored `submission_deadline` is not rewritten
+   retroactively. To change one specific week's deadline right now, the lock/reopen flow (§12.3,
+   migrations 11–12) is still how. Also changed: both functions went from `IMMUTABLE` to `STABLE`,
+   since their result can now change between calls if a manager edits the settings row — `IMMUTABLE`
+   tells the planner it may cache or fold a call forever, which would go stale the moment settings
+   change.
+
 ---
 
 ## 13. OPEN ITEMS
@@ -1066,6 +1119,7 @@ Three points worth keeping:
 | **F1–F5** | Fine-tuning batch (per-day 12h, week lifecycle, Mon–Fri target, archive, US week) | ✅ complete |
 | **G** | Manual grid editing, editable/deletable published rosters, Realtime both directions, shared grid, measured columns, image export, free-text submission notes (§3.6), per-guard default כמות (§2.7) | ✅ complete |
 | **H** | Team management: add/delete employees (real deletion, not deactivation), edit default כמות (§12.4) | ✅ complete |
+| **I** | Manager dashboard defaults to next week; configurable submission window (§12.5); short-staffed dash convention (§10.1) | ✅ complete |
 
 ### 14.2 Verification
 

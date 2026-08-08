@@ -365,6 +365,40 @@ async function run() {
       : bad('rpc cascade', `profile=${profileGone.length} prefs=${prefsGone.length} code=${codeGone.length}`);
   }
 
+  console.log('\n\x1b[1m5b. Configurable submission window (migration 22)\x1b[0m');
+  {
+    const before = await sql(`SELECT deadline_offset_days, deadline_time, open_offset_days, open_time FROM scheduler_settings WHERE id`);
+    await expectDenied('guard cannot change the submission window', a, 'scheduler_settings?id=eq.true', {
+      method: 'PATCH', body: JSON.stringify({ deadline_time: '12:00' }),
+    });
+    await expectDenied(
+      'opening after the deadline is rejected (open_before_deadline)',
+      mgr,
+      'scheduler_settings?id=eq.true',
+      { method: 'PATCH', body: JSON.stringify({ open_offset_days: 1 }) }, // 1 <= deadline's 4 -- not before it
+    );
+    await expectAllowed('manager can move the deadline', mgr, 'scheduler_settings?id=eq.true', {
+      method: 'PATCH', body: JSON.stringify({ deadline_time: '17:30' }),
+    });
+    // Converted back to local time for the comparison -- deadline_for_week()
+    // correctly returns UTC (Israel is UTC+3 in daylight time), so comparing
+    // the raw string against "17:30" would fail for the right answer.
+    const moved = await sql(
+      `SELECT (public.deadline_for_week('2026-09-06') AT TIME ZONE 'Asia/Jerusalem')::TEXT AS d`,
+    );
+    /17:30/.test(moved[0].d)
+      ? ok('deadline_for_week() reflects the change through the live RPC path')
+      : bad('deadline_for_week reflects setting', JSON.stringify(moved[0]));
+
+    // Restore -- this table is shared, ongoing state (unlike this suite's
+    // throwaway 9000xx fixtures), and ensure_roster_weeks() runs for real
+    // every time anyone opens the live app.
+    await sql(`UPDATE scheduler_settings SET
+      deadline_offset_days = ${before[0].deadline_offset_days}, deadline_time = '${before[0].deadline_time}',
+      open_offset_days = ${before[0].open_offset_days}, open_time = '${before[0].open_time}'
+      WHERE id`);
+  }
+
   console.log('\n\x1b[1m6. Draft rosters do not leak\x1b[0m');
   await expectRows('guard sees only the published run', a, 'schedule_runs?select=id&version=eq.99', 1);
   await expectRows(

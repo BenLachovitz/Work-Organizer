@@ -124,6 +124,34 @@ export function submissionDeadline(weekStart: DateKey): Date {
   return new Date(naiveUtc - (local.getTime() - utc.getTime()));
 }
 
+/**
+ * Converts between "day of week" (how a manager thinks about the submission
+ * window, spec §12.4/migration 22) and "days before week_start" (how the
+ * database stores it -- the same `week_start - N days` arithmetic
+ * deadline_for_week()/opens_for_week() always used, now backed by a
+ * configurable N instead of a literal).
+ *
+ * `mustExceed` lets the SAME weekday be picked for both endpoints of the
+ * window without landing on the same instant: if the naive offset would not
+ * exceed it, this steps back a further week until it does. week_start is
+ * always a Sunday, so within any single week each weekday occurs exactly
+ * once -- stepping back 7 days lands on the same weekday one cycle earlier
+ * with no ambiguity.
+ */
+export function offsetForWeekday(weekday: number, mustExceed = 0): number {
+  let naive = (7 - weekday) % 7;
+  if (naive === 0) naive = 7;
+  let offset = naive;
+  while (offset <= mustExceed) offset += 7;
+  return offset;
+}
+
+/** Inverse of offsetForWeekday: which weekday (0=ראשון..6=שבת) `offsetDays`
+ *  before a Sunday lands on. */
+export function weekdayForOffset(offsetDays: number): number {
+  return (7 - (offsetDays % 7)) % 7;
+}
+
 export function formatDeadline(deadline: Date): string {
   return new Intl.DateTimeFormat('he-IL', {
     timeZone: ISRAEL_TZ,

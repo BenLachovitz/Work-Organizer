@@ -136,9 +136,10 @@ function roundRect(
   ctx.closePath();
 }
 
-/** One drawable line inside a cell: a single chip, or a two-name handover. */
+/** One drawable line inside a cell: a single chip, an empty slot, or a two-name handover. */
 type Row =
   | { kind: 'chip'; shift: string; name: string; suffix?: string }
+  | { kind: 'gap' }
   | { kind: 'handover'; early: { shift: string; name: string } | null; late: { shift: string; name: string } | null };
 
 /**
@@ -146,14 +147,21 @@ type Row =
  *
  * A day12 guard therefore appears twice -- in the morning block and as the
  * first half of an afternoon handover -- because that is what they are working.
+ *
+ * `target` is only used for morning/night: filled-but-short of it gets a dash
+ * per missing guard (the same "shown, not hidden" convention as an unpaired
+ * handover half). A block with nobody at all stays "ריק" (drawn by the
+ * caller when `rows.length === 0`) -- the stronger signal for nobody, versus
+ * this one for short-staffed.
  */
 function rowsFor(
   block: 'morning' | 'afternoon' | 'night',
   day: ScheduleAssignment[],
   nameOf: (id: string) => string,
+  target = 0,
 ): Row[] {
   if (block === 'morning') {
-    return day
+    const rows: Row[] = day
       .filter((a) => a.shift === 'morning' || a.shift === 'day12')
       .map((a) => ({
         kind: 'chip' as const,
@@ -161,9 +169,13 @@ function rowsFor(
         name: nameOf(a.guard_id),
         suffix: a.shift === 'day12' ? 'עד 18:45' : undefined,
       }));
+    if (rows.length > 0) {
+      for (let i = rows.length; i < target; i++) rows.push({ kind: 'gap' });
+    }
+    return rows;
   }
   if (block === 'night') {
-    return day
+    const rows: Row[] = day
       .filter((a) => a.shift === 'night' || a.shift === 'night12')
       .map((a) => ({
         kind: 'chip' as const,
@@ -171,6 +183,10 @@ function rowsFor(
         name: nameOf(a.guard_id),
         suffix: a.shift === 'night12' ? 'מ 18:45' : undefined,
       }));
+    if (rows.length > 0) {
+      for (let i = rows.length; i < target; i++) rows.push({ kind: 'gap' });
+    }
+    return rows;
   }
 
   const rows: Row[] = day
@@ -235,9 +251,12 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
   // --- layout ---------------------------------------------------------------
   // Same rule as the on-screen grid: every column is the width of the widest
   // cell anywhere in the table, so the columns line up and nothing truncates.
-  const grid = dates.map((date) => {
+  const grid = dates.map((date, di) => {
     const day = onDay(date);
-    return BLOCKS.map((b) => rowsFor(b.key, day, nameOf));
+    const targets = segmentTargets(morningTarget, di);
+    return BLOCKS.map((b) =>
+      rowsFor(b.key, day, nameOf, b.key === 'morning' ? targets.S1 : b.key === 'night' ? targets.S4 : 0),
+    );
   });
 
   const chipW = (name: string, suffix?: string) =>
@@ -251,7 +270,7 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
       for (const row of rows) {
         if (row.kind === 'chip') {
           colWidth = Math.max(colWidth, chipW(row.name, row.suffix) + CELL_PAD * 2);
-        } else {
+        } else if (row.kind === 'handover') {
           // Both halves are drawn the same width, so the cell must fit twice
           // the LONGER name -- not their sum, which would let a short name
           // donate space its neighbour never receives.
@@ -381,6 +400,8 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
         const ry = y + 3 + CELL_PAD + ri * (CHIP_H + CHIP_GAP);
         if (row.kind === 'chip') {
           drawChip(ctx, innerX, ry, innerW, colors[row.shift]!, row.name, row.suffix);
+        } else if (row.kind === 'gap') {
+          drawGap(ctx, innerX, ry, innerW);
         } else {
           // The 18:45 handover. Early (day12) on the right, late (night12) on
           // the left, matching the RTL flex order on screen -- the slash IS the
