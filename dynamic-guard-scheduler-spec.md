@@ -1,8 +1,8 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
-**Version:** 2.2 (all five build steps complete; solver awaiting deployment)
+**Version:** 2.2 (build steps A–J complete; live and in daily use)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
-**Document Date:** 6 August 2026
+**Document Date:** 8 August 2026
 
 ---
 
@@ -10,7 +10,7 @@
 
 This document specifies the operational rules, database schema, Row-Level Security (RLS) policies, and constraint-programming model for a custom security-guard scheduling application (**סידור אמריקאי**).
 
-Active guards submit weekly availability from their phones, replacing manual WhatsApp coordination. A manager sets a per-week morning capacity target and a per-guard **כמות** (minimum shift target), then triggers a **Google OR-Tools CP-SAT** solver that produces a mathematically optimal, conflict-free draft roster in seconds. The manager audits the draft on a visual grid, assigns posts manually, and publishes — pushing the roster to every guard's phone.
+Active guards submit weekly availability from their phones, replacing manual WhatsApp coordination. A manager sets a per-week morning capacity target and a per-guard **כמות** (minimum shift target), then triggers a **Google OR-Tools CP-SAT** solver that produces a mathematically optimal, conflict-free draft roster in seconds. The manager audits the draft on a visual grid, hand-edits it where needed, and publishes — pushing the roster to every guard's phone, with a JPEG export for the team's WhatsApp group.
 
 Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (Postgres + Auth + RLS), and **Render/Railway** (Python solver microservice). Target operating cost: **$0/month**.
 
@@ -436,14 +436,13 @@ CREATE TABLE schedule_runs (
 CREATE UNIQUE INDEX one_published_run_per_week
   ON schedule_runs (week_start) WHERE is_published;
 
--- 8. The assignments themselves. `post` is set MANUALLY by the manager after generation.
+-- 8. The assignments themselves.
 CREATE TABLE schedule_assignments (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   run_id      UUID NOT NULL REFERENCES schedule_runs(id) ON DELETE CASCADE,
   target_date DATE NOT NULL,
   shift       shift_type NOT NULL,
   guard_id    UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  post        TEXT CHECK (post IN ('סריקה', 'בוטקה', 'בקרה', 'שמירה')), -- nullable, manual
   UNIQUE (run_id, target_date, shift, guard_id)
 );
 
@@ -969,7 +968,7 @@ only the function knows the token that Render will accept.
 2. **Wednesday evening — configuration.** Manager sets the Mon-Fri morning target (2 or 3) and each guard's כמות. `ManagerDashboard` defaults its selected week to **next week**, not whichever week happens to be `open` — nearly all of a manager's actual work (כמות, generate, publish) targets the week ahead, not the one already in progress.
 3. **Pre-flight.** The system computes `effective_kamut` and shows any auto-overrides for review.
 4. **Generate.** CP-SAT returns an optimal draft plus a coverage report (floor breaches, target gaps, unmet כמות, rest violations).
-5. **Audit.** Manager reviews the colour-coded grid, makes manual swaps, and assigns posts (סריקה / בוטקה / בקרה / שמירה).
+5. **Audit.** Manager reviews the colour-coded grid and makes manual swaps (`RosterEditor.tsx`) — before publishing, or after, on a roster already live.
 6. **Publish.** The run is marked `is_published`. The partial unique index guarantees at most one
    published roster per week; publishing a different version replaces the previous one. Saturday's
    assignments become next week's carry-in.
@@ -1088,6 +1087,28 @@ Two things worth keeping:
    tells the planner it may cache or fold a call forever, which would go stale the moment settings
    change.
 
+### 12.6 Seed Data Is Bootstrap-Only
+
+`seed.sql` is not just start-of-project scaffolding — `npm run db:apply` reruns it on **every**
+invocation, migration or not, and it originally seeded `roster_codes` with
+`ON CONFLICT (employee_code) DO NOTHING`. That combination has a sharp edge: once real team
+management existed (§12.4) and a manager could genuinely *delete* an employee, a deleted row is no
+longer a conflict — so the next `db:apply` silently re-inserted it. This actually happened: a
+placeholder employee the manager had deleted through the real feature came back after an unrelated
+migration was applied.
+
+Fixed by gating the whole `roster_codes` insert on the table being **empty**
+(`WHERE NOT EXISTS (SELECT 1 FROM roster_codes)`), not on a per-row conflict. A genuinely fresh
+database still gets bootstrapped to a usable starting point; a database that already has ANY row —
+real or not — is never touched by this block again, so a deletion (or an edit, or an addition
+through Team Management) sticks. The two placeholder codes for guards nobody had hired yet
+(`100008`, `100009`) were dropped from the seed entirely in the same pass — Team Management is how
+a new employee gets added now, so a permanently-unclaimed placeholder serves no purpose and was
+exactly the kind of row this bug could resurrect.
+
+Verified with a regression test (Gate A local, "seed.sql does not revive a deleted employee"):
+delete a seeded code through `delete_employee()`, rerun `seed.sql` verbatim, assert it is still gone.
+
 ---
 
 ## 13. OPEN ITEMS
@@ -1100,7 +1121,7 @@ Two things worth keeping:
 | 4 | Fairness / rotation of weekend and night shifts across guards | Not modelled |
 | 5 | Public holidays | Treated as ordinary days |
 | 6 | **Should availability be soft?** (§3.2) | Currently **hard**. Unresolved — see the note in §3.2 |
-| 7 | Posts (סריקה / בוטקה / בקרה / שמירה) | **Dropped at Ben's request.** Column remains nullable and unused |
+| 7 | Posts (סריקה / בוטקה / בקרה / שמירה) | **Dropped at Ben's request.** The column itself was later dropped too (migration 23) — nothing had read or written it since the feature was cut |
 | 8 | `pg_cron` for the week sweep | Not configured; the sweep runs on app load (§12.1) |
 
 ---
@@ -1120,6 +1141,7 @@ Two things worth keeping:
 | **G** | Manual grid editing, editable/deletable published rosters, Realtime both directions, shared grid, measured columns, image export, free-text submission notes (§3.6), per-guard default כמות (§2.7) | ✅ complete |
 | **H** | Team management: add/delete employees (real deletion, not deactivation), edit default כמות (§12.4) | ✅ complete |
 | **I** | Manager dashboard defaults to next week; configurable submission window (§12.5); short-staffed dash convention (§10.1) | ✅ complete |
+| **J** | Cleanup pass: dropped the dead `schedule_assignments.post` column (migration 23); fixed `seed.sql` re-seeding a deleted employee on every `db:apply`; removed the two never-hired placeholder codes; this document brought back in sync with the code | ✅ complete |
 
 ### 14.2 Verification
 
@@ -1147,7 +1169,7 @@ CP-SAT never scores below the mock.
 | # | Task | Blocked on |
 |---|---|---|
 | 1 | **Deploy the frontend to Vercel** — the only step that puts this on guards' phones | Ben |
-| 2 | Collect the team's real badge codes and replace `100001`–`100009` | Ben |
+| 2 | `100001`–`100007` are sequential placeholders, not real employer-issued badge numbers. The two never-hired placeholder codes (`100008`, `100009`) were removed (migration 23) once Team Management could add real employees directly. The seven real, active codes are unswapped — low priority, since nothing depends on the number itself | Ben, whenever |
 | 3 | Decide open item 6 (soft availability) | Ben |
 
 **Completed since v2.2 was drafted:** repository pushed to
@@ -1172,4 +1194,4 @@ gitignored. **End of project:** revoke the Supabase personal access token and ro
 password — both appear in the development transcript.
 
 ---
-*Specification v2.2 — revised 7 August 2026.*
+*Specification v2.2 — revised 8 August 2026.*

@@ -400,11 +400,14 @@ async function run() {
     0,
   );
   await expectCount(
-    'MANAGER can audit badge codes (10 seeded)',
+    // 8, not 10 -- seed.sql used to include two placeholder codes (רום,
+    // אדיר) for guards nobody had hired yet. Removed once real team
+    // management existed to add them for real; see the seed.sql comment.
+    'MANAGER can audit badge codes (8 seeded)',
     MANAGER,
     'SELECT * FROM roster_codes',
     [],
-    10,
+    8,
   );
   await expectError(
     'guard cannot INSERT a badge code (adding an employee is manager-only)',
@@ -570,6 +573,33 @@ async function run() {
     // Restore -- nothing else in this file depends on scheduler_settings, but
     // leaving it changed would be a silent trap for the next thing that does.
     await db.exec(`UPDATE scheduler_settings SET deadline_time = '19:00' WHERE id`);
+  }
+
+  console.log('\n\x1b[1m5c. seed.sql does not revive a deleted employee\x1b[0m');
+  {
+    // This is the exact scenario that actually happened in production: a
+    // manager deleted a badge code through the real feature, and the NEXT
+    // `npm run db:apply` -- which reruns seed.sql unconditionally, on top of
+    // a database that already has real data -- brought it back, because the
+    // old seed used `ON CONFLICT (employee_code) DO NOTHING` and a deleted
+    // row is no longer a conflict. Fixed by gating the whole seed on the
+    // table being empty; this proves that gate actually holds.
+    await withUserCommitted(MANAGER, () => db.query(`SELECT public.delete_employee('100007')`));
+    const gone = await db.query(`SELECT * FROM roster_codes WHERE employee_code = '100007'`);
+    if (gone.rows.length !== 0) bad('precondition', 'delete of ניתאי did not take');
+
+    const seedSql = await readFile(join(SUPABASE_DIR, 'seed.sql'), 'utf8');
+    await db.exec(seedSql);
+
+    const stillGone = await db.query(`SELECT * FROM roster_codes WHERE employee_code = '100007'`);
+    stillGone.rows.length === 0
+      ? ok('re-running seed.sql does NOT resurrect a deleted employee')
+      : bad('seed.sql revival', JSON.stringify(stillGone.rows));
+
+    // Restore -- section 5's "8 seeded" count and anything counting
+    // roster_codes from here on assumes the full original seed is intact.
+    await db.exec(`INSERT INTO roster_codes (employee_code, display_name, initial_role)
+                   VALUES ('100007', 'ניתאי', 'guard')`);
   }
 
   console.log('\n\x1b[1m6. Draft rosters do not leak before publication\x1b[0m');

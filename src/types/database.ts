@@ -8,7 +8,6 @@ import type { BaseShift, ShiftType } from '@/lib/shifts';
 
 export type UserRole = 'admin' | 'manager' | 'guard';
 export type WeekStatus = 'open' | 'locked' | 'generated' | 'published';
-export type Post = 'סריקה' | 'בוטקה' | 'בקרה' | 'שמירה';
 
 export interface Profile {
   id: string;
@@ -97,6 +96,5 @@ export interface ScheduleAssignment {
   target_date: string;
   shift: ShiftType;
   guard_id: string;
-  post: Post | null;
   created_at: string;
 }

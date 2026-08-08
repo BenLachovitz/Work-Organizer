@@ -305,7 +305,11 @@ async function run() {
 
   console.log('\n\x1b[1m5. Badge codes -- manager CRUD, guard sealed out (migration 20)\x1b[0m');
   await expectRows('guard cannot enumerate badge codes', a, 'roster_codes?select=employee_code', 0);
-  await expectRowsAtLeast('manager can audit badge codes (>= 10 seeded)', mgr, 'roster_codes?select=employee_code', 10);
+  // 8, not 10 -- seed.sql used to include two placeholder codes for guards
+  // nobody had hired yet; removed once real team management existed to add
+  // them for real (and, unrelatedly, because ON CONFLICT DO NOTHING was
+  // silently resurrecting a deleted one on every db:apply -- see seed.sql).
+  await expectRowsAtLeast('manager can audit badge codes (>= 8 seeded)', mgr, 'roster_codes?select=employee_code', 8);
   await expectDenied('guard cannot INSERT a badge code (adding an employee is manager-only)', a, 'roster_codes', {
     method: 'POST', body: JSON.stringify({ employee_code: '999999', display_name: 'שתול' }),
   });
