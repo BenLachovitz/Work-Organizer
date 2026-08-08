@@ -1,5 +1,6 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
-**Version:** 2.2 (build steps A–J complete; live and in daily use)
+
+**Version:** 2.3 (build steps A–K complete; live and in daily use; deployed to production)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 8 August 2026
@@ -16,45 +17,57 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 
 ### 1.1 Changes in Version 2.0
 
-| # | Change | Rationale |
-|---|---|---|
-| 1 | Coverage remodelled on **time segments**, not shifts | 12h shifts are a *second partition* of the day, not double shifts |
-| 2 | **12h shifts corrected** to 06:45–18:45 and 18:45–06:45, weight = 1 shift | Original v1 text implied 16h back-to-back doubles |
-| 3 | Coverage floors & targets made **soft with weighted penalties** | Prevents unexplainable `INFEASIBLE`; 8 guards are structurally under-capacity |
-| 4 | **כמות auto-override** to `min(configured, available_days, 5)` | Removes the #1 source of solver infeasibility |
-| 5 | **Availability is a hard constraint** | A guard is never scheduled on a slot they did not mark |
-| 6 | Rest rules generalised: **<8h hard-blocked · exactly 8h penalised (−5) · ≥12h free** | Replaces the single No-Clopen rule; No-Clopen now derived |
-| 7 | **Week-boundary carry-in** from the previous Saturday | Closes the cross-week rest loophole |
-| 8 | Posts (סריקה/בוטקה/בקרה/שמירה) **removed from the solver** | Manager assigns manually post-generation |
-| 9 | Schema normalised: JSONB targets → relational table; 12h flags → per-week row | Restores the FK integrity that motivated choosing Postgres |
-| 10 | RLS rewritten with `SECURITY DEFINER` helpers | v1 policies were self-blocking and left one table fully open |
-| 11 | Auth = **6-digit badge code + personal PIN** (set on first login) | A 6-digit code alone is not a credential |
-| 12 | Solver hosted on **Render/Railway**, not Supabase Edge Functions | Edge Functions are Deno; they cannot run Python/OR-Tools |
+| #   | Change                                                                               | Rationale                                                                     |
+| --- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| 1   | Coverage remodelled on **time segments**, not shifts                                 | 12h shifts are a _second partition_ of the day, not double shifts             |
+| 2   | **12h shifts corrected** to 06:45–18:45 and 18:45–06:45, weight = 1 shift            | Original v1 text implied 16h back-to-back doubles                             |
+| 3   | Coverage floors & targets made **soft with weighted penalties**                      | Prevents unexplainable `INFEASIBLE`; 8 guards are structurally under-capacity |
+| 4   | **כמות auto-override** to `min(configured, available_days, 5)`                       | Removes the #1 source of solver infeasibility                                 |
+| 5   | **Availability is a hard constraint**                                                | A guard is never scheduled on a slot they did not mark                        |
+| 6   | Rest rules generalised: **<8h hard-blocked · exactly 8h penalised (−5) · ≥12h free** | Replaces the single No-Clopen rule; No-Clopen now derived                     |
+| 7   | **Week-boundary carry-in** from the previous Saturday                                | Closes the cross-week rest loophole                                           |
+| 8   | Posts (סריקה/בוטקה/בקרה/שמירה) **removed from the solver**                           | Manager assigns manually post-generation                                      |
+| 9   | Schema normalised: JSONB targets → relational table; 12h flags → per-week row        | Restores the FK integrity that motivated choosing Postgres                    |
+| 10  | RLS rewritten with `SECURITY DEFINER` helpers                                        | v1 policies were self-blocking and left one table fully open                  |
+| 11  | Auth = **6-digit badge code + personal PIN** (set on first login)                    | A 6-digit code alone is not a credential                                      |
+| 12  | Solver hosted on **Render/Railway**, not Supabase Edge Functions                     | Edge Functions are Deno; they cannot run Python/OR-Tools                      |
 
 ### 1.2 Changes in Version 2.1
 
-| # | Change | Rationale |
-|---|---|---|
-| 13 | **US work week**: Saturday and Sunday are the days off; Friday is a working day | This is an American school, not an Israeli-calendar workplace |
-| 14 | Submission deadline moves to **Wednesday 19:00** Asia/Jerusalem | Replaces Thursday 20:00 |
-| 15 | Raised morning target (3) applies **Monday-Friday only**; Sat/Sun always 2 | The weekend runs light regardless of the week setting |
-| 16 | 12h opt-in becomes **per day**, stored as `allows_12h` on the preference row | A guard willing to do one long day should not have to accept a long week |
-| 17 | Weeks are **auto-created** by `ensure_roster_weeks()`; hand-seeded weeks removed | Scaffolding went stale as real dates passed |
-| 18 | Past weeks are **manager-only**, enforced in RLS | A guard holding the publishable key can query PostgREST directly |
+| #   | Change                                                                           | Rationale                                                                |
+| --- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 13  | **US work week**: Saturday and Sunday are the days off; Friday is a working day  | This is an American school, not an Israeli-calendar workplace            |
+| 14  | Submission deadline moves to **Wednesday 19:00** Asia/Jerusalem                  | Replaces Thursday 20:00                                                  |
+| 15  | Raised morning target (3) applies **Monday-Friday only**; Sat/Sun always 2       | The weekend runs light regardless of the week setting                    |
+| 16  | 12h opt-in becomes **per day**, stored as `allows_12h` on the preference row     | A guard willing to do one long day should not have to accept a long week |
+| 17  | Weeks are **auto-created** by `ensure_roster_weeks()`; hand-seeded weeks removed | Scaffolding went stale as real dates passed                              |
+| 18  | Past weeks are **manager-only**, enforced in RLS                                 | A guard holding the publishable key can query PostgREST directly         |
 
 ### 1.3 Changes in Version 2.2
 
-| # | Change | Rationale |
-|---|---|---|
-| 19 | Submission window **opens Saturday 20:00** (`week_start − 8`) and closes Wednesday 19:00 | Gives guards the weekend plus Sun–Wed; keeps exactly two weeks live |
-| 20 | `ensure_roster_weeks()` manages **exactly the current week and the next** | An earlier version walked forward until it found an open window, producing a third live week for part of every cycle |
-| 21 | Manager status changes go through **`set_week_status()`** and are permanent | The automatic sweep was silently reverting them — see §12.3 |
-| 22 | Reopening an expired week **extends the deadline**; locking again **clears the extension** | `is_week_open()` also gates on the deadline, so flipping status alone changed nothing observable |
-| 23 | Generation orchestrated **client-side**; the Edge Function is a thin secret-holding proxy | Putting solver logic in Deno would create a third copy of rules that already exist twice |
-| 24 | A generated roster is **refused if it fails the referee**, never stored on the solver's word | Better a visible failure than a roster that quietly contains a clopen |
-| 25 | Roster grid laid out in **three time blocks with an 18:45 handover cell** | Matches the spreadsheet the manager already used; segment rows hid that a `day12` guard covers two windows at once |
-| 26 | Grid columns sized from **measured content**, not a fixed guess | A hardcoded width fitted one name and clipped the two-name handover to `יו... / ע...` |
-| 27 | **Image export of a published roster** (§10.2), manager-only | The team coordinates in WhatsApp; a picture is how the roster actually reaches eight phones |
+| #   | Change                                                                                       | Rationale                                                                                                            |
+| --- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 19  | Submission window **opens Saturday 20:00** (`week_start − 8`) and closes Wednesday 19:00     | Gives guards the weekend plus Sun–Wed; keeps exactly two weeks live                                                  |
+| 20  | `ensure_roster_weeks()` manages **exactly the current week and the next**                    | An earlier version walked forward until it found an open window, producing a third live week for part of every cycle |
+| 21  | Manager status changes go through **`set_week_status()`** and are permanent                  | The automatic sweep was silently reverting them — see §12.3                                                          |
+| 22  | Reopening an expired week **extends the deadline**; locking again **clears the extension**   | `is_week_open()` also gates on the deadline, so flipping status alone changed nothing observable                     |
+| 23  | Generation orchestrated **client-side**; the Edge Function is a thin secret-holding proxy    | Putting solver logic in Deno would create a third copy of rules that already exist twice                             |
+| 24  | A generated roster is **refused if it fails the referee**, never stored on the solver's word | Better a visible failure than a roster that quietly contains a clopen                                                |
+| 25  | Roster grid laid out in **three time blocks with an 18:45 handover cell**                    | Matches the spreadsheet the manager already used; segment rows hid that a `day12` guard covers two windows at once   |
+| 26  | Grid columns sized from **measured content**, not a fixed guess                              | A hardcoded width fitted one name and clipped the two-name handover to `יו... / ע...`                                |
+| 27  | **Image export of a published roster** (§10.2), manager-only                                 | The team coordinates in WhatsApp; a picture is how the roster actually reaches eight phones                          |
+
+### 1.4 Changes in Version 2.3
+
+| #   | Change                                                                                            | Rationale                                                                                                                     |
+| --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 28  | **The frontend is deployed to Vercel** (§11.2), with GitHub auto-deploy connected                  | Build steps A–J's last blocker; a push to `main` now goes live on its own                                                     |
+| 29  | Manager-facing current/next cursor (`admin_current_week_start()`) now advances on the **configured submission open-time**, not real midnight (§12.1) | The manager-facing week cycle was previously indistinguishable from the guard-facing calendar cycle; a manager watching the open-time setting expected the whole cycle to move with it |
+| 30  | The admin cursor's week-status sweep is bounded to a **window around the real calendar week**, not scoped to the tracked pair and not unbounded either | A week that briefly became "next" and got auto-opened, then fell out of the tracked pair when the cursor reversed, was never swept again and stayed open forever; the first fix (unbounded) then swept unrelated test fixtures dated months away — bounding it is what's actually correct |
+| 31  | A guard can **cancel their own submission outright** (`delete_week_submission`, §3.7), not just edit it down to empty | Spec 3.4's "submitted, empty" is a deliberate "I am unavailable" answer — genuinely withdrawing to "never submitted" needed its own atomic RPC |
+| 32  | `AppShell` restructured as a **flex column where only the content area scrolls**, header and bottom nav as ordinary flex children | `position: fixed` fought the mobile browser's own dynamic toolbar (shows/hides mid-scroll): the bottom nav could resettle a beat after the page's own scroll position did, reading as a jump that sometimes landed on top of content |
+| 33  | Guard-facing copy no longer names "המנהל" directly; the guard-visible כמות card on the home page was removed | A manager shouldn't read as an authority figure to the people submitting to them; a guard doesn't need to see the shift-count target set for them behind the scenes |
+| 34  | The preference form **scrolls back to the top** after a successful submit or cancel                | The submit/cancel buttons sit at the bottom of what can be a long form; the confirmation banner renders at the top and was going unseen |
 
 ---
 
@@ -80,26 +93,26 @@ All constraints scale to the number of guards flagged `is_active = TRUE`, suppor
 
 Five shift types across two grids. **A guard works at most ONE shift type per calendar day.**
 
-| Code | Hebrew | Window | Hours | Grid | Eligibility |
-|---|---|---|---|---|---|
-| `morning` | בוקר | 06:45 – 14:45 | 8 | Standard | All guards |
-| `afternoon` | צהריים | 14:45 – 22:45 | 8 | Standard | All guards |
-| `night` | לילה | 22:45 – 06:45 (+1) | 8 | Standard | All guards |
-| `day12` | יום 12ש׳ | 06:45 – 18:45 | 12 | Extended | Requires `allows_12h` on that day's **morning** row |
-| `night12` | לילה 12ש׳ | 18:45 – 06:45 (+1) | 12 | Extended | Requires `allows_12h` on that day's **night** row |
+| Code        | Hebrew    | Window             | Hours | Grid     | Eligibility                                         |
+| ----------- | --------- | ------------------ | ----- | -------- | --------------------------------------------------- |
+| `morning`   | בוקר      | 06:45 – 14:45      | 8     | Standard | All guards                                          |
+| `afternoon` | צהריים    | 14:45 – 22:45      | 8     | Standard | All guards                                          |
+| `night`     | לילה      | 22:45 – 06:45 (+1) | 8     | Standard | All guards                                          |
+| `day12`     | יום 12ש׳  | 06:45 – 18:45      | 12    | Extended | Requires `allows_12h` on that day's **morning** row |
+| `night12`   | לילה 12ש׳ | 18:45 – 06:45 (+1) | 12    | Extended | Requires `allows_12h` on that day's **night** row   |
 
-> **Shift weight:** a 12h shift counts as **1** shift against the guard's כמות and against the 5-shift weekly ceiling — identical to an 8h shift. It is *not* 1.5.
+> **Shift weight:** a 12h shift counts as **1** shift against the guard's כמות and against the 5-shift weekly ceiling — identical to an 8h shift. It is _not_ 1.5.
 
 ### 2.3 Segment Coverage Model
 
-Both grids tile the same 24 hours on four boundaries: **06:45 / 14:45 / 18:45 / 22:45**. Coverage is therefore enforced per *segment*, which lets 8h and 12h guards be mixed freely on the same day.
+Both grids tile the same 24 hours on four boundaries: **06:45 / 14:45 / 18:45 / 22:45**. Coverage is therefore enforced per _segment_, which lets 8h and 12h guards be mixed freely on the same day.
 
-| Segment | Window | Length | Covered by |
-|---|---|---|---|
-| **S1** | 06:45 – 14:45 | 8h | `morning`, `day12` |
-| **S2** | 14:45 – 18:45 | 4h | `afternoon`, `day12` |
-| **S3** | 18:45 – 22:45 | 4h | `afternoon`, `night12` |
-| **S4** | 22:45 – 06:45 | 8h | `night`, `night12` |
+| Segment | Window        | Length | Covered by             |
+| ------- | ------------- | ------ | ---------------------- |
+| **S1**  | 06:45 – 14:45 | 8h     | `morning`, `day12`     |
+| **S2**  | 14:45 – 18:45 | 4h     | `afternoon`, `day12`   |
+| **S3**  | 18:45 – 22:45 | 4h     | `afternoon`, `night12` |
+| **S4**  | 22:45 – 06:45 | 8h     | `night`, `night12`     |
 
 ### 2.4 Targets vs. Critical Floors
 
@@ -107,16 +120,16 @@ Both grids tile the same 24 hours on four boundaries: **06:45 / 14:45 / 18:45 / 
 > off at the school and always run a target of 2 (floor 1) no matter what the week is set to.
 > `segmentTargets()` / `segmentFloors()` therefore take a day index, not just the week setting.
 
-| Segment | Target Capacity | Critical Floor |
-|---|---|---|
+| Segment                              | Target Capacity         | Critical Floor                           |
+| ------------------------------------ | ----------------------- | ---------------------------------------- |
 | **S1** (morning window, **Mon-Fri**) | Manager-set: **2 or 3** | **1** if target = 2; **2** if target = 3 |
-| **S1** (morning window, **Sat/Sun**) | Always **2** | Always **1** |
-| **S2** (early afternoon) | 2 | 1 |
-| **S3** (late afternoon) | 2 | 1 |
-| **S4** (night window) | 2 | 1 |
+| **S1** (morning window, **Sat/Sun**) | Always **2**            | Always **1**                             |
+| **S2** (early afternoon)             | 2                       | 1                                        |
+| **S3** (late afternoon)              | 2                       | 1                                        |
+| **S4** (night window)                | 2                       | 1                                        |
 
 - The **target is a hard ceiling** — the solver never over-staffs a segment.
-- The **floor is a soft constraint with a heavy penalty** (weight 1000). It is effectively never breached, but a breach returns a readable *coverage report* instead of a bare `INFEASIBLE`.
+- The **floor is a soft constraint with a heavy penalty** (weight 1000). It is effectively never breached, but a breach returns a readable _coverage report_ instead of a bare `INFEASIBLE`.
 - It is fully acceptable for segments to sit between floor and target. The solver satisfies floors first, then כמות, then fills remaining target slots.
 
 ### 2.4a Submission Window
@@ -149,12 +162,12 @@ Weekly demand in guard-hours at full target, morning target = 2:
 (2 × 8h) + (2 × 4h) + (2 × 4h) + (2 × 8h) = 48 guard-hours/day  →  336/week
 ```
 
-| Scenario | Weekly supply | Verdict |
-|---|---|---|
-| 8 guards × 5 shifts × 8h | 320h | ❌ Short of target-2 by 16h |
-| 8 guards × 5 shifts × 12h | 480h | ✅ Target-2 reachable |
-| Floor-only coverage (24 guard-hours/day) | 168h needed | ✅ Always safely met |
-| Morning target = 3 (Mon-Fri only) | ~376h needed | ⚠️ Requires substantial 12h uptake |
+| Scenario                                 | Weekly supply | Verdict                            |
+| ---------------------------------------- | ------------- | ---------------------------------- |
+| 8 guards × 5 shifts × 8h                 | 320h          | ❌ Short of target-2 by 16h        |
+| 8 guards × 5 shifts × 12h                | 480h          | ✅ Target-2 reachable              |
+| Floor-only coverage (24 guard-hours/day) | 168h needed   | ✅ Always safely met               |
+| Morning target = 3 (Mon-Fri only)        | ~376h needed  | ⚠️ Requires substantial 12h uptake |
 
 **Conclusion:** with 8 guards, floors are always achievable and full target coverage is only achievable with meaningful 12h opt-in. The system is designed to degrade gracefully between the two and to report the gap explicitly.
 
@@ -165,15 +178,15 @@ Weekly demand in guard-hours at full target, morning target = 2:
 - **12 hours rest or more: entirely free**, no penalty.
 - Since a guard works at most one shift per day, rest only applies across consecutive days.
 
-Derived rest matrix (rows = shift on day *d*, columns = shift on day *d+1*):
+Derived rest matrix (rows = shift on day _d_, columns = shift on day _d+1_):
 
-| ↓ prev \ next → | `morning` | `day12` | `afternoon` | `night12` | `night` |
-|---|---|---|---|---|---|
-| `morning` | 16h ✅ | 16h ✅ | 24h ✅ | 28h ✅ | 32h ✅ |
-| `afternoon` | **8h ⚠️** | **8h ⚠️** | 16h ✅ | 20h ✅ | 24h ✅ |
-| `day12` | 12h ✅ | 12h ✅ | 20h ✅ | 24h ✅ | 28h ✅ |
-| `night` | **0h ⛔** | **0h ⛔** | **8h ⚠️** | 12h ✅ | 16h ✅ |
-| `night12` | **0h ⛔** | **0h ⛔** | **8h ⚠️** | 12h ✅ | 16h ✅ |
+| ↓ prev \ next → | `morning` | `day12`   | `afternoon` | `night12` | `night` |
+| --------------- | --------- | --------- | ----------- | --------- | ------- |
+| `morning`       | 16h ✅    | 16h ✅    | 24h ✅      | 28h ✅    | 32h ✅  |
+| `afternoon`     | **8h ⚠️** | **8h ⚠️** | 16h ✅      | 20h ✅    | 24h ✅  |
+| `day12`         | 12h ✅    | 12h ✅    | 20h ✅      | 24h ✅    | 28h ✅  |
+| `night`         | **0h ⛔** | **0h ⛔** | **8h ⚠️**   | 12h ✅    | 16h ✅  |
+| `night12`       | **0h ⛔** | **0h ⛔** | **8h ⚠️**   | 12h ✅    | 16h ✅  |
 
 ⛔ = hard-blocked · ⚠️ = allowed, −5 penalty · ✅ = free
 
@@ -184,7 +197,7 @@ Exactly **four** penalised transitions remain, all of them 8-hour rests:
 > Combined with the 5-shift ceiling this permits up to 60 working hours in 5 consecutive days.
 > The 5-shift ceiling (§2.7) is the only thing bounding this.
 
-> **The No-Clopen rule is now derived, not declared.** The four ⛔ cells *are* No-Clopen: any night-ending shift makes the next morning physically impossible (0 hours rest).
+> **The No-Clopen rule is now derived, not declared.** The four ⛔ cells _are_ No-Clopen: any night-ending shift makes the next morning physically impossible (0 hours rest).
 
 ### 2.7 Weekly Volume Limits
 
@@ -218,6 +231,7 @@ The current week's Saturday assignments become the next week's carry-in, closing
 ### 3.1 Submission Structure
 
 Per week, each guard submits:
+
 1. **Availability:** any subset of the 21 base slots (7 days × בוקר/צהריים/לילה). An empty subset is valid.
 2. ~~**Preference strength** (2-level `יכול` / `מעדיף`)~~ — **deferred for the POC.** The form is single-level: a slot is either marked or not. The `strength` column is reserved in the schema with a default of `1`, so the two-level scale can be switched on later with no migration.
 3. **Per-day 12h opt-ins:** each marked בוקר or לילה slot may carry `allows_12h`, extending that one day only.
@@ -226,8 +240,8 @@ Per week, each guard submits:
 
 The solver will **never** assign a guard to a slot they did not mark. If that leaves a segment below target, the shortfall is reported to the manager rather than silently overridden. This is a deliberate trade: guard trust over automatic coverage.
 
-> **Resolved (§13 item 6, 8 August).** The manager's stated rule is *"we can't have an unoccupied
-> shift"* — in practice he would phone somebody who had not volunteered. Under the current model the
+> **Resolved (§13 item 6, 8 August).** The manager's stated rule is _"we can't have an unoccupied
+> shift"_ — in practice he would phone somebody who had not volunteered. Under the current model the
 > solver cannot do that; it reports the empty shift instead. Making availability **soft** (penalised
 > below a floor breach but above a target gap) would let it draft an unmarked guard only when the
 > alternative is an empty shift. On the first real dataset CP-SAT achieved **zero** floor breaches
@@ -236,25 +250,25 @@ The solver will **never** assign a guard to a slot they did not mark. If that le
 
 ### 3.3 12h Eligibility Derivation
 
-| Shift | Assignable when |
-|---|---|
-| `day12` | guard marked **בוקר** that day **AND** that row has `allows_12h = TRUE` |
+| Shift     | Assignable when                                                         |
+| --------- | ----------------------------------------------------------------------- |
+| `day12`   | guard marked **בוקר** that day **AND** that row has `allows_12h = TRUE` |
 | `night12` | guard marked **לילה** that day **AND** that row has `allows_12h = TRUE` |
 
 Because the flag lives on the preference row, removing the availability removes the opt-in with
 it. There is no reconciliation step and no way to be opted in for a day you no longer work.
 
-The preference form states this explicitly in Hebrew, e.g. *"אם תסמן, ייתכן שתשובץ 06:45–18:45 בימים שסימנת בהם בוקר."*
+The preference form states this explicitly in Hebrew, e.g. _"אם תסמן, ייתכן שתשובץ 06:45–18:45 בימים שסימנת בהם בוקר."_
 
 ### 3.4 Empty Submissions
 
 A guard may submit a completely empty sheet. This is a normal, non-error state. Because §2.7 auto-lowers `effective_kamut` to 0 when there are no available days, the solver simply does not schedule them. The system distinguishes three states:
 
-| State | Meaning |
-|---|---|
-| **Not submitted** | No row in `weekly_submissions` — manager should chase them |
-| **Submitted, empty** | Row exists, zero preference rows — deliberately unavailable |
-| **Submitted, partial/full** | Row exists with ≥1 preference row |
+| State                       | Meaning                                                     |
+| --------------------------- | ----------------------------------------------------------- |
+| **Not submitted**           | No row in `weekly_submissions` — manager should chase them  |
+| **Submitted, empty**        | Row exists, zero preference rows — deliberately unavailable |
+| **Submitted, partial/full** | Row exists with ≥1 preference row                           |
 
 ### 3.5 Submission Lock
 
@@ -263,8 +277,8 @@ Guards may create and edit preferences until the week's `submission_deadline` (*
 ### 3.6 Free-Text Notes
 
 Each `weekly_submissions` row carries one optional `notes` column (≤500 characters, enforced by a
-CHECK) — a place for context that does not fit the slot model: *"עדיפות למשמרות לילה"*, *"עד 4
-משמרות השבוע"*, *"דבר איתי אם אתה צריך עזרה"*. This is deliberately **not** a preference-strength
+CHECK) — a place for context that does not fit the slot model: _"עדיפות למשמרות לילה"_, _"עד 4
+משמרות השבוע"_, _"דבר איתי אם אתה צריך עזרה"_. This is deliberately **not** a preference-strength
 or constraint field (§3.1 item 2 remains deferred) — the solver never reads it. It exists for the
 human reading the roster, not the one generating it.
 
@@ -272,9 +286,26 @@ An all-whitespace note is normalised to `NULL` inside `save_week_preferences`, t
 an empty slot array gets (§3.4): absence of content should leave a clean absence of data, not a
 stray string. Shown to the manager on the team list (`TeamTable`) directly under each guard's row,
 next to the 12h badges — where the manager is already scanning before setting כמות, and where a
-line like *"עד 4 משמרות"* is something to act on rather than something to go looking for. It appears
+line like _"עד 4 משמרות"_ is something to act on rather than something to go looking for. It appears
 without a reload: `weekly_submissions` and `weekly_wish_preferences` are in the Realtime publication
 (migration 18), so a guard's save invalidates the manager's dashboard query live (§10).
+
+### 3.7 Cancelling a Submission (migration 30)
+
+A guard may withdraw a submission entirely, via `delete_week_submission(p_week_start)` — genuinely
+back to **"not submitted"** (§3.4's first state), not an edit down to an empty sheet. The two are
+different answers: "submitted, empty" is a deliberate *"I checked and I'm unavailable this week"*;
+cancelling is *"disregard what I sent, I may submit something different later."* Ben's scenario:
+something comes up in a guard's life inside the still-open window and they want to reconsider,
+possibly resubmitting a corrected sheet before the deadline rather than living with a stale one.
+
+Mirrors `save_week_preferences`' shape exactly — `SECURITY INVOKER`, acts only on the caller's own
+row via `auth.uid()`, gated on `is_week_open(p_week_start) OR is_manager()` — and deletes from both
+`weekly_wish_preferences` and `weekly_submissions` in one transaction, since the two tables are not
+FK-linked (§6.2) and a two-step client-side delete could half-fail. The guard-facing form
+(`WeeklyPreferenceForm.tsx`) shows a "ביטול ההגשה" card, only once something exists to cancel and
+only while the week is open, behind the same click-again-to-confirm pattern already used for
+deleting an employee (§12.4).
 
 ---
 
@@ -284,25 +315,25 @@ The solver maximises a single weighted score. All coverage and volume goals are 
 
 ### 4.1 Hard Constraints (never violated)
 
-| # | Constraint |
-|---|---|
-| H1 | Availability — guard assignable only to slots they marked |
-| H2 | 12h eligibility — `day12`/`night12` require the matching opt-in |
-| H3 | At most **one** shift per guard per calendar day |
-| H4 | At most **5** shifts per guard per week |
-| H5 | Minimum **8 hours** rest between consecutive shifts (⛔ cells in §2.6) |
-| H6 | Segment coverage never **exceeds** its target ceiling |
-| H7 | Carry-in rest from the previous Saturday |
+| #   | Constraint                                                             |
+| --- | ---------------------------------------------------------------------- |
+| H1  | Availability — guard assignable only to slots they marked              |
+| H2  | 12h eligibility — `day12`/`night12` require the matching opt-in        |
+| H3  | At most **one** shift per guard per calendar day                       |
+| H4  | At most **5** shifts per guard per week                                |
+| H5  | Minimum **8 hours** rest between consecutive shifts (⛔ cells in §2.6) |
+| H6  | Segment coverage never **exceeds** its target ceiling                  |
+| H7  | Carry-in rest from the previous Saturday                               |
 
 ### 4.2 Soft Objective Terms
 
-| Priority | Term | Weight |
-|---|---|---|
-| **P1** | Each guard-slot below a segment's **critical floor** | **−1000** |
-| **P2** | Each shift a guard falls short of `effective_kamut` | **−100** |
-| **P3** | Each unfilled **target** slot above the floor | **−10** |
-| **P-rest** | Each 8-hour-rest occurrence (⚠️ cells in §2.6) | **−5** |
-| **P4** | Each assignment matching a declared preference | **+1** |
+| Priority   | Term                                                 | Weight    |
+| ---------- | ---------------------------------------------------- | --------- |
+| **P1**     | Each guard-slot below a segment's **critical floor** | **−1000** |
+| **P2**     | Each shift a guard falls short of `effective_kamut`  | **−100**  |
+| **P3**     | Each unfilled **target** slot above the floor        | **−10**   |
+| **P-rest** | Each 8-hour-rest occurrence (⚠️ cells in §2.6)       | **−5**    |
+| **P4**     | Each assignment matching a declared preference       | **+1**    |
 
 ```
 maximise   Σ pref_weight·x
@@ -320,7 +351,7 @@ maximise   Σ pref_weight·x
 
 OR-Tools is a free, Apache-2.0 optimisation library from Google (`pip install ortools`). CP-SAT is its constraint-programming solver.
 
-Rather than writing an algorithm that *builds* a schedule, you **declare** the problem:
+Rather than writing an algorithm that _builds_ a schedule, you **declare** the problem:
 
 1. **Variables** — one boolean per possibility: `x[guard, day, shift]`. For 8 guards × 7 days × 5 shifts = 280 booleans.
 2. **Constraints** — rules in near-English: `sum(x[g, mon, night] for g) <= 2`, or `x[g, mon, night] + x[g, tue, morning] <= 1`.
@@ -328,7 +359,7 @@ Rather than writing an algorithm that *builds* a schedule, you **declare** the p
 
 CP-SAT then searches with clause learning across parallel workers and returns a **provably optimal** assignment. At this problem size it returns in well under one second.
 
-Its one sharp edge: a contradictory *hard* constraint yields `INFEASIBLE` with no explanation — a terrible experience for a manager on a Wednesday evening. This specification therefore keeps the hard set minimal (§4.1) and makes every business goal soft, guaranteeing the solver always returns a schedule plus a readable coverage report.
+Its one sharp edge: a contradictory _hard_ constraint yields `INFEASIBLE` with no explanation — a terrible experience for a manager on a Wednesday evening. This specification therefore keeps the hard set minimal (§4.1) and makes every business goal soft, guaranteeing the solver always returns a schedule plus a readable coverage report.
 
 ---
 
@@ -481,17 +512,19 @@ $$;
 **Other helpers** (full definitions live in `supabase/migrations/`, which is the source of truth —
 the snippets here are illustrative and can drift):
 
-| Function | Purpose |
-|---|---|
-| `current_week_start()` | The Sunday starting the week containing today, in Asia/Jerusalem |
-| `deadline_for_week(d)` | Wednesday 19:00, `week_start − 4` |
-| `opens_for_week(d)` | Saturday 20:00, `week_start − 8` |
-| `ensure_roster_weeks()` | Idempotent lifecycle: creates and opens/locks the current week and the next (§12.1) |
-| `set_week_status(d, s, h)` | Manager override; extends or clears the deadline and stamps `status_overridden_at` (§12.3) |
-| `save_week_preferences(d, jsonb)` | Atomic replace of one guard's week; `SECURITY INVOKER`, so RLS still applies |
-| `carry_in_shifts(d)` | Previous Saturday's published shifts, for cross-week rest (§2.8) |
-| `next_run_version(d)` | Next draft version number for a week |
-| `claim_rate_ok` / `record_claim_attempt` | Badge-claim throttling (§8) |
+| Function                                 | Purpose                                                                                    |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `current_week_start()`                   | The Sunday starting the week containing today, in Asia/Jerusalem. Calendar-only, never configurable — RLS's archive cutoff (§12.2) and `guard_visible_from()` (migration 16) key off this, not the admin cursor below |
+| `admin_current_week_start()`             | The manager-facing current/next cursor (migration 26): advances at each week's own configured submission open-time instead of real midnight (§12.1). Used only by `ensure_roster_weeks()` and the manager dashboard's week picker — never by anything guard-facing |
+| `deadline_for_week(d)`                   | Wednesday 19:00, `week_start − 4`                                                          |
+| `opens_for_week(d)`                      | Saturday 20:00, `week_start − 8`                                                           |
+| `ensure_roster_weeks()`                  | Idempotent lifecycle: creates and opens/locks the current week and the next (§12.1)        |
+| `set_week_status(d, s, h)`               | Manager override; extends or clears the deadline and stamps `status_overridden_at` (§12.3) |
+| `save_week_preferences(d, jsonb)`        | Atomic replace of one guard's week; `SECURITY INVOKER`, so RLS still applies               |
+| `delete_week_submission(d)`              | Cancels the caller's own submission outright — back to "not submitted," not an edit to empty (§3.7) |
+| `carry_in_shifts(d)`                     | Previous Saturday's published shifts, for cross-week rest (§2.8)                           |
+| `next_run_version(d)`                    | Next draft version number for a week                                                       |
+| `claim_rate_ok` / `record_claim_attempt` | Badge-claim throttling (§8)                                                                |
 
 ### 7.2 Policies
 
@@ -606,6 +639,7 @@ Login is by **6-digit badge code + personal PIN**. The code is stored as `TEXT` 
 Supabase GoTrue has no native code-login, so a synthetic identity is used internally: `<employee_code>@guards.local`. The guard never sees or types an email.
 
 **First login (claim):**
+
 1. Guard enters their 6-digit code.
 2. Frontend calls the `claim-code` Edge Function.
 3. The function (service role) verifies the code exists in `roster_codes`, is `claim_enabled`, and is not yet claimed.
@@ -643,7 +677,7 @@ Supabase Edge Functions run Deno and **cannot execute Python or OR-Tools**. The 
 ```
 
 **The Edge Function is deliberately thin.** It does only the two things the browser cannot: hold
-`SOLVER_SECRET`, and re-check the caller's role server-side. It does *not* gather data, compute
+`SOLVER_SECRET`, and re-check the caller's role server-side. It does _not_ gather data, compute
 `effective_kamut`, verify the result or write the roster — that would mean a third Deno copy of
 rules that already exist twice (TypeScript and Python), and the twin-referee design depends on
 there being exactly two implementations held in step by shared fixtures. Every write the client
@@ -651,7 +685,7 @@ makes afterwards is still governed by RLS, which does not trust the client's cla
 
 **Fallback.** If the solver is unreachable — Render's free tier sleeps after 15 minutes idle, with
 roughly a 50-second cold start — the app falls back to the in-browser mock rather than failing. The
-mock is always *legal* (every hard rule is checked before each assignment) but not optimal; see
+mock is always _legal_ (every hard rule is checked before each assignment) but not optimal; see
 §9.4.
 
 **Nothing is stored on the solver's word.** The assignments come back, `verifySchedule()` recomputes
@@ -820,17 +854,17 @@ def generate_schedule(inp):
 Both engines are held to the same referee over the same fixtures, so their outputs are directly
 comparable. On the first real week of team availability (8 guards, morning target 2):
 
-| | mock (greedy) | CP-SAT |
-|---|---|---|
-| Assignments | 29 | **33** |
-| Floor breaches (empty shifts) | **2** | **0** |
-| Guards short of כמות | 1 | **0** |
-| Target gaps | 7 | **5** |
-| Objective | −2266 | **−37** |
+|                               | mock (greedy) | CP-SAT  |
+| ----------------------------- | ------------- | ------- |
+| Assignments                   | 29            | **33**  |
+| Floor breaches (empty shifts) | **2**         | **0**   |
+| Guards short of כמות          | 1             | **0**   |
+| Target gaps                   | 7             | **5**   |
+| Objective                     | −2266         | **−37** |
 
 The mock is a hill-climber: it takes the best single move available and stops when nothing improves
 the score, so it cannot back out of a good-looking early choice that blocks a later one. It got
-*worse* when the input improved, because more 12h options give a greedy algorithm more ways to go
+_worse_ when the input improved, because more 12h options give a greedy algorithm more ways to go
 wrong.
 
 **The mock is a fallback, not the product.** Rosters judged during development should come from
@@ -843,15 +877,15 @@ at the 5-shift ceiling. No solver can fix that — only more people, a higher ca
 
 ## 10. FRONTEND STACK
 
-| Concern | Choice |
-|---|---|
-| Framework | React 18 + Vite + TypeScript |
-| Styling | Tailwind CSS, RTL-first (`dir="rtl"`, logical properties) |
-| Server state | TanStack Query (cache, optimistic updates, invalidation) |
-| Session state | React Context (auth only) |
-| Validation | Zod at every I/O boundary |
-| Backend SDK | `@supabase/supabase-js` v2 |
-| Live updates | Supabase Realtime, both directions — `schedule_runs`/`schedule_assignments`/`roster_weeks` push a publish or edit to guards (`useRosterRealtime`, migration 15); `weekly_submissions`/`weekly_wish_preferences` push a guard's save to the manager (`useManagerSubmissionsRealtime`, migration 18) |
+| Concern       | Choice                                                                                                                                                                                                                                                                                             |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Framework     | React 18 + Vite + TypeScript                                                                                                                                                                                                                                                                       |
+| Styling       | Tailwind CSS, RTL-first (`dir="rtl"`, logical properties)                                                                                                                                                                                                                                          |
+| Server state  | TanStack Query (cache, optimistic updates, invalidation)                                                                                                                                                                                                                                           |
+| Session state | React Context (auth only)                                                                                                                                                                                                                                                                          |
+| Validation    | Zod at every I/O boundary                                                                                                                                                                                                                                                                          |
+| Backend SDK   | `@supabase/supabase-js` v2                                                                                                                                                                                                                                                                         |
+| Live updates  | Supabase Realtime, both directions — `schedule_runs`/`schedule_assignments`/`roster_weeks` push a publish or edit to guards (`useRosterRealtime`, migration 15); `weekly_submissions`/`weekly_wish_preferences` push a guard's save to the manager (`useManagerSubmissionsRealtime`, migration 18) |
 
 > **Environment variables:** Vite exposes only `VITE_`-prefixed variables. Use `VITE_SUPABASE_URL`
 > and `VITE_SUPABASE_PUBLISHABLE_KEY` (Supabase replaced the legacy `anon` JWT with
@@ -883,7 +917,7 @@ short by one while the day was fully staffed.
 An uncovered half of a handover is labelled with the **window that is empty** (`ריק 14:45-18:45`)
 rather than with a 12h suffix, which would imply a shift nobody is working.
 
-**Short-staffed reads the same way empty does.** A morning or night block with *some* coverage but
+**Short-staffed reads the same way empty does.** A morning or night block with _some_ coverage but
 fewer guards than its target (segment target, §2.3/2.4 — 2 or 3 for morning depending on the
 weekday, always 2 for night) shows a `—` per missing guard alongside whoever IS assigned, the same
 convention as an unpaired handover half — shown, not hidden. A block with **nobody** at all still
@@ -912,7 +946,7 @@ Three decisions worth keeping:
    chips carry rings. Half-rendered output is worse than none, because the manager would not notice
    until the picture was already in the group chat.
 2. **Published runs only.** A draft is a proposal still being moved around; once an image of it is
-   in the chat it is *the roster* as far as the guards are concerned, and no later edit catches up
+   in the chat it is _the roster_ as far as the guards are concerned, and no later edit catches up
    with it. Publishing is when the roster becomes a promise, so it is when it becomes shareable.
 3. **Built for its destination, not a copy of the screen.** 11px text and a sideways-scrolling table
    are unreadable as a chat thumbnail, so the type is larger, nothing scrolls, and the week range,
@@ -1033,6 +1067,36 @@ submit late even if nobody has opened the app for days.
 > The sweep only runs when **somebody opens the app**. If that is not good enough, Supabase's
 > `pg_cron` can call `ensure_roster_weeks()` on a schedule. Not currently configured.
 
+**Two cursors, deliberately kept apart (migration 26).** "Current" means two different things
+depending on who's asking, and the two are no longer the same function:
+
+- `current_week_start()` — a pure calendar calculation, the Sunday of the week containing today.
+  Unaffected by any setting. This is what RLS's archive cutoff (§12.2) and `guard_visible_from()`
+  (migration 16, the Saturday-night grace period) key off — a guard's visibility into a published
+  roster is pinned to the real calendar and can never be moved by a manager's configuration.
+- `admin_current_week_start()` — the manager-facing cursor, used only by `ensure_roster_weeks()`
+  itself (deciding which two weeks to track) and `WeekControlsPanel`'s live/archive split. It
+  advances at each week's own configured submission open-time instead of real midnight: week `W`
+  becomes admin-current the instant `W + 7`'s window opens. At the default settings
+  (`open_offset_days = 7`, `open_time = 00:00`) this collapses to exactly `current_week_start()`;
+  away from the defaults it can run ahead of (or behind) the real calendar by design, so a manager
+  changing the open-time setting sees the *whole* archive/current/next cycle move with it, not just
+  a lock/open flag on whichever week already happened to be "next."
+
+This split exists because a manager testing the open-time setting expected changing it to move the
+entire cycle, and the earlier single-cursor design only ever moved a status flag. The fix surfaced a
+real bug: because `admin_current_week_start()` is not guaranteed to move only forward (raising the
+open-time after it had already advanced moves it back), a week that was briefly admin-next and got
+auto-opened could fall out of the tracked pair and never be swept again, staying `open` forever.
+`ensure_roster_weeks()`'s sweep is bounded to a window around the real calendar week
+(`current_week_start() − 7 .. + 28`) rather than scoped to just the tracked pair (too narrow, this
+was the bug) or left fully unbounded (too broad — it then reconciles unrelated rows, like test
+suites' own future-dated fixtures, that were never meant to be subject to this at all). The same
+bound also governs a separate, related fix: a week's stored `submission_deadline` is normally set
+once at creation and never rewritten (§12.5) — too strict for a week nobody has manually decided
+anything about, so within the same bound `ensure_roster_weeks()` also keeps such a week's deadline
+live against the current `scheduler_settings`, not just its open/locked status.
+
 ### 12.2 Archive
 
 Past weeks remain stored and are **manager-only**, enforced in RLS rather than by hiding a route: a
@@ -1053,7 +1117,7 @@ The rule that came out of it: **a manager's explicit action is recorded (`status
 the automation hands that week over permanently.** Reopening also extends the deadline, because
 `is_week_open()` gates on the deadline as well as the status — changing the status alone would have
 changed nothing observable. Locking again clears the extension, but only once the canonical deadline
-has genuinely passed, so locking a week *early* cannot accidentally become an extension.
+has genuinely passed, so locking a week _early_ cannot accidentally become an extension.
 
 ### 12.4 Team Management (migrations 20–21)
 
@@ -1062,11 +1126,11 @@ team itself, as opposed to ManagerDashboard's week-by-week workflow. Reached via
 button on `ManagerDashboard`, not a bottom-nav tab — it is a config screen, not something opened
 every day.
 
-| Operation | Mechanism |
-|---|---|
-| **Add employee** | `INSERT INTO roster_codes` — the same action `seed.sql` did by hand for the first eight. The employee still sets their own PIN through the ordinary "קוד עובד" login flow; nothing here creates an account directly. |
+| Operation           | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Add employee**    | `INSERT INTO roster_codes` — the same action `seed.sql` did by hand for the first eight. The employee still sets their own PIN through the ordinary "קוד עובד" login flow; nothing here creates an account directly.                                                                                                                                                                                                                                                                                 |
 | **Delete employee** | `delete_employee(employee_code)` RPC (migration 21) — a genuine, irreversible deletion, not a deactivation. Cascades through `auth.users → profiles → {schedule_assignments, weekly_wish_preferences, weekly_submissions, weekly_guard_targets}`, so the person's shift history is gone from every roster, including a published one. Refuses to let a manager delete their own account. Works identically on a still-pending invitation (no profile exists yet, so only `roster_codes` is touched). |
-| **Default כמות** | Edits `profiles.default_kamut` (claimed) or `roster_codes.default_kamut` (not yet claimed) — the §2.7 baseline, not the per-week override the `Stepper` on `TeamTable` already edits. |
+| **Default כמות**    | Edits `profiles.default_kamut` (claimed) or `roster_codes.default_kamut` (not yet claimed) — the §2.7 baseline, not the per-week override the `Stepper` on `TeamTable` already edits.                                                                                                                                                                                                                                                                                                                |
 
 > **v1 of this feature deactivated instead of deleting** (`profiles.is_active = false`), reasoned
 > from the same cascade this table describes: deleting the row would erase a person's shift history
@@ -1077,7 +1141,7 @@ every day.
 
 Three points worth keeping:
 
-1. **`claim-code` is untouched.** It is the one publicly-reachable *unauthenticated* write path in
+1. **`claim-code` is untouched.** It is the one publicly-reachable _unauthenticated_ write path in
    the system (its own docstring treats every caller as hostile), so it is changed as rarely as
    possible. Neither `roster_codes` getting a manager write policy (migration 20) nor
    `delete_employee` needing `auth.users` access (migration 21, necessarily a `SECURITY DEFINER`
@@ -1130,7 +1194,7 @@ Two things worth keeping:
    written by hand.
 2. **Changing the setting is forward-looking.** `deadline_for_week()`/`opens_for_week()` are read
    only when `ensure_roster_weeks()` inserts a new `roster_weeks` row or sweeps status against that
-   row's already-*stored* deadline — an existing week's stored `submission_deadline` is not rewritten
+   row's already-_stored_ deadline — an existing week's stored `submission_deadline` is not rewritten
    retroactively. To change one specific week's deadline right now, the lock/reopen flow (§12.3,
    migrations 11–12) is still how. Also changed: both functions went from `IMMUTABLE` to `STABLE`,
    since their result can now change between calls if a manager edits the settings row — `IMMUTABLE`
@@ -1142,7 +1206,7 @@ Two things worth keeping:
 `seed.sql` is not just start-of-project scaffolding — `npm run db:apply` reruns it on **every**
 invocation, migration or not, and it originally seeded `roster_codes` with
 `ON CONFLICT (employee_code) DO NOTHING`. That combination has a sharp edge: once real team
-management existed (§12.4) and a manager could genuinely *delete* an employee, a deleted row is no
+management existed (§12.4) and a manager could genuinely _delete_ an employee, a deleted row is no
 longer a conflict — so the next `db:apply` silently re-inserted it. This actually happened: a
 placeholder employee the manager had deleted through the real feature came back after an unrelated
 migration was applied.
@@ -1163,16 +1227,17 @@ delete a seeded code through `delete_employee()`, rerun `seed.sql` verbatim, ass
 
 ## 13. OPEN ITEMS
 
-| # | Item | Status / default |
-|---|---|---|
-| 1 | 2-level preference strength (`יכול` / `מעדיף`) | **Deferred** — column reserved, POC uses the single-level form |
-| 2 | `night → next-day afternoon` is legal at exactly 8h rest | Allowed with −5 penalty, per §2.6 |
-| 3 | `day12 → day12` on consecutive days is unpenalised (12h rest) | Allowed; bounded only by the 5-shift ceiling |
-| 4 | Fairness / rotation of weekend and night shifts across guards | Not modelled |
-| 5 | Public holidays | Treated as ordinary days |
-| 6 | **Should availability be soft?** (§3.2) | **Decided (8 August): stays hard.** On the one real dataset tested, CP-SAT hit zero floor breaches without a soft fallback — insurance against a scenario that hasn't materialized, not a fix for an observed one. No code change. |
-| 7 | Posts (סריקה / בוטקה / בקרה / שמירה) | **Dropped at Ben's request.** The column itself was later dropped too (migration 23) — nothing had read or written it since the feature was cut |
-| 8 | `pg_cron` for the week sweep | Not configured; the sweep runs on app load (§12.1) |
+| #   | Item                                                          | Status / default                                                                                                                                                                                                                   |
+| --- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | 2-level preference strength (`יכול` / `מעדיף`)                | **Deferred** — column reserved, POC uses the single-level form                                                                                                                                                                     |
+| 2   | `night → next-day afternoon` is legal at exactly 8h rest      | Allowed with −5 penalty, per §2.6                                                                                                                                                                                                  |
+| 3   | `day12 → day12` on consecutive days is unpenalised (12h rest) | Allowed; bounded only by the 5-shift ceiling                                                                                                                                                                                       |
+| 4   | Fairness / rotation of weekend and night shifts across guards | Not modelled                                                                                                                                                                                                                       |
+| 5   | Public holidays                                               | Treated as ordinary days                                                                                                                                                                                                           |
+| 6   | **Should availability be soft?** (§3.2)                       | **Decided (8 August): stays hard.** On the one real dataset tested, CP-SAT hit zero floor breaches without a soft fallback — insurance against a scenario that hasn't materialized, not a fix for an observed one. No code change. |
+| 7   | Posts (סריקה / בוטקה / בקרה / שמירה)                          | **Dropped at Ben's request.** The column itself was later dropped too (migration 23) — nothing had read or written it since the feature was cut                                                                                    |
+| 8   | `pg_cron` for the week sweep                                  | Not configured; the sweep runs on app load (§12.1)                                                                                                                                                                                 |
+| 9   | Tiered כמות penalty — discount a flex-tier guard's (כמות 3–4) *last* missing shift so the solver favours closing target-coverage gaps over it | **Investigated (8 August), rejected — structurally a no-op.** Implemented across both engines and both referees, then tested against a hand-built adversarial scenario and the real live dataset: identical objective, identical assignments, flex-tier or not. Cause: H6 (§4.1, never over-staff a segment) already guarantees every legal placement either closes a real coverage gap or is blocked outright — there is no such thing as a placement that only satisfies כמות with zero coverage value for this discount to ever usefully trade away. Reverted in full; not worth re-investigating unless the hard-constraint set changes. |
 
 ---
 
@@ -1180,35 +1245,36 @@ delete a seeded code through `delete_employee()`, rerun `seed.sql` verbatim, ass
 
 ### 14.1 What is built
 
-| Step | Scope | State |
-|---|---|---|
-| **A** | Schema, RLS, seed, helper functions | ✅ complete |
-| **B** | Badge-code + PIN auth, `claim-code` Edge Function | ✅ complete, deployed |
-| **C** | Guard preference submission, atomic save RPC | ✅ complete |
-| **D** | Manager dashboard: week controls, coverage matrix, כמות editor | ✅ complete |
-| **E** | Solver contract, twin referees, mock + CP-SAT, generate → publish | ✅ complete; **CP-SAT deployed** |
-| **F1–F5** | Fine-tuning batch (per-day 12h, week lifecycle, Mon–Fri target, archive, US week) | ✅ complete |
-| **G** | Manual grid editing, editable/deletable published rosters, Realtime both directions, shared grid, measured columns, image export, free-text submission notes (§3.6), per-guard default כמות (§2.7) | ✅ complete |
-| **H** | Team management: add/delete employees (real deletion, not deactivation), edit default כמות (§12.4) | ✅ complete |
-| **I** | Manager dashboard defaults to next week; configurable submission window (§12.5); short-staffed dash convention (§10.1) | ✅ complete |
-| **J** | Cleanup pass: dropped the dead `schedule_assignments.post` column (migration 23); fixed `seed.sql` re-seeding a deleted employee on every `db:apply`; removed the two never-hired placeholder codes; this document brought back in sync with the code | ✅ complete |
+| Step      | Scope                                                                                                                                                                                                                                                 | State                            |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| **A**     | Schema, RLS, seed, helper functions                                                                                                                                                                                                                   | ✅ complete                      |
+| **B**     | Badge-code + PIN auth, `claim-code` Edge Function                                                                                                                                                                                                     | ✅ complete, deployed            |
+| **C**     | Guard preference submission, atomic save RPC                                                                                                                                                                                                          | ✅ complete                      |
+| **D**     | Manager dashboard: week controls, coverage matrix, כמות editor                                                                                                                                                                                        | ✅ complete                      |
+| **E**     | Solver contract, twin referees, mock + CP-SAT, generate → publish                                                                                                                                                                                     | ✅ complete; **CP-SAT deployed** |
+| **F1–F5** | Fine-tuning batch (per-day 12h, week lifecycle, Mon–Fri target, archive, US week)                                                                                                                                                                     | ✅ complete                      |
+| **G**     | Manual grid editing, editable/deletable published rosters, Realtime both directions, shared grid, measured columns, image export, free-text submission notes (§3.6), per-guard default כמות (§2.7)                                                    | ✅ complete                      |
+| **H**     | Team management: add/delete employees (real deletion, not deactivation), edit default כמות (§12.4)                                                                                                                                                    | ✅ complete                      |
+| **I**     | Manager dashboard defaults to next week; configurable submission window (§12.5); short-staffed dash convention (§10.1)                                                                                                                                | ✅ complete                      |
+| **J**     | Cleanup pass: dropped the dead `schedule_assignments.post` column (migration 23); fixed `seed.sql` re-seeding a deleted employee on every `db:apply`; removed the two never-hired placeholder codes; this document brought back in sync with the code | ✅ complete                      |
+| **K**     | Deployed to Vercel (§11.2); admin week cursor + orphaned-week sweep fix (§12.1); guard can cancel a submission outright (§3.7); mobile layout fixes (SPA rewrite, viewport overflow, `AppShell` flex-shell restructure); guard-facing copy/UI polish | ✅ complete                      |
 
 ### 14.2 Verification
 
 Eleven suites, all green. Every gate runs against the live project except the PGlite one.
 
-| Suite | Command | Covers |
-|---|---|---|
-| Gate A (local) | `npm run test:rls` | RLS logic in PGlite, all migrations applied from disk |
-| Gate A (cloud) | `node supabase/tests/rls.cloud.test.mjs` | RLS through real PostgREST + GoTrue JWTs |
-| Gate B | `node supabase/tests/auth.cloud.test.mjs` | Badge claim, PIN login, rate limiting |
-| Gate B (client) | `node supabase/tests/client.cloud.test.mjs` | The `supabase-js` path the browser runs |
-| Gate C | `node supabase/tests/preferences.cloud.test.mjs` | Persistence, atomicity, deadline, isolation, notes (§3.6) |
-| Gate D | `node supabase/tests/manager.cloud.test.mjs` | Week controls, כמות, lock/reopen override |
-| Gate E (cloud) | `npm run test:generate` | Generate → verify stored rows → publish |
-| Gate E (engines) | `npm run test:fixtures`, `solver/tests/test_scheduler.py` | 8 golden fixtures, both engines |
-| Gate E (edit) | `npm run test:edit` | Draft and published-roster editing, deletion |
-| Gate F (realtime) | `npm run test:realtime` | Live push both directions: roster changes to guards, submissions to the manager |
+| Suite             | Command                                                   | Covers                                                                          |
+| ----------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Gate A (local)    | `npm run test:rls`                                        | RLS logic in PGlite, all migrations applied from disk                           |
+| Gate A (cloud)    | `node supabase/tests/rls.cloud.test.mjs`                  | RLS through real PostgREST + GoTrue JWTs                                        |
+| Gate B            | `node supabase/tests/auth.cloud.test.mjs`                 | Badge claim, PIN login, rate limiting                                           |
+| Gate B (client)   | `node supabase/tests/client.cloud.test.mjs`               | The `supabase-js` path the browser runs                                         |
+| Gate C            | `node supabase/tests/preferences.cloud.test.mjs`          | Persistence, atomicity, deadline, isolation, notes (§3.6), cancelling a submission outright (§3.7) |
+| Gate D            | `node supabase/tests/manager.cloud.test.mjs`              | Week controls, כמות, lock/reopen override                                       |
+| Gate E (cloud)    | `npm run test:generate`                                   | Generate → verify stored rows → publish                                         |
+| Gate E (engines)  | `npm run test:fixtures`, `solver/tests/test_scheduler.py` | 8 golden fixtures, both engines                                                 |
+| Gate E (edit)     | `npm run test:edit`                                       | Draft and published-roster editing, deletion                                    |
+| Gate F (realtime) | `npm run test:realtime`                                   | Live push both directions: roster changes to guards, submissions to the manager |
 
 `npm run test:cloud` chains every cloud suite in this table (rls → auth → client → preferences →
 manager → generate → edit → realtime) and stops at the first failure. `npm run test:compare` asserts
@@ -1216,20 +1282,10 @@ CP-SAT never scores below the mock.
 
 ### 14.3 What is left
 
-Nothing. All three items resolved, deploy live on a stable domain (§11.2), GitHub auto-deploy
-connected.
-
-**Completed since v2.2 was drafted:** repository pushed to
-`github.com/BenLachovitz/Work-Organizer`; the CP-SAT service is live at
-`https://guard-solver.onrender.com`; `SOLVER_URL` and `SOLVER_SECRET` are set as Supabase Edge
-Function secrets; `VITE_SOLVER_MODE=remote`. Verified end to end — a guard calling
-`generate-schedule` is rejected 403, a manager receives `OPTIMAL` in roughly 2.5 seconds. The 7 mock
-guard accounts were renamed to `{שם} - דמה` (migration 25), making the placeholder-badge-number
-question (old item 2) moot. Open item 6 (soft availability, §13) is decided: stays hard, no code
-change. The manager-facing week cycle now advances on the configured open-time rather than real
-midnight (`admin_current_week_start()`, migration 26), while guard-facing visibility stays
-calendar-pinned. **The frontend is deployed to Vercel and live** (§11.2) — build step A–J's last
-blocker is cleared.
+Nothing blocking. Live in production at `work-organizer-iota.vercel.app`, GitHub auto-deploy
+connected, all suites green. Open item 9 (§13, tiered כמות penalty) was investigated and rejected —
+not something to revisit unless the hard-constraint set changes. Everything else in §13 is either
+decided or a deliberately deferred design choice, not a build gap.
 
 ### 14.4 Local development
 
@@ -1247,4 +1303,5 @@ gitignored. **End of project:** revoke the Supabase personal access token and ro
 password — both appear in the development transcript.
 
 ---
-*Specification v2.2 — revised 8 August 2026.*
+
+_Specification v2.2 — revised 8 August 2026._
