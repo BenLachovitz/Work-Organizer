@@ -153,10 +153,10 @@ export function RosterEditor({
 
       {/* ---------------- grid ---------------- */}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[38rem] border-separate border-spacing-1 p-3">
+        <table className="w-full min-w-[34rem] border-separate border-spacing-1 p-3">
           <thead>
             <tr>
-              <th className="w-24" />
+              <th className="w-16" />
               {dates.map((d, i) => (
                 <th key={d} className="pb-1 text-center">
                   <div
@@ -178,8 +178,11 @@ export function RosterEditor({
             {BLOCKS.map((block) => (
               <tr key={block.key}>
                 <td className="pe-2 align-top">
-                  <div className="text-xs font-bold text-slate-800">{block.he}</div>
-                  <div className="num text-[10px] text-slate-400">{block.label}</div>
+                  <div className="text-right text-xs font-bold text-slate-800">{block.he}</div>
+                  {/* .num forces direction: ltr, which pushed the time to the
+                      LEFT edge while the Hebrew label sat at the right. Pinning
+                      it right lines the two up and reclaims the gap between. */}
+                  <div className="num text-right text-[10px] text-slate-400">{block.label}</div>
                 </td>
                 {dates.map((date, dayIndex) => {
                   const rows = onDate(date).filter((d) => block.shifts.includes(d.shift));
@@ -296,15 +299,15 @@ interface BlockDef {
 }
 
 const BLOCKS: BlockDef[] = [
-  { key: 'morning', he: 'בוקר', label: '06:45 - 14:45', segs: ['S1'], shifts: ['morning', 'day12'] },
+  { key: 'morning', he: 'בוקר', label: '06:45-14:45', segs: ['S1'], shifts: ['morning', 'day12'] },
   {
     key: 'afternoon',
     he: 'צהריים',
-    label: '14:45 - 22:45',
+    label: '14:45-22:45',
     segs: ['S2', 'S3'],
     shifts: ['afternoon'],
   },
-  { key: 'night', he: 'לילה', label: '22:45 - 06:45', segs: ['S4'], shifts: ['night', 'night12'] },
+  { key: 'night', he: 'לילה', label: '22:45-06:45', segs: ['S4'], shifts: ['night', 'night12'] },
 ];
 
 /** Turns a referee violation into something a manager can act on. */

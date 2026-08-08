@@ -139,9 +139,9 @@ export function RosterGrid({
   };
 
   const blocks = [
-    { key: 'morning', he: 'בוקר', label: '06:45 - 14:45', segs: ['S1'] as Segment[] },
-    { key: 'afternoon', he: 'צהריים', label: '14:45 - 22:45', segs: ['S2', 'S3'] as Segment[] },
-    { key: 'night', he: 'לילה', label: '22:45 - 06:45', segs: ['S4'] as Segment[] },
+    { key: 'morning', he: 'בוקר', label: '06:45-14:45', segs: ['S1'] as Segment[] },
+    { key: 'afternoon', he: 'צהריים', label: '14:45-22:45', segs: ['S2', 'S3'] as Segment[] },
+    { key: 'night', he: 'לילה', label: '22:45-06:45', segs: ['S4'] as Segment[] },
   ] as const;
 
   return (
@@ -149,17 +149,18 @@ export function RosterGrid({
       <div className="border-b border-slate-200 px-4 py-3">
         <p className="font-bold text-slate-900">{title}</p>
         <p className="mt-0.5 text-sm text-slate-500">
-          משמרת 12 שעות מסומנת ״עד 18:45״ או ״מ 18:45״. תא צהריים עם שני שמות הוא חילוף ב־18:45.
+          משמרת 12 שעות מסומנת ״עד 18:45״ או ״מ 18:45״. בצהריים, שני שמות מופרדים ב־/ הם חילוף
+          ב־18:45 - הראשון עד, השני מ־18:45.
         </p>
       </div>
 
       <div className="overflow-x-auto">
         {/* Narrower than before: stacking the handover means a column only has
             to fit one name, not two side by side. */}
-        <table className="w-full min-w-[38rem] border-separate border-spacing-1 p-3">
+        <table className="w-full min-w-[34rem] border-separate border-spacing-1 p-3">
           <thead>
             <tr>
-              <th className="w-24" />
+              <th className="w-16" />
               {dates.map((d, i) => (
                 <th key={d} className="pb-1 text-center">
                   <div
@@ -183,8 +184,11 @@ export function RosterGrid({
             {blocks.map((block) => (
               <tr key={block.key}>
                 <td className="pe-2 align-top">
-                  <div className="text-xs font-bold text-slate-800">{block.he}</div>
-                  <div className="num text-[10px] text-slate-400">{block.label}</div>
+                  <div className="text-right text-xs font-bold text-slate-800">{block.he}</div>
+                  {/* .num forces direction: ltr, which pushed the time to the
+                      LEFT edge while the Hebrew label sat at the right. Pinning
+                      it right lines the two up and reclaims the gap between. */}
+                  <div className="num text-right text-[10px] text-slate-400">{block.label}</div>
                 </td>
 
                 {dates.map((date, dayIndex) => {
@@ -243,37 +247,36 @@ export function RosterGrid({
                             mine={r.full.guard_id === highlightGuardId}
                           />
                         ) : (
-                          // The handover, stacked rather than side by side.
-                          // Laid out horizontally it forced every column wide
-                          // enough for two names, which stretched the whole
-                          // grid. Stacked and tightly grouped, the pair still
-                          // reads as one slot: earlier on top, later beneath.
-                          <div
-                            key={i}
-                            className="space-y-0.5 rounded-md bg-white/70 p-0.5 ring-1 ring-slate-200"
-                          >
+                          // The handover, written the way the spreadsheet does:
+                          // "ים / שלי", names only. The 12h annotation belongs
+                          // on the morning and night blocks, where it says
+                          // something the reader cannot otherwise infer. Here
+                          // the slash IS the 18:45 boundary, so repeating the
+                          // time on both halves was noise -- and it was that
+                          // noise, not the layout, that forced the columns wide.
+                          <div key={i} className="flex items-stretch gap-1">
                             {r.early ? (
                               <Chip
                                 assignment={r.early}
                                 name={nameOf(r.early.guard_id)}
-                                suffix="עד 18:45"
+                                className="min-w-0 flex-1"
                                 mine={r.early.guard_id === highlightGuardId}
                               />
                             ) : (
-                              // The uncovered WINDOW, not "עד 18:45" -- that
-                              // phrasing describes a 12h shift, and writing it
-                              // on an empty half implies one exists.
-                              <Gap window="14:45-18:45" />
+                              <Gap />
                             )}
+                            <span className="self-center text-[10px] font-bold text-slate-400">
+                              /
+                            </span>
                             {r.late ? (
                               <Chip
                                 assignment={r.late}
                                 name={nameOf(r.late.guard_id)}
-                                suffix="מ 18:45"
+                                className="min-w-0 flex-1"
                                 mine={r.late.guard_id === highlightGuardId}
                               />
                             ) : (
-                              <Gap window="18:45-22:45" />
+                              <Gap />
                             )}
                           </div>
                         ),
@@ -332,15 +335,18 @@ function Empty() {
 /**
  * An uncovered half of a handover -- shown, not hidden.
  *
- * Labelled with the window that is empty rather than with a 12h suffix: "עד
- * 18:45" describes a shift somebody is working, so putting it on an empty half
- * reads as though a 12h guard is there when nobody is.
+ * Just a dash, as the spreadsheet writes it ("לוק / -"). Its POSITION says
+ * which half is empty: before the slash is 14:45-18:45, after it is
+ * 18:45-22:45. Spelling the window out again only repeated what the layout
+ * already encodes.
  */
-function Gap({ window }: { window: string }) {
+function Gap() {
   return (
-    <span className="flex items-center justify-center gap-1 rounded bg-rose-100 px-1.5 py-1 text-[11px] font-bold text-rose-600 ring-1 ring-rose-200">
-      <span>ריק</span>
-      <span className="num shrink-0 font-normal opacity-70">{window}</span>
+    <span
+      title="אין כיסוי בחצי הזה של המשמרת"
+      className="grid min-w-0 flex-1 place-items-center rounded bg-rose-100 px-1.5 py-1 text-[11px] font-bold text-rose-500 ring-1 ring-rose-200"
+    >
+      —
     </span>
   );
 }
