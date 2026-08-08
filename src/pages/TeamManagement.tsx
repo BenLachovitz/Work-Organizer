@@ -1,15 +1,11 @@
 import { useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { CodeInput } from '@/components/auth/CodeInput';
-import { Alert, Badge, Button, Card, Spinner, Stepper, cn } from '@/components/ui';
+import { Alert, Badge, Button, ButtonLink, Card, Spinner, Stepper, cn } from '@/components/ui';
 import { EMPLOYEE_CODE_LENGTH, isValidEmployeeCode } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 import { useRosterCodeStatus, type RosterCodeStatus } from '@/hooks/useManager';
-import {
-  useAddEmployee,
-  useCancelInvitation,
-  useSetEmployeeActive,
-  useUpdateDefaultKamut,
-} from '@/hooks/useTeam';
+import { useAddEmployee, useDeleteEmployee, useUpdateDefaultKamut } from '@/hooks/useTeam';
 
 /**
  * Manager control over who is on the team, as opposed to ManagerDashboard's
@@ -20,11 +16,12 @@ import {
  *   ADD          creates a roster_codes row -- the same thing seed.sql did by
  *                hand for the first eight. The employee still sets their own
  *                PIN through the normal "קוד עובד" login flow.
- *   REMOVE       sets profiles.is_active = false. Not a delete -- schedule_
- *                assignments and every submission cascade from guard_id, so
- *                deleting the row would erase that person out of past,
- *                including PUBLISHED, rosters. Reversible; erasing history
- *                is not.
+ *   DELETE       genuinely erases the employee: profile, preferences,
+ *                submissions and every roster assignment they were ever part
+ *                of, including a published one (delete_employee, migration
+ *                21). There is no undo -- the manager asked for this over the
+ *                earlier deactivate-only version, so the confirm step below
+ *                says exactly what it removes rather than softening it.
  *   DEFAULT כמות the steady state a new week is seeded from (migration 19),
  *                NOT the per-week override the Stepper on TeamTable already
  *                edits -- that one still works exactly as before.
@@ -33,13 +30,16 @@ export function TeamManagement() {
   const { data, isLoading, error } = useRosterCodeStatus();
 
   const rows = data ?? [];
-  const active = rows.filter((r) => r.is_claimed && r.is_active);
-  const inactive = rows.filter((r) => r.is_claimed && !r.is_active);
+  const active = rows.filter((r) => r.is_claimed);
   const pending = rows.filter((r) => !r.is_claimed);
 
   return (
-    <AppShell title="ניהול צוות" subtitle="הוספה, הסרה ועדכון ברירות מחדל">
+    <AppShell title="ניהול צוות" subtitle="הוספה, מחיקה ועדכון ברירות מחדל">
       <div className="space-y-4">
+        <ButtonLink to="/manage" variant="ghost" size="sm">
+          → חזרה לניהול
+        </ButtonLink>
+
         <AddEmployeeCard existingCodes={rows.map((r) => r.employee_code)} />
 
         {isLoading ? (
@@ -54,16 +54,13 @@ export function TeamManagement() {
           </Alert>
         ) : (
           <>
-            <TeamSection title="פעילים" description="משובצים לסידור השבועי" rows={active} />
+            <TeamSection title="פעילים" description="רשומים ומשובצים לסידור" rows={active} />
             <TeamSection
               title="ממתינים להרשמה"
               description="נוצר קוד עובד, טרם נכנסו למערכת"
               rows={pending}
               empty="אין הזמנות ממתינות"
             />
-            {inactive.length > 0 && (
-              <TeamSection title="לא פעילים" description="לא משובצים לסידור" rows={inactive} />
-            )}
           </>
         )}
       </div>
@@ -194,13 +191,13 @@ function TeamSection({
 }
 
 function EmployeeRow({ row }: { row: RosterCodeStatus }) {
-  const setActive = useSetEmployeeActive();
+  const { profile } = useAuth();
   const updateDefault = useUpdateDefaultKamut();
-  const cancelInvite = useCancelInvitation();
-  const [confirmingRemove, setConfirmingRemove] = useState(false);
-  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const deleteEmployee = useDeleteEmployee();
+  const [confirming, setConfirming] = useState(false);
 
-  const saving = setActive.isPending || updateDefault.isPending || cancelInvite.isPending;
+  const saving = updateDefault.isPending || deleteEmployee.isPending;
+  const isSelf = row.profile_id !== null && row.profile_id === profile?.id;
 
   return (
     <div className="px-4 py-3">
@@ -209,7 +206,6 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
           <div className="flex items-center gap-2">
             <span className="truncate font-bold text-slate-900">{row.display_name}</span>
             {row.initial_role === 'manager' && <Badge tone="brand">מנהל</Badge>}
-            {row.is_claimed && !row.is_active && <Badge tone="rose">לא פעיל</Badge>}
             {!row.is_claimed && <Badge tone="amber">ממתין</Badge>}
           </div>
           <p className="num mt-0.5 text-xs text-slate-500">{row.employee_code}</p>
@@ -231,69 +227,42 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
         </div>
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-2">
-        {row.is_claimed ? (
-          row.is_active ? (
-            <>
-              <Button
-                size="sm"
-                variant={confirmingRemove ? 'danger' : 'ghost'}
-                loading={setActive.isPending}
-                onClick={() =>
-                  confirmingRemove
-                    ? setActive.mutate(
-                        { profileId: row.profile_id!, isActive: false },
-                        { onSuccess: () => setConfirmingRemove(false) },
-                      )
-                    : setConfirmingRemove(true)
-                }
-              >
-                {confirmingRemove ? 'לחץ שוב להשבתה' : 'השבתה'}
-              </Button>
-              {confirmingRemove && (
-                <Button size="sm" variant="ghost" onClick={() => setConfirmingRemove(false)}>
-                  ביטול
-                </Button>
-              )}
-            </>
-          ) : (
-            <Button
-              size="sm"
-              variant="secondary"
-              loading={setActive.isPending}
-              onClick={() => setActive.mutate({ profileId: row.profile_id!, isActive: true })}
-            >
-              הפעלה מחדש
+      {isSelf ? (
+        <p className="mt-2 text-xs text-slate-400">זהו החשבון שלך - לא ניתן למחוק אותו כאן.</p>
+      ) : (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant={confirming ? 'danger' : 'ghost'}
+            loading={deleteEmployee.isPending}
+            onClick={() =>
+              confirming
+                ? deleteEmployee.mutate(row.employee_code, {
+                    onSuccess: () => setConfirming(false),
+                  })
+                : setConfirming(true)
+            }
+          >
+            {confirming ? 'לחץ שוב למחיקה סופית' : 'מחיקה'}
+          </Button>
+          {confirming && (
+            <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+              ביטול
             </Button>
-          )
-        ) : (
-          <>
-            <Button
-              size="sm"
-              variant={confirmingCancel ? 'danger' : 'ghost'}
-              loading={cancelInvite.isPending}
-              onClick={() =>
-                confirmingCancel
-                  ? cancelInvite.mutate(row.employee_code, {
-                      onSuccess: () => setConfirmingCancel(false),
-                    })
-                  : setConfirmingCancel(true)
-              }
-            >
-              {confirmingCancel ? 'לחץ שוב לביטול' : 'ביטול הזמנה'}
-            </Button>
-            {confirmingCancel && (
-              <Button size="sm" variant="ghost" onClick={() => setConfirmingCancel(false)}>
-                חזרה
-              </Button>
-            )}
-          </>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
-      {(setActive.isError || updateDefault.isError || cancelInvite.isError) && (
+      {confirming && row.is_claimed && (
+        <Alert tone="warn">
+          פעולה זו תמחק לצמיתות את {row.display_name} מהמערכת - כולל כל היסטוריית המשמרות, הבקשות
+          וההגשות שלו/שלה, בכל הסידורים כולל סידורים שכבר פורסמו. אי אפשר לבטל.
+        </Alert>
+      )}
+
+      {(updateDefault.isError || deleteEmployee.isError) && (
         <p className="mt-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800">
-          {[setActive.error, updateDefault.error, cancelInvite.error]
+          {[updateDefault.error, deleteEmployee.error]
             .filter((e): e is Error => e instanceof Error)
             .map((e) => e.message)
             .join(' · ') || 'הפעולה נכשלה.'}

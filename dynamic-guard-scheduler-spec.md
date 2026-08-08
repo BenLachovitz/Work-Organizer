@@ -990,41 +990,50 @@ Twice during development an automatic rule silently overruled a human decision, 
 2. The week sweep re-locked any week past its deadline, reverting the manager's "reopen" within
    milliseconds (fixed in migrations 11–12).
 
-### 12.4 Team Management (migration 20)
+The rule that came out of it: **a manager's explicit action is recorded (`status_overridden_at`) and
+the automation hands that week over permanently.** Reopening also extends the deadline, because
+`is_week_open()` gates on the deadline as well as the status — changing the status alone would have
+changed nothing observable. Locking again clears the extension, but only once the canonical deadline
+has genuinely passed, so locking a week *early* cannot accidentally become an extension.
+
+### 12.4 Team Management (migrations 20–21)
 
 A dedicated page (`/manage/team`, `src/pages/TeamManagement.tsx`) gives the manager CRUD over the
-team itself, as opposed to ManagerDashboard's week-by-week workflow. Reached via a link on
-`ManagerDashboard`, not a bottom-nav tab — it is a config screen, not something opened every day.
+team itself, as opposed to ManagerDashboard's week-by-week workflow. Reached via a back-linked
+button on `ManagerDashboard`, not a bottom-nav tab — it is a config screen, not something opened
+every day.
 
 | Operation | Mechanism |
 |---|---|
 | **Add employee** | `INSERT INTO roster_codes` — the same action `seed.sql` did by hand for the first eight. The employee still sets their own PIN through the ordinary "קוד עובד" login flow; nothing here creates an account directly. |
-| **Remove employee** | `profiles.is_active = false`. **Not a hard delete** — `schedule_assignments`, `weekly_wish_preferences` and `weekly_submissions` all cascade from `guard_id`, so deleting the row would erase that person out of every past roster, including a published one. `is_active` already fully excludes a guard from scheduling (§2.1) and from every manager view; this only adds the UI. Reversible. |
+| **Delete employee** | `delete_employee(employee_code)` RPC (migration 21) — a genuine, irreversible deletion, not a deactivation. Cascades through `auth.users → profiles → {schedule_assignments, weekly_wish_preferences, weekly_submissions, weekly_guard_targets}`, so the person's shift history is gone from every roster, including a published one. Refuses to let a manager delete their own account. Works identically on a still-pending invitation (no profile exists yet, so only `roster_codes` is touched). |
 | **Default כמות** | Edits `profiles.default_kamut` (claimed) or `roster_codes.default_kamut` (not yet claimed) — the §2.7 baseline, not the per-week override the `Stepper` on `TeamTable` already edits. |
+
+> **v1 of this feature deactivated instead of deleting** (`profiles.is_active = false`), reasoned
+> from the same cascade this table describes: deleting the row would erase a person's shift history
+> out of a published roster. The manager tried it and asked for real deletion anyway — a fully
+> informed call about their own data, not a case of the concern being missed. `is_active` still
+> exists and still gates scheduling eligibility (§2.1) exactly as before; there is simply no more UI
+> path to flip it, since there is nothing left to flip once the row is gone.
 
 Three points worth keeping:
 
 1. **`claim-code` is untouched.** It is the one publicly-reachable *unauthenticated* write path in
    the system (its own docstring treats every caller as hostile), so it is changed as rarely as
-   possible. `roster_codes` getting a manager write policy (`codes_manager_write`, the same
-   `FOR ALL … USING (is_manager())` shape as every other manager-write policy in the schema) does not
-   touch that function or its risk surface at all.
+   possible. Neither `roster_codes` getting a manager write policy (migration 20) nor
+   `delete_employee` needing `auth.users` access (migration 21, necessarily a `SECURITY DEFINER`
+   function — `auth.users` is not exposed through PostgREST at all, so there is no RLS policy that
+   could gate a direct write to it the way `roster_codes` got one) touches that function or its risk
+   surface.
 2. **The default carries itself across claiming.** `trg_profiles_default_kamut`, a `BEFORE INSERT`
    trigger on `profiles`, copies `roster_codes.default_kamut` onto the new row — `COALESCE`d against
    whatever the insert already specified, so a profile created with no matching `roster_codes` row
    (test fixtures, mainly) is left alone rather than forced through a lookup that finds nothing. This
    fires for every profile insert, not just ones this UI causes — `claim-code`'s service-role insert
    included — so the guarantee holds regardless of who or what creates the row.
-3. **No RLS change was needed for editing an existing employee.** `profiles_manager_write` and the
-   `guard_profile_columns` trigger (migration 2) already let a manager flip `is_active` or any other
-   guard's `default_kamut` — deactivation and default-editing are pure UI on top of policies that
-   already existed.
-
-The rule that came out of it: **a manager's explicit action is recorded (`status_overridden_at`) and
-the automation hands that week over permanently.** Reopening also extends the deadline, because
-`is_week_open()` gates on the deadline as well as the status — changing the status alone would have
-changed nothing observable. Locking again clears the extension, but only once the canonical deadline
-has genuinely passed, so locking a week *early* cannot accidentally become an extension.
+3. **Editing an existing employee's default needs no new policy.** `profiles_manager_write`
+   (migration 3) already lets a manager write any guard's `default_kamut` — that part of the page is
+   pure UI on top of a policy that already existed.
 
 ---
 
@@ -1056,7 +1065,7 @@ has genuinely passed, so locking a week *early* cannot accidentally become an ex
 | **E** | Solver contract, twin referees, mock + CP-SAT, generate → publish | ✅ complete; **CP-SAT deployed** |
 | **F1–F5** | Fine-tuning batch (per-day 12h, week lifecycle, Mon–Fri target, archive, US week) | ✅ complete |
 | **G** | Manual grid editing, editable/deletable published rosters, Realtime both directions, shared grid, measured columns, image export, free-text submission notes (§3.6), per-guard default כמות (§2.7) | ✅ complete |
-| **H** | Team management: add/remove employees, edit default כמות (§12.4) | ✅ complete |
+| **H** | Team management: add/delete employees (real deletion, not deactivation), edit default כמות (§12.4) | ✅ complete |
 
 ### 14.2 Verification
 

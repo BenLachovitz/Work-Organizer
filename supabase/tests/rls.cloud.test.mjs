@@ -113,6 +113,17 @@ async function expectRows(label, token, path, n) {
   else bad(label, `expected ${n} row(s), got ${Array.isArray(body) ? body.length : '?'}`);
 }
 
+/** Like expectRows, but a floor rather than an exact count -- for tables the
+ *  live app itself is expected to grow (roster_codes, once a manager can add
+ *  real employees through the UI), where an exact count would fail the
+ *  moment the feature it is testing gets used for anything real. */
+async function expectRowsAtLeast(label, token, path, n) {
+  const { status, body } = await rest(token, path);
+  if (status !== 200) return bad(label, `HTTP ${status}: ${JSON.stringify(body)}`);
+  if (Array.isArray(body) && body.length >= n) ok(label);
+  else bad(label, `expected >= ${n} row(s), got ${Array.isArray(body) ? body.length : '?'}`);
+}
+
 /** RLS denial through PostgREST is 401/403 on write, or an empty array on read. */
 async function expectDenied(label, token, path, init) {
   const { status, body } = await rest(token, path, init);
@@ -294,7 +305,7 @@ async function run() {
 
   console.log('\n\x1b[1m5. Badge codes -- manager CRUD, guard sealed out (migration 20)\x1b[0m');
   await expectRows('guard cannot enumerate badge codes', a, 'roster_codes?select=employee_code', 0);
-  await expectRows('manager can audit all 10 badge codes', mgr, 'roster_codes?select=employee_code', 10);
+  await expectRowsAtLeast('manager can audit badge codes (>= 10 seeded)', mgr, 'roster_codes?select=employee_code', 10);
   await expectDenied('guard cannot INSERT a badge code (adding an employee is manager-only)', a, 'roster_codes', {
     method: 'POST', body: JSON.stringify({ employee_code: '999999', display_name: 'שתול' }),
   });
@@ -308,6 +319,51 @@ async function run() {
   await expectAllowed('manager can cancel an unclaimed invitation', mgr, 'roster_codes?employee_code=eq.999999', {
     method: 'DELETE',
   });
+
+  console.log('\n\x1b[1m5a. delete_employee -- real cascade deletion through the RPC (migration 21)\x1b[0m');
+  {
+    const code = '999995';
+    await sql(`
+      INSERT INTO roster_codes (employee_code, display_name) VALUES ('${code}', 'למחיקה-קלאוד');
+      INSERT INTO auth.users (
+        instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+        raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+        confirmation_token, recovery_token, email_change_token_new, email_change)
+      VALUES ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated',
+        'authenticated', '${code}@guards.local',
+        extensions.crypt('Test-1234', extensions.gen_salt('bf')), NOW(),
+        '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, NOW(), NOW(),
+        '', '', '', '');
+      INSERT INTO profiles (id, employee_code, display_name, role, is_active)
+      SELECT id, '${code}', 'למחיקה-קלאוד', 'guard', TRUE
+        FROM auth.users WHERE email = '${code}@guards.local';
+      INSERT INTO weekly_wish_preferences (guard_id, week_start, target_date, shift)
+      SELECT id, '${OPEN_WEEK}'::date, '${OPEN_WEEK}'::date, 'morning'::base_shift
+        FROM profiles WHERE employee_code = '${code}';
+    `);
+    const [{ id: deletedGuardId }] = await sql(
+      `SELECT id::text FROM profiles WHERE employee_code = '${code}'`,
+    );
+
+    await expectDenied('guard cannot call delete_employee', a, 'rpc/delete_employee', {
+      method: 'POST', body: JSON.stringify({ p_employee_code: code }),
+    });
+    await expectDenied('manager cannot delete their own account via the RPC', mgr, 'rpc/delete_employee', {
+      method: 'POST', body: JSON.stringify({ p_employee_code: '900001' }),
+    });
+    await expectAllowed('manager deletes an employee through the real RPC', mgr, 'rpc/delete_employee', {
+      method: 'POST', body: JSON.stringify({ p_employee_code: code }),
+    });
+
+    const [profileGone, prefsGone, codeGone] = await Promise.all([
+      sql(`SELECT 1 FROM profiles WHERE employee_code = '${code}'`),
+      sql(`SELECT 1 FROM weekly_wish_preferences WHERE guard_id = '${deletedGuardId}'`),
+      sql(`SELECT 1 FROM roster_codes WHERE employee_code = '${code}'`),
+    ]);
+    profileGone.length === 0 && prefsGone.length === 0 && codeGone.length === 0
+      ? ok('profile, preferences and badge code are all gone through the live RPC')
+      : bad('rpc cascade', `profile=${profileGone.length} prefs=${prefsGone.length} code=${codeGone.length}`);
+  }
 
   console.log('\n\x1b[1m6. Draft rosters do not leak\x1b[0m');
   await expectRows('guard sees only the published run', a, 'schedule_runs?select=id&version=eq.99', 1);

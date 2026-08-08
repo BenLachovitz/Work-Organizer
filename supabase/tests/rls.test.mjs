@@ -25,6 +25,7 @@ const MANAGER = '11111111-1111-1111-1111-111111111111'; // בן   - manager + ac
 const GUARD_A = '22222222-2222-2222-2222-222222222222'; // יובל - plain guard
 const GUARD_B = '33333333-3333-3333-3333-333333333333'; // לוק  - plain guard
 const GUARD_C = '44444444-4444-4444-4444-444444444444'; // new hire, claimed mid-test
+const GUARD_D = '55555555-5555-5555-5555-555555555555'; // deleted mid-test
 
 // Weeks this suite OWNS. The seed no longer creates fixed weeks -- it calls
 // ensure_roster_weeks(), whose output depends on today's date -- so borrowing
@@ -70,6 +71,22 @@ async function withRole(role, fn) {
     return await fn();
   } finally {
     await db.exec('ROLLBACK');
+  }
+}
+
+/** Like `withUser`, but COMMITs -- for the one test that has to prove a
+ *  cascade actually persisted, not merely that the statement did not error. */
+async function withUserCommitted(uid, fn) {
+  await db.exec('BEGIN');
+  try {
+    await db.exec('SET LOCAL ROLE authenticated');
+    await db.query('SELECT set_config($1, $2, true)', ['request.jwt.claim.sub', uid ?? '']);
+    const result = await fn();
+    await db.exec('COMMIT');
+    return result;
+  } catch (e) {
+    await db.exec('ROLLBACK');
+    throw e;
   }
 }
 
@@ -449,6 +466,65 @@ async function run() {
       DELETE FROM auth.users WHERE id = '${GUARD_C}';
       DELETE FROM roster_codes WHERE employee_code = '999998';
     `);
+  }
+
+  console.log('\n\x1b[1m5a. delete_employee -- real cascade deletion (migration 21)\x1b[0m');
+  {
+    // A guard with real dependent rows, so the cascade has something to prove.
+    await db.exec(`
+      INSERT INTO roster_codes (employee_code, display_name) VALUES ('999997', 'למחיקה');
+      INSERT INTO auth.users (id, email) VALUES ('${GUARD_D}', '999997@guards.local');
+      INSERT INTO profiles (id, employee_code, display_name, role, is_active)
+      VALUES ('${GUARD_D}', '999997', 'למחיקה', 'guard', TRUE);
+      INSERT INTO weekly_wish_preferences (guard_id, week_start, target_date, shift)
+      VALUES ('${GUARD_D}', '${OPEN_WEEK}', '${OPEN_WEEK}', 'morning');
+    `);
+
+    await expectError(
+      'guard cannot call delete_employee',
+      GUARD_A,
+      'SELECT public.delete_employee($1)',
+      ['999997'],
+      /managers only|insufficient privilege/i,
+    );
+    await expectError(
+      'manager cannot delete their own account',
+      MANAGER,
+      'SELECT public.delete_employee($1)',
+      ['005396'],
+      /cannot delete your own account/i,
+    );
+
+    // Has to COMMIT, not roll back like every other assertion here -- the
+    // whole point is proving the cascade actually persisted.
+    await withUserCommitted(MANAGER, () =>
+      db.query('SELECT public.delete_employee($1)', ['999997']),
+    );
+
+    const [profileGone, prefsGone, codeGone] = await Promise.all([
+      db.query('SELECT * FROM profiles WHERE employee_code = $1', ['999997']),
+      db.query('SELECT * FROM weekly_wish_preferences WHERE guard_id = $1', [GUARD_D]),
+      db.query('SELECT * FROM roster_codes WHERE employee_code = $1', ['999997']),
+    ]);
+    profileGone.rows.length === 0 && prefsGone.rows.length === 0 && codeGone.rows.length === 0
+      ? ok('deleting the employee cascades away their profile, preferences and badge code')
+      : bad(
+          'delete_employee cascade',
+          `profile=${profileGone.rows.length} prefs=${prefsGone.rows.length} code=${codeGone.rows.length}`,
+        );
+
+    // An unclaimed invitation (no profile at all) goes through the same
+    // function -- the auth.users branch is simply skipped.
+    await db.exec(`INSERT INTO roster_codes (employee_code, display_name) VALUES ('999996', 'ממתין')`);
+    await withUserCommitted(MANAGER, () =>
+      db.query('SELECT public.delete_employee($1)', ['999996']),
+    );
+    const pendingGone = await db.query('SELECT * FROM roster_codes WHERE employee_code = $1', [
+      '999996',
+    ]);
+    pendingGone.rows.length === 0
+      ? ok('the same function cancels an unclaimed invitation (no profile to touch)')
+      : bad('delete_employee on a pending code', JSON.stringify(pendingGone.rows));
   }
 
   console.log('\n\x1b[1m6. Draft rosters do not leak before publication\x1b[0m');

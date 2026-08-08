@@ -3,14 +3,8 @@ import { requireSupabase } from '@/lib/supabase';
 import { managerKeys } from '@/hooks/useManager';
 
 /**
- * Team CRUD -- add an employee, deactivate/reactivate one, cancel a pending
- * invitation, and edit the default כמות each seeds a new week with.
- *
- * All four are plain RLS-gated table writes (migration 20 gave `roster_codes`
- * a manager write policy; `profiles` already had one). Nothing here needs an
- * RPC: none of these are multi-step or need to run as anyone other than the
- * caller, so there is no reason to hide them behind a function the way
- * save_week_preferences hides an atomic delete-then-insert.
+ * Team CRUD -- add an employee, delete one (claimed or still pending), and
+ * edit the default כמות each seeds a new week with.
  *
  * `claim-code`, the one publicly-reachable unauthenticated write path in the
  * system, is untouched by any of this -- registration is still the guard's
@@ -51,42 +45,34 @@ export function useAddEmployee() {
   });
 }
 
-/** Cancels an unclaimed invitation. Never called on a claimed code -- the
- *  caller is expected to only offer this while `is_claimed` is false, the
- *  same way RunVersions only offers "delete" on runs the manager selected. */
-export function useCancelInvitation() {
+/**
+ * Deletes an employee -- claimed or still a pending invitation -- for good.
+ *
+ * Goes through the delete_employee RPC (migration 21) rather than a plain
+ * table write: it has to remove the `auth.users` row too, which is not
+ * exposed through PostgREST at all, so there is no RLS-gated table write that
+ * could do this. That single statement cascades to `profiles` and everything
+ * that references `guard_id` -- schedule_assignments, weekly_wish_preferences,
+ * weekly_submissions, weekly_guard_targets -- so this genuinely erases the
+ * person's history out of every past roster, including a published one. The
+ * function also refuses to let a manager delete their own account.
+ *
+ * Same RPC either way: an unclaimed invitation has no matching profile, so
+ * the function just removes the roster_codes row and skips the rest.
+ */
+export function useDeleteEmployee() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (employeeCode: string) => {
-      const { error } = await requireSupabase()
-        .from('roster_codes')
-        .delete()
-        .eq('employee_code', employeeCode);
-      if (error) throw new Error(error.message);
-    },
-    onSuccess: () => void invalidateCodes(qc),
-  });
-}
-
-/**
- * Deactivates or reactivates a guard who has already claimed their code.
- *
- * Deliberately not a delete: schedule_assignments, weekly_wish_preferences
- * and weekly_submissions all cascade from guard_id, so removing the row would
- * erase that person's history out of every past -- including published --
- * roster. `is_active = false` already fully excludes a guard from scheduling
- * (useManagerWeek filters on it) and is reversible if the manager changes
- * their mind or the person comes back.
- */
-export function useSetEmployeeActive() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: { profileId: string; isActive: boolean }) => {
-      const { error } = await requireSupabase()
-        .from('profiles')
-        .update({ is_active: input.isActive })
-        .eq('id', input.profileId);
-      if (error) throw new Error(error.message);
+      const { error } = await requireSupabase().rpc('delete_employee', {
+        p_employee_code: employeeCode,
+      });
+      if (error) {
+        if (/cannot delete your own account/.test(error.message)) {
+          throw new Error('לא ניתן למחוק את חשבון המנהל שלך.');
+        }
+        throw new Error(error.message);
+      }
     },
     onSuccess: () => void invalidateCodes(qc),
   });
