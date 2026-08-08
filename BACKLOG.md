@@ -39,31 +39,28 @@ dead column and fixed a seed-data bug that could resurrect a deleted employee (s
 
 1. **Deploy the frontend to Vercel** — the only remaining step that puts this on guards' phones.
 2. `100001`–`100007` are sequential placeholders, not real employer-issued badge numbers — low
-   priority, nothing depends on the number itself. (Related to the new item 3 below, which is a
-   more immediate version of the same badge-code question.)
+   priority, nothing depends on the number itself.
 3. **Decide open item 6** — should availability be soft? (spec §3.2)
 
-### New, from Ben (8 August)
+### Done since 8 August (items 4–6 from Ben)
 
-4. **Afternoon short-staffed dash.** The "—" per missing slot convention (spec §10.1) was built for
-   the morning and night blocks (`RosterGrid.tsx`, `exportRoster.ts`) but not the afternoon block —
-   add the same treatment there. Afternoon is more involved than the other two: it can render as a
-   plain full-block chip OR an early/late handover pair, so "short-staffed" needs defining for both
-   shapes before implementing.
-5. **Configurable default morning target, not just a per-week setting.** Today `roster_weeks.
-   morning_target_slots` is set per week via `WeekControlsPanel` (2 or 3) — there is no standing
-   default the way `scheduler_settings` (migration 22) or `profiles.default_kamut` (migration 19)
-   are. Ben wants a global toggle: flip it once for a stretch (e.g. 2 instead of 3 for a 3-week
-   vacation period) and every week created during that stretch picks it up automatically, without
-   editing each week by hand — then flip back. Likely the same shape as migration 22: a
-   `scheduler_settings` column read by `ensure_roster_weeks()` when it creates a new week, with the
-   existing per-week `WeekControlsPanel` control still able to override one specific week.
-6. **Rename the 7 mock guard accounts (everyone except Ben) to `{שם} - דמה`.** Ben is starting to
-   collect the team's real badge codes and wants to register them for real without a badge-code
-   collision against the mock accounts already sitting on `100001`–`100007`. Rename only — the mocked
-   preference data on the current test week stays live and usable while he keeps testing. He will
-   delete the mock accounts himself (via the real `delete_employee` feature, migration 21) once real
-   registration is complete — do not delete them as part of this rename.
+4. **Afternoon short-staffed dash** — done. The "—" per missing slot convention (spec §10.1) now
+   covers the afternoon block too (`RosterGrid.tsx`, `exportRoster.ts`), not just morning/night. A
+   fully-missing coverage slot (neither a full-block guard nor either handover half) renders as one
+   full-width "—", the same convention morning/night already used — it doesn't presume a handover
+   shape that was never there. An already-present handover's unpaired half keeps its own existing
+   half-width "—", unchanged.
+5. **Configurable default morning target** — done (migration 24). `scheduler_settings` gained
+   `default_morning_target_slots`, read by `ensure_roster_weeks()` only when it inserts a *new*
+   `roster_weeks` row — replacing the old implicit "carry forward from the latest existing week"
+   behaviour with an explicit, dashboard-visible toggle (`DefaultMorningTargetSettings.tsx`, next to
+   `SubmissionWindowSettings` on `ManagerDashboard`). `WeekControlsPanel`'s per-week 2/3 control still
+   overrides one specific week, exactly as before.
+6. **Renamed the 7 mock guard accounts to `{שם} - דמה`** — done (migration 25), in both
+   `profiles.display_name` and `roster_codes.display_name`. Ben (`005396`, בן) untouched. Rename
+   only — the mocked preference data on the current test week is still live and usable; the accounts
+   themselves are untouched and Ben will delete them himself via `delete_employee` once real
+   registration is complete.
 
 ---
 
@@ -88,20 +85,20 @@ real week it left 2 shifts empty where CP-SAT left 0 (spec §9.4). If a roster l
 - Edge Functions `claim-code` and `generate-schedule` are deployed
 - Solver live at `https://guard-solver.onrender.com`; `SOLVER_URL` and `SOLVER_SECRET` are set as
   Supabase Edge Function secrets
-- 23 migrations applied, tracked in a `schema_migrations` ledger
+- 25 migrations applied, tracked in a `schema_migrations` ledger
 
 ### Current database contents
 
 - Weeks `2026-08-02` (locked, archive) and `2026-08-09` (**published** — a real roster is live)
-- 8 profiles: Ben plus 7 mock guards — see backlog item 6 above, these are about to be renamed and
-  eventually replaced with the team's real registrations
+- 8 profiles: Ben plus 7 mock guards, the latter renamed to `{שם} - דמה` (backlog item 6, migration
+  25) so their badge codes (`100001`–`100007`) won't collide once Ben registers the team for real
 - 8 badge codes total, exactly matching the 8 profiles — the two never-hired placeholder codes
   (`100008`, `100009`) were removed (spec §12.6); there is no longer a gap between "codes seeded"
   and "people registered"
 
 `npm run seed:testweek -- --wipe` removes the mock guards and frees their badge codes -- **do not
-run this once backlog item 6 is done and the mocks have been renamed**, or it will delete data Ben
-is deliberately keeping around for testing.
+run this now that the mocks have been renamed and Ben is keeping them around for testing** — it
+will delete data he's deliberately keeping.
 
 ---
 

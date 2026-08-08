@@ -148,11 +148,10 @@ type Row =
  * A day12 guard therefore appears twice -- in the morning block and as the
  * first half of an afternoon handover -- because that is what they are working.
  *
- * `target` is only used for morning/night: filled-but-short of it gets a dash
- * per missing guard (the same "shown, not hidden" convention as an unpaired
- * handover half). A block with nobody at all stays "ריק" (drawn by the
- * caller when `rows.length === 0`) -- the stronger signal for nobody, versus
- * this one for short-staffed.
+ * Filled-but-short of `target` gets a dash per missing guard (the same
+ * "shown, not hidden" convention as an unpaired handover half). A block with
+ * nobody at all stays "ריק" (drawn by the caller when `rows.length === 0`)
+ * -- the stronger signal for nobody, versus this one for short-staffed.
  */
 function rowsFor(
   block: 'morning' | 'afternoon' | 'night',
@@ -201,6 +200,14 @@ function rowsFor(
       early: early[i] ? { shift: 'day12', name: nameOf(early[i]!.guard_id) } : null,
       late: late[i] ? { shift: 'night12', name: nameOf(late[i]!.guard_id) } : null,
     });
+  }
+  // Filled but short of target: a slot with neither a full-block guard nor
+  // either handover half is drawn the same single-dash way morning/night mark
+  // a missing guard -- there's nothing to say it would have been a handover
+  // rather than a plain shift. A block with nobody at all stays "ריק",
+  // drawn by the caller when rows.length === 0 (checked before any padding).
+  if (rows.length > 0) {
+    for (let i = rows.length; i < target; i++) rows.push({ kind: 'gap' });
   }
   return rows;
 }
@@ -255,7 +262,12 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
     const day = onDay(date);
     const targets = segmentTargets(morningTarget, di);
     return BLOCKS.map((b) =>
-      rowsFor(b.key, day, nameOf, b.key === 'morning' ? targets.S1 : b.key === 'night' ? targets.S4 : 0),
+      rowsFor(
+        b.key,
+        day,
+        nameOf,
+        b.key === 'morning' ? targets.S1 : b.key === 'night' ? targets.S4 : targets.S2,
+      ),
     );
   });
 

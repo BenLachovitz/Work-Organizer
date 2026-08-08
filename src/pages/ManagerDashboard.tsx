@@ -4,6 +4,7 @@ import { CoverageMatrix } from '@/components/manager/CoverageMatrix';
 import { TeamTable } from '@/components/manager/TeamTable';
 import { WeekControlsPanel } from '@/components/manager/WeekControlsPanel';
 import { SubmissionWindowSettings } from '@/components/manager/SubmissionWindowSettings';
+import { DefaultMorningTargetSettings } from '@/components/manager/DefaultMorningTargetSettings';
 import { RosterGrid } from '@/components/RosterGrid';
 import { RosterEditor } from '@/components/manager/RosterEditor';
 import { RosterExport } from '@/components/manager/RosterExport';
@@ -132,6 +133,8 @@ export function ManagerDashboard() {
           }
           onSetStatus={(s) => updateWeek.mutate({ weekStart: selected, status: s })}
         />
+
+        <DefaultMorningTargetSettings />
 
         <SubmissionWindowSettings />
 

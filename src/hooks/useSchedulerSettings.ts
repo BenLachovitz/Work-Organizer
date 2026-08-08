@@ -13,6 +13,10 @@ export interface SchedulerSettings {
   deadline_time: string; // 'HH:MM:SS'
   open_offset_days: number;
   open_time: string;
+  /** Starting morning_target_slots for a NEW week (migration 24). Does not
+   *  touch an existing week -- WeekControlsPanel's per-week control still
+   *  overrides one specific week. */
+  default_morning_target_slots: number;
 }
 
 const KEY = ['schedulerSettings'] as const;
@@ -23,7 +27,9 @@ export function useSchedulerSettings() {
     queryFn: async (): Promise<SchedulerSettings> => {
       const { data, error } = await requireSupabase()
         .from('scheduler_settings')
-        .select('deadline_offset_days, deadline_time, open_offset_days, open_time')
+        .select(
+          'deadline_offset_days, deadline_time, open_offset_days, open_time, default_morning_target_slots',
+        )
         .eq('id', true)
         .single();
       if (error) throw new Error(error.message);
@@ -43,7 +49,7 @@ export function useSchedulerSettings() {
 export function useUpdateSchedulerSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: SchedulerSettings) => {
+    mutationFn: async (input: Partial<SchedulerSettings>) => {
       const { error } = await requireSupabase()
         .from('scheduler_settings')
         .update(input)

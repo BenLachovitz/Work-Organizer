@@ -284,10 +284,10 @@ export function RosterGrid({
                       <Empty />
                     );
                   } else {
-                    const rows = buildAfternoonRows(day, 2).filter(
-                      (r) => r.full || r.early || r.late,
-                    );
-                    content = rows.length ? (
+                    const afternoonTarget = segmentTargets(morningTarget, dayIndex).S2;
+                    const rows = buildAfternoonRows(day, afternoonTarget);
+                    const anyCoverage = rows.some((r) => r.full || r.early || r.late);
+                    content = anyCoverage ? (
                       rows.map((r, i) =>
                         r.full ? (
                           <Chip
@@ -296,7 +296,7 @@ export function RosterGrid({
                             name={nameOf(r.full.guard_id)}
                             mine={r.full.guard_id === highlightGuardId}
                           />
-                        ) : (
+                        ) : r.early || r.late ? (
                           // The handover, written the way the spreadsheet does:
                           // "ים / שלי", names only. The 12h annotation belongs
                           // on the morning and night blocks, where it says
@@ -329,6 +329,13 @@ export function RosterGrid({
                               <Gap />
                             )}
                           </div>
+                        ) : (
+                          // Neither a full-block guard nor either handover half
+                          // showed up for this slot -- there's nothing to say it
+                          // would have been a handover rather than a plain shift,
+                          // so this reads the same single-dash way morning/night
+                          // show a missing guard, not split into an early/late pair.
+                          <Gap key={`gap-${i}`} />
                         ),
                       )
                     ) : (
