@@ -259,7 +259,9 @@ An all-whitespace note is normalised to `NULL` inside `save_week_preferences`, t
 an empty slot array gets (§3.4): absence of content should leave a clean absence of data, not a
 stray string. Shown to the manager on the team list (`TeamTable`) directly under each guard's row,
 next to the 12h badges — where the manager is already scanning before setting כמות, and where a
-line like *"עד 4 משמרות"* is something to act on rather than something to go looking for.
+line like *"עד 4 משמרות"* is something to act on rather than something to go looking for. It appears
+without a reload: `weekly_submissions` and `weekly_wish_preferences` are in the Realtime publication
+(migration 18), so a guard's save invalidates the manager's dashboard query live (§10).
 
 ---
 
@@ -837,7 +839,7 @@ at the 5-shift ceiling. No solver can fix that — only more people, a higher ca
 | Session state | React Context (auth only) |
 | Validation | Zod at every I/O boundary |
 | Backend SDK | `@supabase/supabase-js` v2 |
-| Live updates | Supabase Realtime on `schedule_runs` — publishing pushes to phones instantly |
+| Live updates | Supabase Realtime, both directions — `schedule_runs`/`schedule_assignments`/`roster_weeks` push a publish or edit to guards (`useRosterRealtime`, migration 15); `weekly_submissions`/`weekly_wish_preferences` push a guard's save to the manager (`useManagerSubmissionsRealtime`, migration 18) |
 
 > **Environment variables:** Vite exposes only `VITE_`-prefixed variables. Use `VITE_SUPABASE_URL`
 > and `VITE_SUPABASE_PUBLISHABLE_KEY` (Supabase replaced the legacy `anon` JWT with
@@ -1014,11 +1016,11 @@ has genuinely passed, so locking a week *early* cannot accidentally become an ex
 | **D** | Manager dashboard: week controls, coverage matrix, כמות editor | ✅ complete |
 | **E** | Solver contract, twin referees, mock + CP-SAT, generate → publish | ✅ complete; **CP-SAT deployed** |
 | **F1–F5** | Fine-tuning batch (per-day 12h, week lifecycle, Mon–Fri target, archive, US week) | ✅ complete |
-| **G** | Manual grid editing, editable/deletable published rosters, Realtime, shared grid, measured columns, image export, free-text submission notes (§3.6) | ✅ complete |
+| **G** | Manual grid editing, editable/deletable published rosters, Realtime both directions, shared grid, measured columns, image export, free-text submission notes (§3.6) | ✅ complete |
 
 ### 14.2 Verification
 
-Eight suites, all green. Every gate runs against the live project except the PGlite one.
+Eleven suites, all green. Every gate runs against the live project except the PGlite one.
 
 | Suite | Command | Covers |
 |---|---|---|
@@ -1026,13 +1028,16 @@ Eight suites, all green. Every gate runs against the live project except the PGl
 | Gate A (cloud) | `node supabase/tests/rls.cloud.test.mjs` | RLS through real PostgREST + GoTrue JWTs |
 | Gate B | `node supabase/tests/auth.cloud.test.mjs` | Badge claim, PIN login, rate limiting |
 | Gate B (client) | `node supabase/tests/client.cloud.test.mjs` | The `supabase-js` path the browser runs |
-| Gate C | `node supabase/tests/preferences.cloud.test.mjs` | Persistence, atomicity, deadline, isolation |
+| Gate C | `node supabase/tests/preferences.cloud.test.mjs` | Persistence, atomicity, deadline, isolation, notes (§3.6) |
 | Gate D | `node supabase/tests/manager.cloud.test.mjs` | Week controls, כמות, lock/reopen override |
 | Gate E (cloud) | `npm run test:generate` | Generate → verify stored rows → publish |
 | Gate E (engines) | `npm run test:fixtures`, `solver/tests/test_scheduler.py` | 8 golden fixtures, both engines |
+| Gate E (edit) | `npm run test:edit` | Draft and published-roster editing, deletion |
+| Gate F (realtime) | `npm run test:realtime` | Live push both directions: roster changes to guards, submissions to the manager |
 
-`npm run test:cloud` runs all six cloud suites. `npm run test:compare` asserts CP-SAT never scores
-below the mock.
+`npm run test:cloud` chains every cloud suite in this table (rls → auth → client → preferences →
+manager → generate → edit → realtime) and stops at the first failure. `npm run test:compare` asserts
+CP-SAT never scores below the mock.
 
 ### 14.3 What is left
 

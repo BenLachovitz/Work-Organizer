@@ -13,7 +13,6 @@ import type { BaseShift } from '@/lib/shifts';
 
 export const guardKeys = {
   week: (guardId: string, weekStart: DateKey) => ['guardWeek', guardId, weekStart] as const,
-  schedule: (guardId: string, weekStart: DateKey) => ['mySchedule', guardId, weekStart] as const,
 };
 
 export interface GuardWeekData {
@@ -193,81 +192,3 @@ export function useVisibleRosters() {
   });
 }
 
-/**
- * The whole published roster for a week, plus the names to render it.
- *
- * Returns the entire team rather than just the caller: a guard wants to see who
- * they are on shift with. RLS still decides whether the run is visible at all --
- * unpublished drafts and past weeks return nothing without any client-side
- * filtering, so an empty result here is a legitimate answer, not an error.
- */
-export function usePublishedRoster(weekStart: DateKey) {
-  const { profile } = useAuth();
-
-  return useQuery({
-    queryKey: ['publishedRoster', weekStart, profile?.id ?? ''],
-    enabled: Boolean(weekStart && profile?.id),
-    queryFn: async (): Promise<{ assignments: ScheduleAssignment[]; guards: Profile[] }> => {
-      const db = requireSupabase();
-
-      const { data: runs, error: runErr } = await db
-        .from('schedule_runs')
-        .select('id')
-        .eq('week_start', weekStart)
-        .eq('is_published', true)
-        .limit(1);
-      if (runErr) throw new Error(runErr.message);
-      if (!runs?.length) return { assignments: [], guards: [] };
-
-      const [assignRes, guardRes] = await Promise.all([
-        db
-          .from('schedule_assignments')
-          .select('*')
-          .eq('run_id', runs[0]!.id)
-          .order('target_date', { ascending: true }),
-        db.from('profiles').select('*'),
-      ]);
-      if (assignRes.error) throw new Error(assignRes.error.message);
-      if (guardRes.error) throw new Error(guardRes.error.message);
-
-      return {
-        assignments: (assignRes.data as ScheduleAssignment[]) ?? [],
-        guards: (guardRes.data as Profile[]) ?? [],
-      };
-    },
-  });
-}
-
-/** The guard's own shifts in the published roster for a week. */
-export function useMySchedule(weekStart: DateKey) {
-  const { profile } = useAuth();
-  const guardId = profile?.id ?? '';
-
-  return useQuery({
-    queryKey: guardKeys.schedule(guardId, weekStart),
-    enabled: Boolean(guardId && weekStart),
-    queryFn: async (): Promise<ScheduleAssignment[]> => {
-      const db = requireSupabase();
-
-      // RLS hides unpublished runs entirely, so this can only ever return
-      // assignments from a roster the manager has actually published.
-      const { data: runs, error: runErr } = await db
-        .from('schedule_runs')
-        .select('id')
-        .eq('week_start', weekStart)
-        .eq('is_published', true)
-        .limit(1);
-      if (runErr) throw new Error(runErr.message);
-      if (!runs?.length) return [];
-
-      const { data, error } = await db
-        .from('schedule_assignments')
-        .select('*')
-        .eq('run_id', runs[0]!.id)
-        .eq('guard_id', guardId)
-        .order('target_date', { ascending: true });
-      if (error) throw new Error(error.message);
-      return (data as ScheduleAssignment[]) ?? [];
-    },
-  });
-}

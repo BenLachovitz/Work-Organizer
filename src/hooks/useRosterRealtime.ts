@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { managerKeys } from '@/hooks/useManager';
 import type { DateKey } from '@/lib/dates';
 
 /**
@@ -29,8 +30,11 @@ export function useRosterRealtime(weekStart: DateKey | null) {
   const invalidate = useRef(() => {});
   invalidate.current = () => {
     setLastChangeAt(new Date());
-    void qc.invalidateQueries({ queryKey: ['publishedRoster'] });
-    void qc.invalidateQueries({ queryKey: ['mySchedule'] });
+    // GuardHome and RosterView both read useVisibleRosters -- this is the key
+    // that actually needed invalidating. Its absence here was the bug: a
+    // publish fired the event, but nothing was subscribed to what it cleared,
+    // so "הסידור שלי" kept showing stale data until a manual reload.
+    void qc.invalidateQueries({ queryKey: ['visibleRosters'] });
     void qc.invalidateQueries({ queryKey: ['scheduleRuns'] });
     void qc.invalidateQueries({ queryKey: ['roster_weeks'] });
   };
@@ -64,4 +68,53 @@ export function useRosterRealtime(weekStart: DateKey | null) {
   }, [weekStart, profile?.id]);
 
   return { lastChangeAt };
+}
+
+/**
+ * Pushes a guard's submission to the manager's dashboard without a reload.
+ *
+ * Separate from useRosterRealtime because the tables are different and only
+ * the manager cares: a guard submitting availability (or writing a note, §3.6)
+ * previously updated nothing on screen until the manager next reloaded the
+ * page -- the query itself was correct, it just never re-ran.
+ *
+ * Same signal-not-data rule as above: the event only triggers a refetch, which
+ * goes through RLS exactly like a normal read.
+ */
+export function useManagerSubmissionsRealtime(weekStart: DateKey | null) {
+  const qc = useQueryClient();
+
+  const invalidate = useRef(() => {});
+  invalidate.current = () => {
+    if (weekStart) void qc.invalidateQueries({ queryKey: managerKeys.week(weekStart) });
+  };
+
+  useEffect(() => {
+    if (!supabase || !weekStart) return;
+
+    const fire = () => invalidate.current();
+
+    const channel = supabase
+      .channel(`submissions-${weekStart}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'weekly_submissions', filter: `week_start=eq.${weekStart}` },
+        fire,
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'weekly_wish_preferences',
+          filter: `week_start=eq.${weekStart}`,
+        },
+        fire,
+      )
+      .subscribe();
+
+    return () => {
+      void supabase?.removeChannel(channel);
+    };
+  }, [weekStart]);
 }
