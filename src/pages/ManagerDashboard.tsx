@@ -83,22 +83,12 @@ export function ManagerDashboard() {
 
   const unregistered = (codes ?? []).filter((c) => !c.is_claimed);
 
-  if (weeksLoading || (selected && isLoading)) {
+  if (weeksLoading) {
     return (
       <AppShell title="ניהול">
         <div className="grid place-items-center py-20">
           <Spinner className="size-7 text-brand-600" />
         </div>
-      </AppShell>
-    );
-  }
-
-  if (error) {
-    return (
-      <AppShell title="ניהול">
-        <Alert tone="error" title="שגיאה בטעינת הנתונים">
-          {error instanceof Error ? error.message : 'נסה לרענן את הדף.'}
-        </Alert>
       </AppShell>
     );
   }
@@ -144,182 +134,207 @@ export function ManagerDashboard() {
           </Alert>
         )}
 
-        {notSubmitted.length > 0 && (
-          <Alert tone="warn" title={`${notSubmitted.length} מאבטחים טרם הגישו`}>
-            {notSubmitted.map((r) => r.guard.display_name).join(', ')}
-          </Alert>
-        )}
-
-        {unregistered.length > 0 && (
-          <Alert tone="info" title={`${unregistered.length} קודים טרם נרשמו למערכת`}>
-            {unregistered.map((c) => `${c.display_name} (${c.employee_code})`).join(', ')}
-          </Alert>
-        )}
-
-        <CoverageMatrix
-          cells={coverage}
-          dates={dates}
-          morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
-        />
-
-        <TeamTable
-          rows={rows}
-          savingGuardId={setTarget.isPending ? setTarget.variables?.guardId : null}
-          onSetKamut={(guardId, kamut) =>
-            setTarget.mutate({ weekStart: selected, guardId, kamut })
-          }
-        />
-
-        {/* Team CRUD (add/remove employees, edit their baseline כמות) lives on
-            its own page -- a config screen, not part of the weekly workflow
-            this dashboard is otherwise about. */}
-        <ButtonLink to="/manage/team" variant="secondary" fullWidth>
-          ניהול צוות - הוספה, הסרה ועדכון ברירות מחדל
-        </ButtonLink>
-
-        {setTarget.isError && (
-          <Alert tone="error" title="שמירת הכמות נכשלה">
-            {setTarget.error instanceof Error ? setTarget.error.message : 'נסה שוב.'}
-          </Alert>
-        )}
-
-        {/* ---------------- generate ---------------- */}
-        <Card className="space-y-3">
-          <div>
-            <p className="font-bold text-slate-900">יצירת סידור</p>
-            <p className="mt-1 text-sm text-slate-500">
-              המנוע קורא את הזמינות והכמויות שלמעלה ומחזיר סידור יחד עם דוח כיסוי. כל הרצה נשמרת
-              כגרסה חדשה - אפשר לייצר שוב ולהשוות.
-            </p>
+        {/* Week-detail content only, gated on the SELECTED week's own fetch --
+            WeekControlsPanel and the settings cards above stay mounted while
+            it loads or errors, instead of the whole page unmounting and
+            remounting. WeekControlsPanel's "show archive" toggle is local
+            component state; a remount was resetting it to the live-weeks
+            view every time a different week (especially an archived one)
+            was picked, which is exactly the wrong moment for it to reset. */}
+        {selected && isLoading ? (
+          <div className="grid place-items-center py-16">
+            <Spinner className="size-7 text-brand-600" />
           </div>
-
-          {generate.isError && (
-            <Alert tone="error" title="היצירה נכשלה">
-              <span className="whitespace-pre-line">
-                {generate.error instanceof Error ? generate.error.message : 'נסה שוב.'}
-              </span>
-            </Alert>
-          )}
-
-          {generate.isSuccess && generate.data && (
-            <Alert tone="success" title={`נוצרה גרסה ${generate.data.version}`}>
-              {generate.data.engine === 'cp-sat'
-                ? `מנוע CP-SAT · ${generate.data.status}`
-                : 'מנוע מקומי (mock)'}{' '}
-              · ניקוד {generate.data.objective}
-            </Alert>
-          )}
-
-          <Button
-            fullWidth
-            size="lg"
-            loading={generate.isPending}
-            disabled={!data || rows.length === 0}
-            onClick={() =>
-              data &&
-              generate.mutate({
-                weekStart: selected,
-                morningTarget: (week?.morning_target_slots ?? 2) as MorningTarget,
-                data,
-              })
-            }
-          >
-            {generate.isPending ? 'מחשב סידור…' : 'צור סידור אוטומטי'}
-          </Button>
-        </Card>
-
-        {/* ---------------- result ---------------- */}
-        {latestRun && (
+        ) : error ? (
+          <Alert tone="error" title="שגיאה בטעינת הנתונים">
+            {error instanceof Error ? error.message : 'נסה לרענן את הדף.'}
+          </Alert>
+        ) : (
           <>
-            <CoverageReportPanel report={latestRun.coverage_report} guards={data?.guards ?? []} />
-
-            {editing && data ? (
-              <RosterEditor
-                weekStart={selected}
-                morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
-                assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
-                guards={data.guards}
-                // The referee must judge an edit against exactly what the solver
-                // saw -- including last Saturday's shifts, or a manual Sunday
-                // assignment could create a clopen across the week boundary
-                // that nothing would catch.
-                solverInput={buildSolverInput(
-                  selected,
-                  (week?.morning_target_slots ?? 2) as MorningTarget,
-                  data,
-                  carryIn ?? {},
-                )}
-                saving={saveEdits.isPending}
-                onCancel={() => setEditing(false)}
-                onSave={(draft) =>
-                  saveEdits.mutate(
-                    {
-                      runId: latestRun.id,
-                      weekStart: selected,
-                      assignments: draft.map((d) => ({
-                        date: d.date,
-                        shift: d.shift,
-                        guard_id: d.guard_id,
-                      })),
-                    },
-                    { onSuccess: () => setEditing(false) },
-                  )
-                }
-              />
-            ) : (
-              <RosterGrid
-                weekStart={selected}
-                morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
-                assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
-                guards={data?.guards ?? []}
-              />
-            )}
-
-            {/* Only for a published run, and never mid-edit: an image of a draft
-                is indistinguishable from the real thing once it is in the group
-                chat, and no later edit catches up with it. */}
-            {latestRun.is_published && !editing && (
-              <RosterExport
-                weekStart={selected}
-                morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
-                assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
-                guards={data?.guards ?? []}
-              />
-            )}
-
-            {(publish.isError || saveEdits.isError || deleteRun.isError || unpublish.isError) && (
-              <Alert tone="error" title="הפעולה נכשלה">
-                {[publish.error, saveEdits.error, deleteRun.error, unpublish.error]
-                  .filter((e): e is Error => e instanceof Error)
-                  .map((e) => e.message)
-                  .join(' · ') || 'נסה שוב.'}
+            {notSubmitted.length > 0 && (
+              <Alert tone="warn" title={`${notSubmitted.length} מאבטחים טרם הגישו`}>
+                {notSubmitted.map((r) => r.guard.display_name).join(', ')}
               </Alert>
             )}
 
-            <RunVersions
-              runs={runsData.runs}
-              selectedId={latestRun.id}
-              onSelect={(id) => {
-                setSelectedRunId(id);
-                setEditing(false);
-              }}
-              onPublish={(id) => publish.mutate({ runId: id, weekStart: selected })}
-              onUnpublish={(id) => unpublish.mutate({ runId: id, weekStart: selected })}
-              onEdit={(id) => {
-                setSelectedRunId(id);
-                setEditing(true);
-              }}
-              onDelete={(id) =>
-                deleteRun.mutate(
-                  { runId: id, weekStart: selected },
-                  // The deleted run may have been the one on screen; clearing
-                  // the selection lets it fall back to whatever remains.
-                  { onSuccess: () => setSelectedRunId(null) },
-                )
-              }
-              busy={publish.isPending || unpublish.isPending || deleteRun.isPending}
-              disabled={editing}
+            {unregistered.length > 0 && (
+              <Alert tone="info" title={`${unregistered.length} קודים טרם נרשמו למערכת`}>
+                {unregistered.map((c) => `${c.display_name} (${c.employee_code})`).join(', ')}
+              </Alert>
+            )}
+
+            <CoverageMatrix
+              cells={coverage}
+              dates={dates}
+              morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
             />
+
+            <TeamTable
+              rows={rows}
+              savingGuardId={setTarget.isPending ? setTarget.variables?.guardId : null}
+              onSetKamut={(guardId, kamut) =>
+                setTarget.mutate({ weekStart: selected, guardId, kamut })
+              }
+            />
+
+            {/* Team CRUD (add/remove employees, edit their baseline כמות) lives on
+                its own page -- a config screen, not part of the weekly workflow
+                this dashboard is otherwise about. */}
+            <ButtonLink to="/manage/team" variant="secondary" fullWidth>
+              ניהול צוות - הוספה, הסרה ועדכון ברירות מחדל
+            </ButtonLink>
+
+            {setTarget.isError && (
+              <Alert tone="error" title="שמירת הכמות נכשלה">
+                {setTarget.error instanceof Error ? setTarget.error.message : 'נסה שוב.'}
+              </Alert>
+            )}
+
+            {/* ---------------- generate ---------------- */}
+            <Card className="space-y-3">
+              <div>
+                <p className="font-bold text-slate-900">יצירת סידור</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  המנוע קורא את הזמינות והכמויות שלמעלה ומחזיר סידור יחד עם דוח כיסוי. כל הרצה
+                  נשמרת כגרסה חדשה - אפשר לייצר שוב ולהשוות.
+                </p>
+              </div>
+
+              {generate.isError && (
+                <Alert tone="error" title="היצירה נכשלה">
+                  <span className="whitespace-pre-line">
+                    {generate.error instanceof Error ? generate.error.message : 'נסה שוב.'}
+                  </span>
+                </Alert>
+              )}
+
+              {generate.isSuccess && generate.data && (
+                <Alert tone="success" title={`נוצרה גרסה ${generate.data.version}`}>
+                  {generate.data.engine === 'cp-sat'
+                    ? `מנוע CP-SAT · ${generate.data.status}`
+                    : 'מנוע מקומי (mock)'}{' '}
+                  · ניקוד {generate.data.objective}
+                </Alert>
+              )}
+
+              <Button
+                fullWidth
+                size="lg"
+                loading={generate.isPending}
+                disabled={!data || rows.length === 0}
+                onClick={() =>
+                  data &&
+                  generate.mutate({
+                    weekStart: selected,
+                    morningTarget: (week?.morning_target_slots ?? 2) as MorningTarget,
+                    data,
+                  })
+                }
+              >
+                {generate.isPending ? 'מחשב סידור…' : 'צור סידור אוטומטי'}
+              </Button>
+            </Card>
+
+            {/* ---------------- result ---------------- */}
+            {latestRun && (
+              <>
+                <CoverageReportPanel
+                  report={latestRun.coverage_report}
+                  guards={data?.guards ?? []}
+                />
+
+                {editing && data ? (
+                  <RosterEditor
+                    weekStart={selected}
+                    morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
+                    assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
+                    guards={data.guards}
+                    // The referee must judge an edit against exactly what the solver
+                    // saw -- including last Saturday's shifts, or a manual Sunday
+                    // assignment could create a clopen across the week boundary
+                    // that nothing would catch.
+                    solverInput={buildSolverInput(
+                      selected,
+                      (week?.morning_target_slots ?? 2) as MorningTarget,
+                      data,
+                      carryIn ?? {},
+                    )}
+                    saving={saveEdits.isPending}
+                    onCancel={() => setEditing(false)}
+                    onSave={(draft) =>
+                      saveEdits.mutate(
+                        {
+                          runId: latestRun.id,
+                          weekStart: selected,
+                          assignments: draft.map((d) => ({
+                            date: d.date,
+                            shift: d.shift,
+                            guard_id: d.guard_id,
+                          })),
+                        },
+                        { onSuccess: () => setEditing(false) },
+                      )
+                    }
+                  />
+                ) : (
+                  <RosterGrid
+                    weekStart={selected}
+                    morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
+                    assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
+                    guards={data?.guards ?? []}
+                  />
+                )}
+
+                {/* Only for a published run, and never mid-edit: an image of a draft
+                    is indistinguishable from the real thing once it is in the group
+                    chat, and no later edit catches up with it. */}
+                {latestRun.is_published && !editing && (
+                  <RosterExport
+                    weekStart={selected}
+                    morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
+                    assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
+                    guards={data?.guards ?? []}
+                  />
+                )}
+
+                {(publish.isError ||
+                  saveEdits.isError ||
+                  deleteRun.isError ||
+                  unpublish.isError) && (
+                  <Alert tone="error" title="הפעולה נכשלה">
+                    {[publish.error, saveEdits.error, deleteRun.error, unpublish.error]
+                      .filter((e): e is Error => e instanceof Error)
+                      .map((e) => e.message)
+                      .join(' · ') || 'נסה שוב.'}
+                  </Alert>
+                )}
+
+                <RunVersions
+                  runs={runsData.runs}
+                  selectedId={latestRun.id}
+                  onSelect={(id) => {
+                    setSelectedRunId(id);
+                    setEditing(false);
+                  }}
+                  onPublish={(id) => publish.mutate({ runId: id, weekStart: selected })}
+                  onUnpublish={(id) => unpublish.mutate({ runId: id, weekStart: selected })}
+                  onEdit={(id) => {
+                    setSelectedRunId(id);
+                    setEditing(true);
+                  }}
+                  onDelete={(id) =>
+                    deleteRun.mutate(
+                      { runId: id, weekStart: selected },
+                      // The deleted run may have been the one on screen; clearing
+                      // the selection lets it fall back to whatever remains.
+                      { onSuccess: () => setSelectedRunId(null) },
+                    )
+                  }
+                  busy={publish.isPending || unpublish.isPending || deleteRun.isPending}
+                  disabled={editing}
+                />
+              </>
+            )}
           </>
         )}
       </div>
