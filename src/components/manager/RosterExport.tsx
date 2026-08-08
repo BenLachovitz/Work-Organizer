@@ -1,17 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card } from '@/components/ui';
-import {
-  canShareImage,
-  downloadBlob,
-  renderRosterImage,
-  rosterFileName,
-} from '@/lib/exportRoster';
-import { formatWeekRange, type DateKey } from '@/lib/dates';
+import { downloadBlob, renderRosterImage, rosterFileName } from '@/lib/exportRoster';
+import type { DateKey } from '@/lib/dates';
 import type { MorningTarget } from '@/lib/shifts';
 import type { Profile, ScheduleAssignment } from '@/types/database';
 
 /**
- * Exporting the published roster as a picture, for the team's WhatsApp group.
+ * Exporting the published roster as a JPEG, for the team's WhatsApp group.
  *
  * Offered ONLY for a published run. A draft is a proposal the manager is still
  * moving people around in; once an image of it is in the group chat it is a
@@ -19,9 +14,12 @@ import type { Profile, ScheduleAssignment } from '@/types/database';
  * with it. Publishing is the moment the roster becomes a promise, so it is the
  * moment it becomes shareable.
  *
- * A preview is shown rather than just a button. The manager is about to send
- * this to the whole team, and the one thing worse than no export is an export
- * with somebody's name cut off -- so they see the actual image first.
+ * The preview lives behind a button rather than inline. RosterExport is always
+ * rendered directly under the on-screen RosterGrid it is a picture OF -- an
+ * inline preview would put the same grid on screen twice at once. Opening it
+ * in a lightbox is also the only way to actually check it: shrunk to card
+ * width, the names are too small to read, which is the one check this exists
+ * for.
  */
 export function RosterExport({
   weekStart,
@@ -34,59 +32,56 @@ export function RosterExport({
   assignments: ScheduleAssignment[];
   guards: Profile[];
 }) {
-  const [busy, setBusy] = useState<'png' | 'jpeg' | 'share' | null>(null);
+  const [image, setImage] = useState<{ url: string; blob: Blob } | null>(null);
+  const [busy, setBusy] = useState<'preview' | 'download' | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
-  // Probed once. The answer cannot change mid-session, and building a throwaway
-  // File on every render to ask again would be pure waste.
-  const [shareable] = useState(canShareImage);
+  const [open, setOpen] = useState(false);
 
   // The parent rebuilds `assignments` with .filter() on every render, so its
-  // identity churns even when nothing changed. Keying the effect on CONTENT
-  // stops the preview being torn down and redrawn on every unrelated re-render.
+  // identity churns even when nothing changed. Rendering is not free enough to
+  // redo on every unrelated re-render, so a stale cached image is invalidated
+  // by CONTENT rather than by array identity.
   const signature = useMemo(
     () =>
       [
         weekStart,
         morningTarget,
         guards.length,
-        ...assignments
-          .map((a) => `${a.target_date}|${a.shift}|${a.guard_id}`)
-          .sort(),
+        ...assignments.map((a) => `${a.target_date}|${a.shift}|${a.guard_id}`).sort(),
       ].join(','),
     [weekStart, morningTarget, assignments, guards],
   );
 
-  // Rendering is cheap, but the roster changes under this component whenever
-  // the manager edits or switches version -- so the preview is rebuilt from the
-  // current assignments, never cached across them.
   useEffect(() => {
-    let alive = true;
-    let url: string | null = null;
-
-    void renderRosterImage({ weekStart, morningTarget, assignments, guards }, 'png')
-      .then((blob) => {
-        if (!alive) return;
-        url = URL.createObjectURL(blob);
-        setPreview(url);
-      })
-      .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : 'שגיאה'));
-
-    return () => {
-      alive = false;
-      if (url) URL.revokeObjectURL(url);
-    };
+    setImage((prev) => {
+      if (prev) URL.revokeObjectURL(prev.url);
+      return null;
+    });
     // Content, not identity -- see `signature`.
-  }, [signature]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature]);
 
-  const build = async (format: 'png' | 'jpeg') =>
-    renderRosterImage({ weekStart, morningTarget, assignments, guards }, format);
+  useEffect(
+    () => () => {
+      if (image) URL.revokeObjectURL(image.url);
+    },
+    [image],
+  );
 
-  const onDownload = async (format: 'png' | 'jpeg') => {
-    setBusy(format);
+  const ensureImage = async () => {
+    if (image) return image;
+    const blob = await renderRosterImage({ weekStart, morningTarget, assignments, guards });
+    const built = { url: URL.createObjectURL(blob), blob };
+    setImage(built);
+    return built;
+  };
+
+  const onPreview = async () => {
+    setBusy('preview');
     setError(null);
     try {
-      downloadBlob(await build(format), rosterFileName(weekStart, format));
+      await ensureImage();
+      setOpen(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'יצירת התמונה נכשלה.');
     } finally {
@@ -94,23 +89,14 @@ export function RosterExport({
     }
   };
 
-  const onShare = async () => {
-    setBusy('share');
+  const onDownload = async () => {
+    setBusy('download');
     setError(null);
     try {
-      const blob = await build('png');
-      const file = new File([blob], rosterFileName(weekStart, 'png'), { type: 'image/png' });
-      await navigator.share({
-        files: [file],
-        title: `סידור שבועי · ${formatWeekRange(weekStart)}`,
-      });
+      const built = await ensureImage();
+      downloadBlob(built.blob, rosterFileName(weekStart));
     } catch (e) {
-      // Dismissing the OS share sheet rejects with AbortError. That is the
-      // manager changing their mind, not a failure -- saying "it failed" would
-      // be a lie and would send them looking for a problem.
-      if (!(e instanceof DOMException && e.name === 'AbortError')) {
-        setError(e instanceof Error ? e.message : 'השיתוף נכשל.');
-      }
+      setError(e instanceof Error ? e.message : 'יצירת התמונה נכשלה.');
     } finally {
       setBusy(null);
     }
@@ -131,57 +117,81 @@ export function RosterExport({
         </div>
       )}
 
-      <div className="p-4">
-        <div className="overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-200">
-          {preview ? (
-            // Squeezed into a phone-width card the names are too small to
-            // check, which is the one thing the preview is for. Opening it
-            // shows the image at full size.
-            <a href={preview} target="_blank" rel="noreferrer" title="פתיחה בגודל מלא">
-              <img src={preview} alt="תצוגה מקדימה של הסידור" className="w-full" />
-            </a>
-          ) : (
-            <div className="grid h-40 place-items-center text-sm text-slate-400">
-              מכין תצוגה מקדימה…
-            </div>
-          )}
-        </div>
-
-        <div className="mt-3 flex flex-wrap gap-2">
-          {shareable && (
-            <Button
-              className="flex-1"
-              loading={busy === 'share'}
-              disabled={!preview || busy !== null}
-              onClick={() => void onShare()}
-            >
-              שיתוף
-            </Button>
-          )}
-          <Button
-            className="flex-1"
-            variant={shareable ? 'secondary' : 'primary'}
-            loading={busy === 'png'}
-            disabled={!preview || busy !== null}
-            onClick={() => void onDownload('png')}
-          >
-            הורדה PNG
-          </Button>
-          <Button
-            className="flex-1"
-            variant="secondary"
-            loading={busy === 'jpeg'}
-            disabled={!preview || busy !== null}
-            onClick={() => void onDownload('jpeg')}
-          >
-            הורדה JPEG
-          </Button>
-        </div>
-
-        <p className="mt-2 text-xs text-slate-400">
-          PNG חד יותר לטקסט; JPEG קל יותר. וואטסאפ דוחס בכל מקרה.
-        </p>
+      <div className="flex gap-2 p-4">
+        <Button
+          className="flex-1"
+          variant="secondary"
+          loading={busy === 'preview'}
+          disabled={busy !== null}
+          onClick={() => void onPreview()}
+        >
+          תצוגה מקדימה
+        </Button>
+        <Button
+          className="flex-1"
+          loading={busy === 'download'}
+          disabled={busy !== null}
+          onClick={() => void onDownload()}
+        >
+          הורדת JPEG
+        </Button>
       </div>
+
+      {open && image && (
+        <PreviewModal url={image.url} onClose={() => setOpen(false)} onDownload={onDownload} />
+      )}
     </Card>
+  );
+}
+
+function PreviewModal({
+  url,
+  onClose,
+  onDownload,
+}: {
+  url: string;
+  onClose: () => void;
+  onDownload: () => Promise<void>;
+}) {
+  // Esc closes it -- the manager is about to send this to the whole team, and
+  // a modal with no keyboard escape reads as stuck, not careful.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+          <p className="font-bold text-slate-900">תצוגה מקדימה</p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="סגירה"
+          >
+            <svg className="size-5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M4.3 4.3a1 1 0 0 1 1.4 0L10 8.6l4.3-4.3a1 1 0 1 1 1.4 1.4L11.4 10l4.3 4.3a1 1 0 0 1-1.4 1.4L10 11.4l-4.3 4.3a1 1 0 0 1-1.4-1.4L8.6 10 4.3 5.7a1 1 0 0 1 0-1.4Z" />
+            </svg>
+          </button>
+        </div>
+        <div className="overflow-auto p-3">
+          <img src={url} alt="תצוגה מקדימה של הסידור" className="w-full rounded-lg" />
+        </div>
+        <div className="border-t border-slate-200 p-3">
+          <Button fullWidth onClick={() => void onDownload()}>
+            הורדת JPEG
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -204,16 +204,17 @@ const LEGEND = [
 ] as const;
 
 /**
- * Draws the roster and returns it as an image blob.
+ * Draws the roster and returns it as a JPEG blob.
+ *
+ * JPEG only -- this exists to post into the team's WhatsApp group, where a
+ * smaller file matters and nothing in a solid-colour chip grid benefits from
+ * PNG's lossless edges.
  *
  * Awaits the web font first: a canvas silently falls back to a system face if
  * Heebo has not loaded, which both looks wrong and measures wrong, so the
  * columns would be sized for one font and painted in another.
  */
-export async function renderRosterImage(
-  input: RosterImageInput,
-  format: 'png' | 'jpeg' = 'png',
-): Promise<Blob> {
+export async function renderRosterImage(input: RosterImageInput): Promise<Blob> {
   await document.fonts?.ready;
 
   const { weekStart, morningTarget, assignments, guards } = input;
@@ -294,8 +295,13 @@ export async function renderRosterImage(
   ctx.fillStyle = PAPER;
   ctx.fillRect(0, 0, width, height);
 
+  // The label column reads first in RTL, so it sits at the CANVAS's right
+  // edge -- the day columns occupy the region to its left. `colRight` used to
+  // start from the canvas edge directly, which left no room for the label and
+  // pushed it out to the far left instead.
+  const dayAreaRight = width - PAD - LABEL_W;
   /** x of a day column's right edge. Day 0 (ראשון) sits rightmost, as on screen. */
-  const colRight = (i: number) => width - PAD - colWidth * i;
+  const colRight = (i: number) => dayAreaRight - colWidth * i;
 
   // --- title ----------------------------------------------------------------
   ctx.textAlign = 'right';
@@ -327,10 +333,10 @@ export async function renderRosterImage(
   BLOCKS.forEach((block, bi) => {
     const rowH = rowHeights[bi]!;
 
-    // Block label, right-aligned against the grid so the Hebrew name and the
-    // time line up on the same edge.
+    // Block label, right-aligned at the canvas's own right edge -- the same
+    // edge the day columns hang off of, on the near side of them.
     ctx.textAlign = 'right';
-    const labelRight = width - PAD - colWidth * 7 - 12;
+    const labelRight = width - PAD;
     ctx.font = BLOCK_FONT;
     ctx.fillStyle = INK;
     ctx.fillText(block.he, labelRight, y + rowH / 2 - 10);
@@ -422,7 +428,7 @@ export async function renderRosterImage(
   ctx.fillStyle = FAINT;
   ctx.fillText('בצהריים, שני שמות מופרדים ב־/ הם חילוף ב־18:45 · הראשון עד, השני מ־18:45', width - PAD, y);
 
-  return await toBlob(canvas, format);
+  return await toBlob(canvas);
 }
 
 function drawChip(
@@ -477,18 +483,18 @@ function drawGap(ctx: CanvasRenderingContext2D, x: number, y: number, w: number)
   ctx.fillText('—', x + w / 2, y + CHIP_H / 2);
 }
 
-function toBlob(canvas: HTMLCanvasElement, format: 'png' | 'jpeg'): Promise<Blob> {
+function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => (blob ? resolve(blob) : reject(new Error('יצירת התמונה נכשלה.'))),
-      format === 'png' ? 'image/png' : 'image/jpeg',
-      format === 'png' ? undefined : 0.92,
+      'image/jpeg',
+      0.92,
     );
   });
 }
 
-export function rosterFileName(weekStart: DateKey, format: 'png' | 'jpeg'): string {
-  return `roster-${weekStart}.${format === 'png' ? 'png' : 'jpg'}`;
+export function rosterFileName(weekStart: DateKey): string {
+  return `roster-${weekStart}.jpg`;
 }
 
 /** Saves the blob to the user's downloads. */
@@ -503,22 +509,4 @@ export function downloadBlob(blob: Blob, filename: string) {
   // Revoking immediately can cancel the download in some browsers; one tick is
   // enough for the click to have been handled.
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-/**
- * Whether the OS share sheet can take this file.
- *
- * On a phone this is the whole point: sharing hands the image straight to
- * WhatsApp, where downloading it means hunting through the gallery afterwards.
- * Desktop browsers mostly cannot, so the caller keeps a download button too.
- */
-export function canShareImage(): boolean {
-  if (typeof navigator === 'undefined' || !navigator.canShare || !navigator.share) return false;
-  try {
-    return navigator.canShare({
-      files: [new File([new Blob([''], { type: 'image/png' })], 'x.png', { type: 'image/png' })],
-    });
-  } catch {
-    return false;
-  }
 }

@@ -885,8 +885,12 @@ Three decisions worth keeping:
    page around it to explain it.
 
 The palette is read from the CSS custom properties at render time, so recolouring a shift in
-`index.css` follows through to the export. Where the OS supports `navigator.share` with files, the
-primary action hands the image straight to WhatsApp; download stays available for desktop.
+`index.css` follows through to the export. Output is **JPEG only** — this exists to post into a
+WhatsApp group, where a smaller file matters and nothing in a solid-colour chip grid benefits from
+PNG's lossless edges. The preview sits behind a **תצוגה מקדימה** button that opens a lightbox rather
+than rendering inline: `RosterExport` always sits directly under the on-screen `RosterGrid` it is a
+picture of, so an inline preview would put the same grid on screen twice at once, and shrunk to card
+width the names are too small to actually check anyway.
 
 ---
 
