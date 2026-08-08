@@ -56,23 +56,34 @@ export function useManagerWeek(weekStart: DateKey) {
   });
 }
 
-/** Registration status per badge code, for chasing guards who never signed up. */
+/** One row of roster_code_status -- a badge code, and the profile it became
+ *  once claimed. `profile_id`/`is_active` are null until then. */
+export interface RosterCodeStatus {
+  employee_code: string;
+  display_name: string;
+  initial_role: 'guard' | 'manager' | 'admin';
+  is_claimed: boolean;
+  claim_enabled: boolean;
+  claimed_at: string | null;
+  profile_id: string | null;
+  is_active: boolean | null;
+  /** Baseline weekly כמות -- from roster_codes before claiming, from
+   *  profiles (the live, editable value) after. */
+  default_kamut: number;
+}
+
+/** Registration status per badge code, for chasing guards who never signed up
+ *  and for the team-management page (§ TeamManagement). */
 export function useRosterCodeStatus() {
   return useQuery({
     queryKey: managerKeys.codes,
-    queryFn: async () => {
+    queryFn: async (): Promise<RosterCodeStatus[]> => {
       const { data, error } = await requireSupabase()
         .from('roster_code_status')
         .select('*')
         .order('employee_code');
       if (error) throw new Error(error.message);
-      return (data ?? []) as {
-        employee_code: string;
-        display_name: string;
-        is_claimed: boolean;
-        claim_enabled: boolean;
-        is_active: boolean | null;
-      }[];
+      return (data as RosterCodeStatus[]) ?? [];
     },
   });
 }

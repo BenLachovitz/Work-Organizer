@@ -1,46 +1,5 @@
-import { Badge, Card, cn } from '@/components/ui';
-import { MAX_SHIFTS_PER_WEEK } from '@/lib/shifts';
+import { Badge, Card, Stepper } from '@/components/ui';
 import type { GuardRow } from '@/hooks/useManager';
-
-function Stepper({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  disabled?: boolean;
-}) {
-  const btn =
-    'grid size-8 place-items-center rounded-lg text-lg font-bold transition-colors ' +
-    'disabled:opacity-30 disabled:cursor-not-allowed';
-  return (
-    <div className="flex items-center gap-1">
-      {/* RTL: minus sits on the right, matching the reading direction. */}
-      <button
-        type="button"
-        disabled={disabled || value <= 0}
-        onClick={() => onChange(value - 1)}
-        className={cn(btn, 'bg-slate-100 text-slate-600 hover:bg-slate-200')}
-        aria-label="הפחת"
-      >
-        −
-      </button>
-      <span className="w-7 text-center text-lg font-extrabold tabular-nums text-slate-900">
-        {value}
-      </span>
-      <button
-        type="button"
-        disabled={disabled || value >= MAX_SHIFTS_PER_WEEK}
-        onClick={() => onChange(value + 1)}
-        className={cn(btn, 'bg-brand-50 text-brand-700 hover:bg-brand-100')}
-        aria-label="הוסף"
-      >
-        +
-      </button>
-    </div>
-  );
-}
 
 const STATE_BADGE = {
   filled: { tone: 'green' as const, label: 'הגיש' },

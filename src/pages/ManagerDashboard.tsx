@@ -8,7 +8,7 @@ import { RosterEditor } from '@/components/manager/RosterEditor';
 import { RosterExport } from '@/components/manager/RosterExport';
 import { CoverageReportPanel } from '@/components/manager/CoverageReportPanel';
 import { RunVersions } from '@/components/manager/RunVersions';
-import { Alert, Button, Card, Spinner } from '@/components/ui';
+import { Alert, Button, ButtonLink, Card, Spinner } from '@/components/ui';
 import {
   buildSolverInput,
   useCarryIn,
@@ -164,6 +164,13 @@ export function ManagerDashboard() {
             setTarget.mutate({ weekStart: selected, guardId, kamut })
           }
         />
+
+        {/* Team CRUD (add/remove employees, edit their baseline כמות) lives on
+            its own page -- a config screen, not part of the weekly workflow
+            this dashboard is otherwise about. */}
+        <ButtonLink to="/manage/team" variant="secondary" fullWidth>
+          ניהול צוות - הוספה, הסרה ועדכון ברירות מחדל
+        </ButtonLink>
 
         {setTarget.isError && (
           <Alert tone="error" title="שמירת הכמות נכשלה">

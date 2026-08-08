@@ -17,6 +17,9 @@ import { Spinner } from '@/components/ui';
 const ManagerDashboard = lazy(() =>
   import('@/pages/ManagerDashboard').then((m) => ({ default: m.ManagerDashboard })),
 );
+const TeamManagement = lazy(() =>
+  import('@/pages/TeamManagement').then((m) => ({ default: m.TeamManagement })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -95,6 +98,16 @@ function AppRoutes() {
           <ManagerOnly>
             <Suspense fallback={<FullScreenLoader />}>
               <ManagerDashboard />
+            </Suspense>
+          </ManagerOnly>
+        }
+      />
+      <Route
+        path="/manage/team"
+        element={
+          <ManagerOnly>
+            <Suspense fallback={<FullScreenLoader />}>
+              <TeamManagement />
             </Suspense>
           </ManagerOnly>
         }

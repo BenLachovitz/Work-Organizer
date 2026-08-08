@@ -380,9 +380,13 @@ async function run() {
     const [{ id: rNext }] = await sql(`SELECT (public.current_week_start() + 7)::text AS id`);
     const vNext = rNext;
 
+    // The default belongs on roster_codes, not the profiles insert directly --
+    // trg_profiles_default_kamut (migration 20) makes roster_codes the
+    // authority at claim time, so setting it here exercises the real pathway
+    // instead of a value the trigger would just overwrite anyway.
     await sql(`
-      INSERT INTO roster_codes (employee_code, display_name, initial_role)
-      VALUES ('990305', 'בדיקת-כמות', 'guard');
+      INSERT INTO roster_codes (employee_code, display_name, initial_role, default_kamut)
+      VALUES ('990305', 'בדיקת-כמות', 'guard', 4);
       INSERT INTO auth.users (
         instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
         raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
@@ -392,8 +396,8 @@ async function run() {
         extensions.crypt('${PIN}', extensions.gen_salt('bf')), NOW(),
         '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, NOW(), NOW(),
         '', '', '', '');
-      INSERT INTO profiles (id, employee_code, display_name, role, is_active, default_kamut)
-      SELECT id, '990305', 'בדיקת-כמות', 'guard', TRUE, 4
+      INSERT INTO profiles (id, employee_code, display_name, role, is_active)
+      SELECT id, '990305', 'בדיקת-כמות', 'guard', TRUE
         FROM auth.users WHERE email = '990305@guards.local';`);
     const g3 = await signedIn('990305');
     const g3Id = await idOf('990305');

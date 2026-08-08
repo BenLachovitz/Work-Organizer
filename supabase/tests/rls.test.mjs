@@ -24,6 +24,7 @@ const SUPABASE_DIR = join(HERE, '..');
 const MANAGER = '11111111-1111-1111-1111-111111111111'; // בן   - manager + active guard
 const GUARD_A = '22222222-2222-2222-2222-222222222222'; // יובל - plain guard
 const GUARD_B = '33333333-3333-3333-3333-333333333333'; // לוק  - plain guard
+const GUARD_C = '44444444-4444-4444-4444-444444444444'; // new hire, claimed mid-test
 
 // Weeks this suite OWNS. The seed no longer creates fixed weeks -- it calls
 // ensure_roster_weeks(), whose output depends on today's date -- so borrowing
@@ -389,12 +390,66 @@ async function run() {
     10,
   );
   await expectError(
-    'nobody can INSERT a badge code through the API -- not even the manager',
-    MANAGER,
+    'guard cannot INSERT a badge code (adding an employee is manager-only)',
+    GUARD_A,
     `INSERT INTO roster_codes (employee_code, display_name) VALUES ('999999', 'שתול')`,
     [],
     /permission denied|row-level security/i,
   );
+  await expectOk(
+    'manager CAN add a new employee, with a default כמות (migration 20)',
+    MANAGER,
+    `INSERT INTO roster_codes (employee_code, display_name, default_kamut) VALUES ('999999', 'שתול', 3)`,
+    [],
+  );
+  // `withUser` runs each assertion inside its own rolled-back transaction, so
+  // the row above does not persist for a later statement to see -- expected,
+  // and irrelevant here since this checks RLS filtering, not the row's
+  // contents. A DELETE blocked by RLS's USING clause matches zero rows rather
+  // than throwing (the same silent-filter behaviour UPDATE has), so this
+  // needs expectNoRowsAffected, not expectError -- an earlier version of this
+  // assertion used expectError and passed for the wrong reason back when
+  // roster_codes had no DELETE grant at all; the base grant now exists and
+  // RLS is what has to stop the guard.
+  await expectNoRowsAffected(
+    'guard cannot DELETE a badge code',
+    GUARD_A,
+    `DELETE FROM roster_codes WHERE employee_code = '999999'`,
+    [],
+  );
+  await expectOk(
+    'manager can cancel an unclaimed invitation',
+    MANAGER,
+    `DELETE FROM roster_codes WHERE employee_code = '999999'`,
+    [],
+  );
+  {
+    // Both inserts have to persist for the trigger to see the first from the
+    // second, so this runs as direct, un-rolled-back statements -- mirroring
+    // production, where claim-code's admin client and the roster_codes row it
+    // reads exist in the same real transaction, not two throwaway ones.
+    await db.exec(`
+      INSERT INTO roster_codes (employee_code, display_name, default_kamut)
+      VALUES ('999998', 'חדש', 4);
+      INSERT INTO auth.users (id, email) VALUES ('${GUARD_C}', '999998@guards.local');
+      INSERT INTO profiles (id, employee_code, display_name, role, is_active)
+      VALUES ('${GUARD_C}', '999998', 'חדש', 'guard', TRUE);
+    `);
+    await expectCount(
+      "claiming carries the pre-configured default onto the guard's profile (trg_profiles_default_kamut)",
+      MANAGER,
+      'SELECT * FROM profiles WHERE id = $1 AND default_kamut = 4',
+      [GUARD_C],
+      1,
+    );
+    // This profile is not part of the suite's normal fixture set, and section
+    // 9 below counts every row in `profiles` -- it must not still be here.
+    await db.exec(`
+      DELETE FROM profiles WHERE id = '${GUARD_C}';
+      DELETE FROM auth.users WHERE id = '${GUARD_C}';
+      DELETE FROM roster_codes WHERE employee_code = '999998';
+    `);
+  }
 
   console.log('\n\x1b[1m6. Draft rosters do not leak before publication\x1b[0m');
   await expectCount(

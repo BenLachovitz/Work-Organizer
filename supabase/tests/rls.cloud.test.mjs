@@ -292,11 +292,21 @@ async function run() {
     body: JSON.stringify({ week_start: '2026-11-15', submission_deadline: '2026-11-11T17:00:00Z' }),
   });
 
-  console.log('\n\x1b[1m5. Badge codes sealed\x1b[0m');
+  console.log('\n\x1b[1m5. Badge codes -- manager CRUD, guard sealed out (migration 20)\x1b[0m');
   await expectRows('guard cannot enumerate badge codes', a, 'roster_codes?select=employee_code', 0);
   await expectRows('manager can audit all 10 badge codes', mgr, 'roster_codes?select=employee_code', 10);
-  await expectDenied('manager still cannot INSERT a badge code via the API', mgr, 'roster_codes', {
+  await expectDenied('guard cannot INSERT a badge code (adding an employee is manager-only)', a, 'roster_codes', {
     method: 'POST', body: JSON.stringify({ employee_code: '999999', display_name: 'שתול' }),
+  });
+  await expectAllowed('manager CAN add a new employee, with a default כמות', mgr, 'roster_codes', {
+    method: 'POST',
+    body: JSON.stringify({ employee_code: '999999', display_name: 'שתול', default_kamut: 3 }),
+  });
+  await expectDenied('guard cannot DELETE a badge code', a, 'roster_codes?employee_code=eq.999999', {
+    method: 'DELETE',
+  });
+  await expectAllowed('manager can cancel an unclaimed invitation', mgr, 'roster_codes?employee_code=eq.999999', {
+    method: 'DELETE',
   });
 
   console.log('\n\x1b[1m6. Draft rosters do not leak\x1b[0m');
