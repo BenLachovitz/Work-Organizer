@@ -96,20 +96,16 @@ export function Login() {
     // very first frame regardless of address-bar state.
     //
     // index.html sets viewport-fit=cover, so this page draws edge-to-edge
-    // under the status bar and any gesture-nav bar -- without accounting for
-    // that, `place-items-center` centers against the FULL device height,
-    // which includes those system-UI regions. How much they eat into the
-    // screen varies by phone brand/OS (a tall gesture-bar inset on one
-    // device, a small one on another), which is exactly the kind of
-    // per-device inconsistency env(safe-area-inset-*) exists to normalise --
-    // max() against the original 2.5rem so devices with no inset (most
-    // desktops-as-mobile, older phones) are unaffected.
+    // under the status bar and any gesture-nav bar. The top inset is already
+    // handled globally -- index.css puts `padding-top: env(safe-area-inset-top)`
+    // on <body> itself -- so only the BOTTOM inset needs handling here: this
+    // page has no bottom nav (unlike the authenticated pages, which reserve
+    // space for one via .mb-safe) to already push content up from under a
+    // gesture-nav bar. max() against the original 2.5rem so devices with no
+    // inset are unaffected.
     <div
-      className="grid min-h-svh place-items-center bg-gradient-to-b from-slate-900 via-slate-900 to-brand-950 px-4"
-      style={{
-        paddingTop: 'max(2.5rem, env(safe-area-inset-top))',
-        paddingBottom: 'max(2.5rem, env(safe-area-inset-bottom))',
-      }}
+      className="grid min-h-svh place-items-center bg-gradient-to-b from-slate-900 via-slate-900 to-brand-950 px-4 pt-10"
+      style={{ paddingBottom: 'max(2.5rem, env(safe-area-inset-bottom))' }}
     >
       <div className="w-full max-w-sm">
         {/* Brand */}

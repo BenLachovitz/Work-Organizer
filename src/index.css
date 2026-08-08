@@ -39,6 +39,13 @@
   html {
     -webkit-text-size-adjust: 100%;
     -webkit-tap-highlight-color: transparent;
+    /* No element should ever be wider than the viewport, but if one slips
+       through (a fixed-width row that doesn't fit a narrow phone, say) this
+       is what stops it turning into a horizontally-scrollable page -- which
+       on a page with a coloured background over the plain body just reveals
+       a strip of that plain background down one side rather than clipping
+       cleanly. */
+    overflow-x: hidden;
   }
 
   body {

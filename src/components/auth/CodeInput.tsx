@@ -77,7 +77,15 @@ export function CodeInput({
   };
 
   return (
-    <div dir="ltr" className="flex justify-center gap-2" role="group" aria-label={ariaLabel}>
+    // gap-1.5 + size-10 at the base size, not gap-2 + size-12: six FIXED-width
+    // boxes never shrink below their set size (flex's automatic min-width
+    // floor), so the old sizing needed 328px just for the row -- past the
+    // CSS viewport width some real phones report (360-393px) once the card's
+    // own padding and the page's outer padding are added on top. That forced
+    // the whole page to scroll horizontally, which is what exposed a strip
+    // of the plain body background down one side. sm:size-14 for anything
+    // wide enough to afford it is unchanged.
+    <div dir="ltr" className="flex justify-center gap-1.5 sm:gap-2" role="group" aria-label={ariaLabel}>
       {Array.from({ length }, (_, i) => (
         <input
           key={i}
@@ -95,7 +103,7 @@ export function CodeInput({
           onPaste={handlePaste}
           onFocus={(e) => e.target.select()}
           className={cn(
-            'size-12 rounded-xl border-2 bg-white text-center text-xl font-bold',
+            'size-10 rounded-xl border-2 bg-white text-center text-lg font-bold',
             'transition-all duration-150 focus:outline-none sm:size-14 sm:text-2xl',
             invalid
               ? 'border-rose-400 text-rose-700'
