@@ -45,15 +45,40 @@ export function useRosterWeeks() {
 }
 
 /**
+ * The manager-facing admin cursor -- distinct from the guard-facing
+ * "rolls over on real Sunday midnight" cycle (GuardHome.tsx, RosterView.tsx).
+ * This one advances at each week's own configured submission open-time
+ * (admin_current_week_start(), migration 26), so the manager's archive/
+ * current/next picker can move a week ahead of the calendar once that
+ * week's window has opened. Guard visibility is untouched by this and stays
+ * calendar-pinned in the database (current_week_start() / guard_visible_from()).
+ */
+function useAdminCurrentWeekStart() {
+  return useQuery({
+    queryKey: ['adminCurrentWeekStart'],
+    queryFn: async (): Promise<DateKey> => {
+      const { data, error } = await requireSupabase().rpc('admin_current_week_start');
+      if (error) throw new Error(error.message);
+      return data as DateKey;
+    },
+  });
+}
+
+/**
  * Live weeks versus the archive.
  *
- * Live = the current week and anything after it: the roster in progress plus
- * whatever is open for submissions. Archive = finished weeks, which RLS makes
- * manager-only, so a guard calling this simply gets an empty archive.
+ * Live = the admin-current week and anything after it: the roster in
+ * progress plus whatever is open for submissions. Archive = finished weeks,
+ * which RLS makes manager-only, so a guard calling this simply gets an empty
+ * archive.
  */
 export function useSplitWeeks() {
   const query = useRosterWeeks();
-  const currentStart = weekStartOf(todayInIsrael());
+  const { data: adminCurrentStart } = useAdminCurrentWeekStart();
+  // Falls back to the plain calendar week only until the admin cursor has
+  // loaded, so the picker has something coherent to show immediately rather
+  // than flashing empty.
+  const currentStart = adminCurrentStart ?? weekStartOf(todayInIsrael());
   const nextStart = addDays(currentStart, 7);
   const weeks = query.data ?? [];
 

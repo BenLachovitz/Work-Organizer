@@ -370,14 +370,17 @@ async function run() {
 
   console.log('\n\x1b[1m7. Default כמות (migration 19)\x1b[0m');
   {
-    // ensure_roster_weeks() only ever touches the two REAL live weeks (today's
-    // current + next) -- it has no notion of this suite's dedicated future
-    // WEEK -- so this section necessarily runs against them. A dedicated guard
-    // (990305, matched by the same '9903%' cleanup as everything else in this
-    // file) keeps it isolated and self-cleaning.
-    const [{ id: rCurrent }] = await sql(`SELECT public.current_week_start()::text AS id`);
+    // ensure_roster_weeks() only ever touches the two REAL live weeks (the
+    // admin cursor's current + next, migration 26 -- not raw
+    // current_week_start(), which stays calendar-pinned for guard visibility
+    // and can now differ from the admin cursor once a week's open-time has
+    // passed) -- it has no notion of this suite's dedicated future WEEK -- so
+    // this section necessarily runs against them. A dedicated guard (990305,
+    // matched by the same '9903%' cleanup as everything else in this file)
+    // keeps it isolated and self-cleaning.
+    const [{ id: rCurrent }] = await sql(`SELECT public.admin_current_week_start()::text AS id`);
     const vCurrent = rCurrent;
-    const [{ id: rNext }] = await sql(`SELECT (public.current_week_start() + 7)::text AS id`);
+    const [{ id: rNext }] = await sql(`SELECT (public.admin_current_week_start() + 7)::text AS id`);
     const vNext = rNext;
 
     // The default belongs on roster_codes, not the profiles insert directly --
