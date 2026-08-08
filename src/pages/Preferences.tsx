@@ -28,7 +28,7 @@ export function Preferences() {
 
   const handleSubmit = (value: PreferenceFormValue) => {
     save.mutate(
-      { weekStart: active.weekStart, slots: selectionToSlots(value.slots) },
+      { weekStart: active.weekStart, slots: selectionToSlots(value.slots), notes: value.notes },
       { onSuccess: () => setSavedAt(new Date()) },
     );
   };
@@ -70,6 +70,7 @@ export function Preferences() {
 
   const initial: PreferenceFormValue = {
     slots: rowsToSelection(guardWeek?.preferences ?? []),
+    notes: guardWeek?.submission?.notes ?? '',
   };
 
   return (

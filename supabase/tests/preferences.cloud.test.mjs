@@ -110,8 +110,13 @@ async function signedIn(code) {
   return db;
 }
 
-const savePrefs = (db, week, slots) =>
-  db.rpc('save_week_preferences', { p_week_start: week, p_slots: slots });
+const savePrefs = (db, week, slots, notes) =>
+  db.rpc('save_week_preferences', { p_week_start: week, p_slots: slots, p_notes: notes ?? null });
+
+const readNotes = async (db, week) => {
+  const { data } = await db.from('weekly_submissions').select('notes').eq('week_start', week).maybeSingle();
+  return data?.notes ?? null;
+};
 
 const readPrefs = async (db, week) => {
   const { data } = await db
@@ -252,6 +257,48 @@ async function run() {
     data?.length === 1 && data[0].configured_kamut === 3
       ? ok('guard reads their own configured כמות (3)')
       : bad('own kamut', JSON.stringify(data));
+  }
+
+  console.log('\n\x1b[1m8. Free-text notes\x1b[0m');
+  {
+    const { error } = await savePrefs(
+      guard, OPEN_WEEK,
+      [{ date: addDays(OPEN_WEEK, 0), shift: 'morning', allows12h: false }],
+      'עדיפות למשמרות לילה',
+    );
+    const note = await readNotes(guard, OPEN_WEEK);
+    !error && note === 'עדיפות למשמרות לילה'
+      ? ok('note saved and read back verbatim')
+      : bad('note round-trip', error ? error.message : `got ${JSON.stringify(note)}`);
+  }
+  {
+    // Whitespace-only is "no note", same treatment as an empty slot array is
+    // "no availability" -- normalised to a clean NULL rather than a stray string.
+    await savePrefs(guard, OPEN_WEEK, [], '   ');
+    const note = await readNotes(guard, OPEN_WEEK);
+    note === null
+      ? ok('whitespace-only note normalises to NULL')
+      : bad('whitespace note', JSON.stringify(note));
+  }
+  {
+    // The notes_length CHECK is the actual backstop; the client's maxLength is
+    // just UX. A 501-character note must be rejected at the database, not
+    // silently truncated.
+    const { error } = await savePrefs(guard, OPEN_WEEK, [], 'א'.repeat(501));
+    error
+      ? ok('a note over 500 characters is rejected by the database')
+      : bad('notes_length CHECK', 'oversized note was accepted');
+  }
+  {
+    // Same isolation guarantee as the preference rows: one guard's note is
+    // invisible through another guard's client.
+    const neighbour = await signedIn(CODE2);
+    await savePrefs(neighbour, OPEN_WEEK, [], 'עד 4 משמרות');
+    const mine = await readNotes(guard, OPEN_WEEK);
+    const theirs = await readNotes(neighbour, OPEN_WEEK);
+    mine !== 'עד 4 משמרות' && theirs === 'עד 4 משמרות'
+      ? ok("a neighbour's note lands on their own row, not the caller's")
+      : bad('note isolation', `mine=${JSON.stringify(mine)} theirs=${JSON.stringify(theirs)}`);
   }
 
   await cleanup();

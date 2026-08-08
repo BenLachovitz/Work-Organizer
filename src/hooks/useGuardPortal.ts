@@ -79,6 +79,8 @@ export interface SavePreferencesInput {
   weekStart: DateKey;
   /** allows12h is per slot: the 12h opt-in binds to one day, not the week. */
   slots: { date: DateKey; shift: BaseShift; allows12h: boolean }[];
+  /** Free text for the manager, e.g. "עדיפות למשמרות לילה". Never fed to the solver. */
+  notes?: string;
 }
 
 /**
@@ -98,6 +100,7 @@ export function useSavePreferences() {
       const { error } = await requireSupabase().rpc('save_week_preferences', {
         p_week_start: input.weekStart,
         p_slots: input.slots,
+        p_notes: input.notes ?? null,
       });
       if (error) {
         // 42501 is the insufficient_privilege we raise when the window shut

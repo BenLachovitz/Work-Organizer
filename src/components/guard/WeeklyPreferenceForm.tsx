@@ -53,8 +53,12 @@ export function rowsToSelection(
   return new Map(rows.map((r) => [slotKey(r.target_date, r.shift), Boolean(r.allows_12h)]));
 }
 
+/** Matches the `notes_length` CHECK on weekly_submissions. */
+export const NOTES_MAX_LENGTH = 500;
+
 export interface PreferenceFormValue {
   slots: Selection;
+  notes: string;
 }
 
 export function WeeklyPreferenceForm({
@@ -75,6 +79,7 @@ export function WeeklyPreferenceForm({
   submitting?: boolean;
 }) {
   const [slots, setSlots] = useState<Selection>(() => new Map(initial?.slots ?? []));
+  const [notes, setNotes] = useState(initial?.notes ?? '');
   const [confirmEmpty, setConfirmEmpty] = useState(false);
 
   const dates = useMemo(() => weekDates(weekStart), [weekStart]);
@@ -137,7 +142,7 @@ export function WeeklyPreferenceForm({
       setConfirmEmpty(true);
       return;
     }
-    onSubmit({ slots });
+    onSubmit({ slots, notes });
   };
 
   return (
@@ -297,6 +302,32 @@ export function WeeklyPreferenceForm({
             </div>
           );
         })}
+      </Card>
+
+      {/* ---------------- notes ---------------- */}
+      <Card className="space-y-2">
+        <div>
+          <p className="font-bold text-slate-900">הערות</p>
+          <p className="mt-0.5 text-sm text-slate-500">
+            משהו שהמנהל צריך לדעת ולא נכנס לטבלה - למשל "עדיפות למשמרות לילה", "עד 4 משמרות השבוע",
+            "דבר איתי אם אתה צריך עזרה".
+          </p>
+        </div>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value.slice(0, NOTES_MAX_LENGTH))}
+          disabled={locked}
+          rows={3}
+          placeholder="לא חובה..."
+          className={cn(
+            'w-full resize-none rounded-xl border-2 border-slate-200 p-3 text-sm text-slate-800',
+            'placeholder:text-slate-400 focus:border-brand-400 focus:outline-none',
+            'disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-70',
+          )}
+        />
+        <p className="text-end text-xs text-slate-400">
+          {notes.length}/{NOTES_MAX_LENGTH}
+        </p>
       </Card>
 
       {/* ---------------- summary ---------------- */}

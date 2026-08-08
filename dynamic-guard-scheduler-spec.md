@@ -247,6 +247,20 @@ A guard may submit a completely empty sheet. This is a normal, non-error state. 
 
 Guards may create and edit preferences until the week's `submission_deadline` (**Wednesday 19:00 Asia/Jerusalem**, i.e. `week_start - 4`). After that, RLS blocks guard writes at the database engine level. Only managers can edit and only managers can trigger generation.
 
+### 3.6 Free-Text Notes
+
+Each `weekly_submissions` row carries one optional `notes` column (≤500 characters, enforced by a
+CHECK) — a place for context that does not fit the slot model: *"עדיפות למשמרות לילה"*, *"עד 4
+משמרות השבוע"*, *"דבר איתי אם אתה צריך עזרה"*. This is deliberately **not** a preference-strength
+or constraint field (§3.1 item 2 remains deferred) — the solver never reads it. It exists for the
+human reading the roster, not the one generating it.
+
+An all-whitespace note is normalised to `NULL` inside `save_week_preferences`, the same treatment
+an empty slot array gets (§3.4): absence of content should leave a clean absence of data, not a
+stray string. Shown to the manager on the team list (`TeamTable`) directly under each guard's row,
+next to the 12h badges — where the manager is already scanning before setting כמות, and where a
+line like *"עד 4 משמרות"* is something to act on rather than something to go looking for.
+
 ---
 
 ## 4. WEIGHTED MULTI-OBJECTIVE MODEL
@@ -1000,7 +1014,7 @@ has genuinely passed, so locking a week *early* cannot accidentally become an ex
 | **D** | Manager dashboard: week controls, coverage matrix, כמות editor | ✅ complete |
 | **E** | Solver contract, twin referees, mock + CP-SAT, generate → publish | ✅ complete; **CP-SAT deployed** |
 | **F1–F5** | Fine-tuning batch (per-day 12h, week lifecycle, Mon–Fri target, archive, US week) | ✅ complete |
-| **G** | Manual grid editing, editable/deletable published rosters, Realtime, shared grid, measured columns, image export | ✅ complete |
+| **G** | Manual grid editing, editable/deletable published rosters, Realtime, shared grid, measured columns, image export, free-text submission notes (§3.6) | ✅ complete |
 
 ### 14.2 Verification
 

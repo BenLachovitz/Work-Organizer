@@ -118,6 +118,12 @@ export function TeamTable({
                       )}
                     </div>
                   )}
+                  {row.notes && (
+                    <p className="mt-1.5 rounded-lg bg-brand-50 px-2.5 py-1.5 text-xs text-brand-900">
+                      <span className="font-bold">הערה: </span>
+                      {row.notes}
+                    </p>
+                  )}
                 </div>
 
                 <div className="shrink-0 text-center">

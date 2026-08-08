@@ -33,6 +33,8 @@ export interface WeeklySubmission {
   week_start: string;
   submitted_at: string;
   updated_at: string;
+  /** Free-text context from the guard, e.g. "prefers night shifts". Never read by the solver. */
+  notes: string | null;
 }
 
 export interface WishPreference {

@@ -162,6 +162,8 @@ export interface GuardRow {
   effectiveKamut: number;
   /** True when availability, not the manager's setting, is the binding limit. */
   lowered: boolean;
+  /** Free text from the guard. Context for a human; the solver never sees it. */
+  notes: string | null;
 }
 
 export function buildGuardRows(data: ManagerWeekData): GuardRow[] {
@@ -194,6 +196,7 @@ export function buildGuardRows(data: ManagerWeekData): GuardRow[] {
       configuredKamut: configured,
       effectiveKamut: effective,
       lowered: effective < configured,
+      notes: sub?.notes ?? null,
     };
   });
 }
