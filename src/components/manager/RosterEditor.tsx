@@ -153,7 +153,7 @@ export function RosterEditor({
 
       {/* ---------------- grid ---------------- */}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[34rem] border-separate border-spacing-1 p-3">
+        <table className="w-full min-w-[44rem] table-fixed border-separate border-spacing-1 p-3">
           <thead>
             <tr>
               <th className="w-16" />
@@ -209,8 +209,11 @@ export function RosterEditor({
                             style={{ backgroundColor: SHIFTS[d.shift].colorVar }}
                           >
                             <span className="truncate">{nameOf(d.guard_id)}</span>
-                            {SHIFTS[d.shift].isExtended && (
-                              <span className="num shrink-0 font-normal opacity-90">
+                            {/* Only the morning and night blocks carry the 12h
+                                annotation; in the afternoon the slash already
+                                marks the 18:45 boundary. */}
+                            {SHIFTS[d.shift].isExtended && d.shift !== 'afternoon' && (
+                              <span className="num shrink-0 text-[9px] font-normal opacity-90">
                                 {d.shift === 'day12' ? 'עד 18:45' : 'מ 18:45'}
                               </span>
                             )}

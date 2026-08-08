@@ -91,7 +91,7 @@ function Chip({
           which .num sets to ltr -- so the margin landed on the far side and the
           text still read "בןמ 18:45". gap is direction-agnostic. */}
       <span className="truncate">{name}</span>
-      {suffix && <span className="num shrink-0 font-normal opacity-90">{suffix}</span>}
+      {suffix && <span className="num shrink-0 text-[9px] font-normal opacity-90">{suffix}</span>}
     </span>
   );
 }
@@ -157,7 +157,7 @@ export function RosterGrid({
       <div className="overflow-x-auto">
         {/* Narrower than before: stacking the handover means a column only has
             to fit one name, not two side by side. */}
-        <table className="w-full min-w-[34rem] border-separate border-spacing-1 p-3">
+        <table className="w-full min-w-[44rem] table-fixed border-separate border-spacing-1 p-3">
           <thead>
             <tr>
               <th className="w-16" />
