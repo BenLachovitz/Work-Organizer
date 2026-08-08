@@ -5,6 +5,7 @@ import { TeamTable } from '@/components/manager/TeamTable';
 import { WeekControlsPanel } from '@/components/manager/WeekControlsPanel';
 import { RosterGrid } from '@/components/RosterGrid';
 import { RosterEditor } from '@/components/manager/RosterEditor';
+import { RosterExport } from '@/components/manager/RosterExport';
 import { CoverageReportPanel } from '@/components/manager/CoverageReportPanel';
 import { RunVersions } from '@/components/manager/RunVersions';
 import { Alert, Button, Card, Spinner } from '@/components/ui';
@@ -252,6 +253,18 @@ export function ManagerDashboard() {
               />
             ) : (
               <RosterGrid
+                weekStart={selected}
+                morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
+                assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
+                guards={data?.guards ?? []}
+              />
+            )}
+
+            {/* Only for a published run, and never mid-edit: an image of a draft
+                is indistinguishable from the real thing once it is in the group
+                chat, and no later edit catches up with it. */}
+            {latestRun.is_published && !editing && (
+              <RosterExport
                 weekStart={selected}
                 morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
                 assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}

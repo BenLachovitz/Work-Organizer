@@ -53,6 +53,8 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | 23 | Generation orchestrated **client-side**; the Edge Function is a thin secret-holding proxy | Putting solver logic in Deno would create a third copy of rules that already exist twice |
 | 24 | A generated roster is **refused if it fails the referee**, never stored on the solver's word | Better a visible failure than a roster that quietly contains a clopen |
 | 25 | Roster grid laid out in **three time blocks with an 18:45 handover cell** | Matches the spreadsheet the manager already used; segment rows hid that a `day12` guard covers two windows at once |
+| 26 | Grid columns sized from **measured content**, not a fixed guess | A hardcoded width fitted one name and clipped the two-name handover to `יו... / ע...` |
+| 27 | **Image export of a published roster** (§10.2), manager-only | The team coordinates in WhatsApp; a picture is how the roster actually reaches eight phones |
 
 ---
 
@@ -853,6 +855,39 @@ short by one while the day was fully staffed.
 An uncovered half of a handover is labelled with the **window that is empty** (`ריק 14:45-18:45`)
 rather than with a 12h suffix, which would imply a shift nobody is working.
 
+**Column widths are measured, not chosen.** All seven day columns share one width — ragged columns
+read badly — and that width is the widest cell actually in the table, computed in
+`src/lib/measureColumns.ts` by measuring the text on a canvas with the same fonts the chips render
+in. A handover counts as **twice the longer** of its two names, because both halves are `flex-1`
+and split the cell evenly however long the names are; sizing for their sum let a short name donate
+space its neighbour could never receive. Measurement is repeated once `document.fonts` settles, or
+the columns get sized against the fallback face and clip when Heebo arrives.
+
+### 10.2 Roster Image Export
+
+The manager can export a **published** roster as a PNG or JPEG (`src/lib/exportRoster.ts`,
+`src/components/manager/RosterExport.tsx`). The team coordinates in a WhatsApp group, so a picture
+is how the roster reaches eight phones regardless of what the app does.
+
+Three decisions worth keeping:
+
+1. **The grid is drawn onto a canvas, not screenshotted from the DOM.** A DOM-to-canvas library
+   would track the styling for free but has to reimplement a layout engine, and this app is exactly
+   the kind that breaks it — Tailwind v4 emits `oklch()`, shift colours are CSS custom properties,
+   chips carry rings. Half-rendered output is worse than none, because the manager would not notice
+   until the picture was already in the group chat.
+2. **Published runs only.** A draft is a proposal still being moved around; once an image of it is
+   in the chat it is *the roster* as far as the guards are concerned, and no later edit catches up
+   with it. Publishing is when the roster becomes a promise, so it is when it becomes shareable.
+3. **Built for its destination, not a copy of the screen.** 11px text and a sideways-scrolling table
+   are unreadable as a chat thumbnail, so the type is larger, nothing scrolls, and the week range,
+   legend and handover convention are printed on the image — a picture in a chat arrives with no
+   page around it to explain it.
+
+The palette is read from the CSS custom properties at render time, so recolouring a shift in
+`index.css` follows through to the export. Where the OS supports `navigator.share` with files, the
+primary action hands the image straight to WhatsApp; download stays available for desktop.
+
 ---
 
 ## 11. DEPLOYMENT
@@ -961,6 +996,7 @@ has genuinely passed, so locking a week *early* cannot accidentally become an ex
 | **D** | Manager dashboard: week controls, coverage matrix, כמות editor | ✅ complete |
 | **E** | Solver contract, twin referees, mock + CP-SAT, generate → publish | ✅ complete; **CP-SAT deployed** |
 | **F1–F5** | Fine-tuning batch (per-day 12h, week lifecycle, Mon–Fri target, archive, US week) | ✅ complete |
+| **G** | Manual grid editing, editable/deletable published rosters, Realtime, shared grid, measured columns, image export | ✅ complete |
 
 ### 14.2 Verification
 
