@@ -21,6 +21,16 @@ Ben (`005396`) is both the manager **and** an active guard.
 
 ---
 
+## Live at https://work-organizer-ftqvcglmy-work-organizer1.vercel.app/
+
+Deployed via Vercel CLI (spec §11.2). One gotcha hit along the way: the project's **Deployment
+Protection** ("Vercel Authentication") was on by default, which gated every deployment — including
+production — behind a Vercel account login, so nobody but Ben could reach the site. Disabled in
+Settings. The URL above still carries a per-deployment hash; swap in the clean domain from
+**Settings → Domains** once one is picked, and bookmark that one instead.
+
+---
+
 ## State: build steps A–J complete, live and in daily use
 
 Full list in spec §14.1. Recent milestones (steps G–J): manual grid editing, editable/deletable
@@ -37,10 +47,22 @@ dead column and fixed a seed-data bug that could resurrect a deleted employee (s
 
 ## What is left
 
-1. **Deploy the frontend to Vercel** — the only remaining step that puts this on guards' phones.
-2. `100001`–`100007` are sequential placeholders, not real employer-issued badge numbers — low
-   priority, nothing depends on the number itself.
-3. **Decide open item 6** — should availability be soft? (spec §3.2)
+Nothing blocking. One loose end: pick a clean production domain in Vercel (Settings → Domains) to
+replace the per-deployment hashed URL above.
+
+### Resolved
+
+- **Item 1 — deploy to Vercel.** Done, 8 August. Live at the URL above; see the note there on the
+  Deployment Protection gotcha.
+- **Item 2** (`100001`–`100007` being sequential placeholders) — dropped. Now that the mocks are
+  renamed to `{שם} - דמה` (item 6, 8 August), they're clearly-labelled demo accounts rather than a
+  real-badge-code question; nothing left to decide.
+- **Open item 6 — should availability be soft?** (spec §3.2) — **decided: stays hard.** The solver
+  will keep never assigning a guard to a slot they didn't mark; a floor breach is reported, not
+  auto-filled, and the manager calls someone by phone, same as before this system existed. On the
+  one real dataset tested so far, CP-SAT hit zero floor breaches without needing a soft fallback —
+  this was insurance against a scenario that hasn't materialized, not a fix for an observed problem.
+  No code change. (Ben, 8 August.)
 
 ### Done since 8 August (items 4–6 from Ben)
 

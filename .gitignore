@@ -56,3 +56,6 @@ coverage/
 
 # Generated solver input dumped for comparison runs
 solver/tests/realweek.json
+
+.vercel
+.env*

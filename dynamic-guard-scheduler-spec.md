@@ -226,12 +226,13 @@ Per week, each guard submits:
 
 The solver will **never** assign a guard to a slot they did not mark. If that leaves a segment below target, the shortfall is reported to the manager rather than silently overridden. This is a deliberate trade: guard trust over automatic coverage.
 
-> **Open tension (§13 item 6).** The manager's stated rule is *"we can't have an unoccupied shift"* —
-> in practice he would phone somebody who had not volunteered. Under the current model the solver
-> cannot do that; it reports the empty shift instead. Making availability **soft** (penalised below a
-> floor breach but above a target gap) would let it draft an unmarked guard only when the alternative
-> is an empty shift. On the first real dataset CP-SAT achieved **zero** floor breaches without it, so
-> this is insurance rather than a fix — but it is a genuine unresolved decision.
+> **Resolved (§13 item 6, 8 August).** The manager's stated rule is *"we can't have an unoccupied
+> shift"* — in practice he would phone somebody who had not volunteered. Under the current model the
+> solver cannot do that; it reports the empty shift instead. Making availability **soft** (penalised
+> below a floor breach but above a target gap) would let it draft an unmarked guard only when the
+> alternative is an empty shift. On the first real dataset CP-SAT achieved **zero** floor breaches
+> without it, so this was assessed as insurance rather than a fix — and Ben decided to keep
+> availability hard. A floor breach still gets a phone call, same as before this system existed.
 
 ### 3.3 12h Eligibility Derivation
 
@@ -960,6 +961,49 @@ Management API is the only route in.
 The secret never reaches the browser: the client calls the Edge Function with its own session, and
 only the function knows the token that Render will accept.
 
+### 11.2 Vercel Setup — done, 8 August
+
+Live at `https://work-organizer-ftqvcglmy-work-organizer1.vercel.app/` (per-deployment hashed URL;
+swap in a clean domain from Settings → Domains when one is picked). `npm run build` (Vite,
+auto-detected) needed no extra config beyond the standard steps, run from the repo root by Ben (the
+Vercel account holder — the browser-based login step can't be done on his behalf):
+
+1. `npx vercel login` — browser tab to authenticate; no global install needed.
+2. `npx vercel link` — connects the local repo to a Vercel project.
+3. Set the three `VITE_*` env vars (§10 — only these are safe in the browser bundle; `SOLVER_URL` /
+   `SOLVER_SECRET` / `SUPABASE_ACCESS_TOKEN` must never be set here), values straight from
+   `.env.local`, declined as "sensitive" when the CLI asks — that flag makes a value **un**readable
+   later with no security benefit here, since a `VITE_*` value ships in the public browser bundle
+   either way (§7.3 already documents the publishable key as public by design):
+   ```
+   npx vercel env add VITE_SUPABASE_URL production
+   npx vercel env add VITE_SUPABASE_PUBLISHABLE_KEY production
+   npx vercel env add VITE_SOLVER_MODE production
+   ```
+4. `npx vercel --prod` — builds and deploys.
+
+Two gotchas hit during the real run, both one-time fixes now resolved:
+
+- **`vercel link` used "repo-link" mode** (`.vercel/repo.json`, a `projects` array) instead of a
+  traditional single-project `.vercel/project.json`, because the CLI saw two deployable things in
+  this repo (the frontend at root, the Python solver in `solver/`, spec §11.1). Something in how that
+  mode serialized the project's Root Directory (`"."` → `./`) tripped a server-side validation error
+  on every `vercel --prod` ("Root Directory must be a relative path not starting with `./`") even
+  though the dashboard's own Root Directory field read as empty. Fixed by replacing `repo.json` with
+  a plain `project.json` holding the same `projectId`/`orgId` — the traditional single-project link
+  format `.vercel`'s own README describes. `.vercel` is gitignored either way, so this is purely
+  local CLI state, not something to fix per-machine if it recurs.
+- **Deployment Protection ("Vercel Authentication") was on by default**, gating every deployment —
+  including production — behind a Vercel account login. The build was live and correctly wired
+  (confirmed: right RTL/Hebrew shell, right title, the served JS bundle had the real Supabase project
+  URL and publishable key baked in) but returned an HTTP 302 to `vercel.com/sso-api` for anyone not
+  logged into the Vercel team — which is everyone, guards included. Disabled in Settings →
+  Deployment Protection.
+
+Future redeploys are just `npx vercel --prod` from the repo root (or a GitHub-integration auto-deploy
+on push, if enabled in the dashboard) — both gotchas above were one-time project setup, not part of
+the ongoing redeploy story.
+
 ---
 
 ## 12. OPERATIONS WORKFLOW
@@ -1120,7 +1164,7 @@ delete a seeded code through `delete_employee()`, rerun `seed.sql` verbatim, ass
 | 3 | `day12 → day12` on consecutive days is unpenalised (12h rest) | Allowed; bounded only by the 5-shift ceiling |
 | 4 | Fairness / rotation of weekend and night shifts across guards | Not modelled |
 | 5 | Public holidays | Treated as ordinary days |
-| 6 | **Should availability be soft?** (§3.2) | Currently **hard**. Unresolved — see the note in §3.2 |
+| 6 | **Should availability be soft?** (§3.2) | **Decided (8 August): stays hard.** On the one real dataset tested, CP-SAT hit zero floor breaches without a soft fallback — insurance against a scenario that hasn't materialized, not a fix for an observed one. No code change. |
 | 7 | Posts (סריקה / בוטקה / בקרה / שמירה) | **Dropped at Ben's request.** The column itself was later dropped too (migration 23) — nothing had read or written it since the feature was cut |
 | 8 | `pg_cron` for the week sweep | Not configured; the sweep runs on app load (§12.1) |
 
@@ -1166,17 +1210,20 @@ CP-SAT never scores below the mock.
 
 ### 14.3 What is left
 
-| # | Task | Blocked on |
-|---|---|---|
-| 1 | **Deploy the frontend to Vercel** — the only step that puts this on guards' phones | Ben |
-| 2 | `100001`–`100007` are sequential placeholders, not real employer-issued badge numbers. The two never-hired placeholder codes (`100008`, `100009`) were removed (migration 23) once Team Management could add real employees directly. The seven real, active codes are unswapped — low priority, since nothing depends on the number itself | Ben, whenever |
-| 3 | Decide open item 6 (soft availability) | Ben |
+Nothing blocking. One loose end: pick a clean production domain in Vercel (Settings → Domains) in
+place of the per-deployment hashed URL §11.2 currently records.
 
 **Completed since v2.2 was drafted:** repository pushed to
 `github.com/BenLachovitz/Work-Organizer`; the CP-SAT service is live at
 `https://guard-solver.onrender.com`; `SOLVER_URL` and `SOLVER_SECRET` are set as Supabase Edge
 Function secrets; `VITE_SOLVER_MODE=remote`. Verified end to end — a guard calling
-`generate-schedule` is rejected 403, a manager receives `OPTIMAL` in roughly 2.5 seconds.
+`generate-schedule` is rejected 403, a manager receives `OPTIMAL` in roughly 2.5 seconds. The 7 mock
+guard accounts were renamed to `{שם} - דמה` (migration 25), making the placeholder-badge-number
+question (old item 2) moot. Open item 6 (soft availability, §13) is decided: stays hard, no code
+change. The manager-facing week cycle now advances on the configured open-time rather than real
+midnight (`admin_current_week_start()`, migration 26), while guard-facing visibility stays
+calendar-pinned. **The frontend is deployed to Vercel and live** (§11.2) — build step A–J's last
+blocker is cleared.
 
 ### 14.4 Local development
 
