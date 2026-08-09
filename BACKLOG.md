@@ -1,10 +1,10 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.3** — §14 there is the
-build status and roadmap, §1.4 is the changelog for everything since v2.2.
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.4** — §14 there is the
+build status and roadmap, §1.5 is the changelog for everything since v2.3.
 
-*Last updated: 8 August 2026*
+*Last updated: 10 August 2026*
 
 ---
 
@@ -37,36 +37,54 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–K complete, live and in daily use
+## State: build steps A–L complete, live and in daily use
 
-Full list in spec §14.1. Recent work (step K, 8 August): the frontend deployed to Vercel; a
-manager-facing week cursor that advances on the configured submission open-time rather than real
-midnight, plus three bugs found and fixed while building it (spec §12.1 has the full mechanism —
-short version: a week could get stuck accepting submissions after the admin cursor moved past it,
-now correctly bounded and swept); a guard can now cancel their own submission outright, not just
-edit it down to empty (spec §3.7); guard-facing copy no longer names "המנהל" directly and the
-guard-visible כמות card was removed; and `AppShell` was restructured as a flex column (only the
-content area scrolls) to fix the bottom nav jumping/overlapping content on mobile scroll release.
+Full list in spec §14.1. Step K (8 August) covered the Vercel deploy, the admin-cursor mechanism,
+guard self-cancel, and mobile fixes. **Step L (9–10 August)** shipped two things, built on separate
+branches and merged together before deploying:
 
-**Investigated and rejected:** a tiered כמות penalty (make a כמות-3/4 guard's *last* missing shift
-cheap, so the solver favours closing coverage gaps over it). Built across both engines and both
-referees, then proven to be a structural no-op — the hard "never over-staff a segment" rule already
-guarantees every legal placement either closes a real gap or is blocked outright, so there is no
-"wasted" כמות-only placement for the discount to ever trade away. Fully reverted. Detail in spec §13
-item 9 — don't re-attempt this without a different underlying mechanism.
+1. **Two-level preference strength** (`יכול`/`עדיפות`, spec §3.8, migration 31) — a guard can flag
+   an already-marked slot as עדיפות; both solver engines add a small measured bonus (+2, on top of
+   the existing flat +1) for honouring it. The weight was **measured against live data before
+   shipping**, not assumed: 50 (enough to reliably win an ordinary coverage trade-off) fully
+   satisfied one guard's preference but cost two extra 8-hour-rest occurrences elsewhere for no
+   change in total coverage; 2 got 4 of 5 preferred shifts at zero cost anywhere, so 2 shipped.
+   Free-text extraction from the existing notes field (§3.6) was considered and rejected first —
+   Hebrew has no fixed phrasing, and a bad parse would be invisible to the guard.
+2. **Coverage gaps weighted by segment length** (spec §4.2a) — `target_gap`/`floor_gap` used to
+   count a missing guard the same on an 8-hour segment (morning/night) as a 4-hour one (either half
+   of the afternoon split), so the solver was provably indifferent between leaving an 8-guard-hour
+   hole and a 4-guard-hour one — confirmed by solving the same real week twice at identical weights
+   and getting two different Saturday layouts with an identical score. `segmentWeight()` scales
+   each gap by the segment's length (8h segments count double); verified deterministic on live data
+   after the fix where it wasn't before.
 
-**Eleven test suites, all green** — `npm run test:rls` (local, PGlite) + `npm run test:cloud`
-(eight suites against the live project) + `npm run test:fixtures` + `solver/tests/test_scheduler.py`
-+ `npm run test:compare`.
+Both were found and fixed by generating against the real live dataset for week `2026-08-09`
+repeatedly, not in the abstract — the segment-weighting bug in particular was only visible by
+noticing the Saturday layout wasn't stable across identical repeated generations.
+
+**Investigated and rejected (unchanged from before):** a tiered כמות penalty — see spec §13 item 9,
+don't re-attempt without a different underlying mechanism.
+
+**Thirteen test suites, all green** — the eleven from before, plus two new golden fixtures (a
+segment-weight tie-break and a preference tie-break) added to Gate E, each empirically constructed
+and verified against a hand-patched "before the fix" baseline to confirm the tie it tests was real.
 
 ---
 
 ## What is left
 
-Nothing blocking. Every backlog item from 8 August is resolved (deploy, week-cycle bugs, guard
-cancel-submission, mobile fixes, guard-facing polish); the one thing tried and *not* kept is the
-tiered-כמות idea above. Spec §13 has the full open-items list — everything there is either decided
-or a deliberately deferred design choice, not a build gap.
+Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
+deliberately deferred design choice, not a build gap. Two things Ben deferred deliberately during
+step L testing, not build gaps:
+
+- Whether `configured_kamut` should act as a soft *ceiling* (not just a floor) — surfaced once but
+  the segment-weighting fix alone independently resolved the case that raised it. Not pursuing
+  unless a real case turns up where segment-weighting alone doesn't.
+- The demo week `2026-08-09` now carries hand-set עדיפות marks across the whole active roster
+  (night preferred over afternoon, afternoon over morning, wherever a guard has both marked the
+  same day) — a deliberate sanity-test dataset for step L, not real guard input. See the demo data
+  note below before reading a generated roster for that week as a preference-satisfaction demo.
 
 ---
 
@@ -85,6 +103,17 @@ scheduling tension rather than synthetic data. `npm run preview:cpsat` (after du
 `preview-week.mjs --dump`) is the fastest way to see a fresh CP-SAT result without writing to the
 live database.
 
+**Step L addition:** on top of that base availability, every active guard's multi-option days
+(any day they marked more than one shift) now also carry a hand-set עדיפות mark, applied by a
+consistent priority — night preferred over afternoon, afternoon preferred over morning, whichever
+of those the guard actually marked that day. This is a deliberate sanity-test layer for the
+preference-strength feature (step L above), not real guard input — don't mistake a generated
+roster for this week as evidence real guards' preferences were honoured; it's evidence the
+*mechanism* works. One exception worth knowing: Shelly's Wednesday-night availability row was
+deleted outright (not just left unpreferred) as a data-hygiene step — she had added it manually
+*after* the roster was already published once, so it was never part of a genuine weekly
+submission, and leaving it in was distorting her כמות math during testing.
+
 ---
 
 ## Live environment
@@ -96,7 +125,7 @@ live database.
 - Edge Functions `claim-code` and `generate-schedule` are deployed
 - Solver live at `https://guard-solver.onrender.com`; `SOLVER_URL` and `SOLVER_SECRET` are set as
   Supabase Edge Function secrets
-- 30 migrations applied, tracked in a `schema_migrations` ledger
+- 31 migrations applied, tracked in a `schema_migrations` ledger
 
 ### Current database contents
 
@@ -146,6 +175,15 @@ even after that state falls outside whatever it was originally scoped to watch.
 invocation, migration or not. Any future seed data needs the same guard `WHERE NOT EXISTS (...)`
 pattern the badge-code seed now uses (spec §12.6) — `ON CONFLICT ... DO NOTHING` looks idempotent but
 is not once real deletions are possible: a deleted row stops being a conflict.
+
+**Objective weights are measured against live data, not assumed.** Step L's preference weight
+(spec §3.8) was tried at 50 before shipping at 2, specifically because 50 was measured to cost two
+extra 8-hour-rest occurrences elsewhere in the roster for a gain that 2 achieved almost as well at
+zero cost. The segment-weighting fix (§4.2a) was verified the same way: the tie it targets was
+confirmed real by temporarily patching the weighting back to flat and watching the solver land on
+the worse option in most trials, before trusting that the fix's determinism was actually the fix
+working and not a coincidence. A weight change that "should" help is a hypothesis, not a result —
+solve real data before and after, and look at what specifically moved.
 
 ---
 

@@ -1,9 +1,9 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.3 (build steps A–K complete; live and in daily use; deployed to production)
+**Version:** 2.4 (build steps A–L complete; live and in daily use; deployed to production)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
-**Document Date:** 8 August 2026
+**Document Date:** 10 August 2026
 
 ---
 
@@ -68,6 +68,13 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | 32  | `AppShell` restructured as a **flex column where only the content area scrolls**, header and bottom nav as ordinary flex children | `position: fixed` fought the mobile browser's own dynamic toolbar (shows/hides mid-scroll): the bottom nav could resettle a beat after the page's own scroll position did, reading as a jump that sometimes landed on top of content |
 | 33  | Guard-facing copy no longer names "המנהל" directly; the guard-visible כמות card on the home page was removed | A manager shouldn't read as an authority figure to the people submitting to them; a guard doesn't need to see the shift-count target set for them behind the scenes |
 | 34  | The preference form **scrolls back to the top** after a successful submit or cancel                | The submit/cancel buttons sit at the bottom of what can be a long form; the confirmation banner renders at the top and was going unseen |
+
+### 1.5 Changes in Version 2.4
+
+| #   | Change                                                                                            | Rationale                                                                                                                     |
+| --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 35  | **Two-level preference strength turned on** (`יכול` / `עדיפות`, migration 31) — the `strength` column reserved since migration 1 is no longer inert; see §3.8 | A guard whose availability skews toward one shift but genuinely prefers another had no way to say so except free text, which the solver deliberately never reads (§3.6) — extracting it from Hebrew free text was assessed and rejected as unreliable and invisible to the guard when it misfired |
+| 36  | **Coverage gaps weighted by segment length**, not a flat per-slot count (`segmentWeight()` / `segment_weight()`, §4.2a) — an S1/S4 (8h) gap now costs double an S2/S3 (4h) gap in the floor/target objective terms | Solving the identical real week twice, at identical weights, produced two different Saturday layouts with the *same* score — once leaving an 8-guard-hour hole, once a 4-guard-hour one. The objective had no way to prefer the smaller hole; confirmed non-deterministic before the fix (CP-SAT bounced between them across repeated solves), deterministic and always picks the cheaper segment after |
 
 ---
 
@@ -233,7 +240,7 @@ The current week's Saturday assignments become the next week's carry-in, closing
 Per week, each guard submits:
 
 1. **Availability:** any subset of the 21 base slots (7 days × בוקר/צהריים/לילה). An empty subset is valid.
-2. ~~**Preference strength** (2-level `יכול` / `מעדיף`)~~ — **deferred for the POC.** The form is single-level: a slot is either marked or not. The `strength` column is reserved in the schema with a default of `1`, so the two-level scale can be switched on later with no migration.
+2. **Preference strength** (2-level `יכול` / `עדיפות`, migration 31, v2.4) — a marked slot may additionally be flagged עדיפות. See §3.8 for the mechanism and the solver-weight tuning story.
 3. **Per-day 12h opt-ins:** each marked בוקר or לילה slot may carry `allows_12h`, extending that one day only.
 
 ### 3.2 Availability Is Hard
@@ -307,6 +314,54 @@ FK-linked (§6.2) and a two-step client-side delete could half-fail. The guard-f
 only while the week is open, behind the same click-again-to-confirm pattern already used for
 deleting an employee (§12.4).
 
+### 3.8 Two-Level Preference Strength (migration 31, v2.4)
+
+**Rejected first: extracting it from the free-text notes field.** A guard's notes (§3.6) already
+carries things like _"עדיפות למשמרות לילה"_, and the manager can read that — but the solver
+deliberately never does. Parsing it programmatically was ruled out: Hebrew has no fixed phrasing a
+guard would reliably use, a false parse would silently mis-weight the solver, and the guard would
+have no way to know a parse had even happened, let alone that it was wrong. The schema had already
+reserved a real mechanism for this since migration 1 — `weekly_wish_preferences.strength SMALLINT
+CHECK (strength IN (1, 2))`, always defaulting to 1 — so turning that on is what shipped instead.
+
+**Mechanism.** Any slot a guard has already marked available may additionally be flagged עדיפות via
+a chip in `WeeklyPreferenceForm.tsx`, rendered for every marked shift that day (not just the
+morning/night pair the 12h chip is limited to — the point is choosing between e.g. afternoon and
+night on a day both are marked, exactly the case that motivated this). `save_week_preferences`
+carries `strength` inside the same per-slot JSON object `allows12h` already used, so an old-shaped
+caller still parses (`COALESCE(..., 1)`). Deleting the slot deletes the strength mark with it, same
+as `allows_12h` — there is no way to be "preferred" for a shift you are not marked available for.
+
+**Solver mechanism and the weight-tuning story.** `SolverGuard.preferred` (a day-index → base-shift
+map, mirroring the shape of `twelve_hour_day`/`twelve_hour_night`) collects a guard's strength-2
+slots. Both engines add `w.preferred` on top of the existing flat `w.pref` (§4.2 P4) for a matching
+assignment — a term P4b, not a new priority tier. The weight was **measured, not assumed**, against
+the live demo dataset before settling on a value:
+
+| Weight tried | Result |
+| --- | --- |
+| 2 (shipped) | One guard's preferred shifts honoured on 4 of 5 working days, **zero cost** anywhere else in the roster (no new target gap, no new 8h-rest occurrence) |
+| 50 (above target=10 and rest8=5, reliably wins an ordinary coverage trade-off) | Same guard's preference fully honoured (5 of 5), but at the cost of **two extra 8-hour-rest occurrences** elsewhere in the roster, for **no change** in total target-gap count |
+
+Weight 2 shipped: it is a genuine tie-breaker, kept below `rest8` (5) and `target` (10), so it can
+only decide between options the rest of the objective is already indifferent to — it can never
+cause a floor breach, an unmet כמות, or an extra rest penalty just to honour a preference. Raising
+it is possible but was measured to cost real roster quality for one guard's last preferred shift;
+see the `preferred` comment on `WEIGHTS` in `src/lib/shifts.ts` before changing it.
+
+**What it does not do.** It cannot manufacture coverage from a guard who isn't marked available —
+that is a different question than the one target/floor gaps answer (§4.2a). Its actual effect is
+narrower and was confirmed empirically: on repeated identical generations, CP-SAT was found landing
+on multiple tied-optimal rosters that differed only in *which* equally-eligible guard filled a
+given slot (e.g. two guards with identical availability and no preference data, swapped across
+runs) — exactly the situation `w.preferred` exists to resolve, once real preference data exists to
+break the tie with. A synthetic tie-breaker (e.g. sorting guards by ID) was considered and rejected
+in favour of this: it would make output stable but arbitrary, where real preference data makes it
+stable *and* meaningful.
+
+Manager visibility: `TeamTable.tsx` shows a `★ עדיפות · N` badge per guard, next to the existing
+12h-opt-in badges, counting their strength-2 rows for the week.
+
 ---
 
 ## 4. WEIGHTED MULTI-OBJECTIVE MODEL
@@ -327,23 +382,41 @@ The solver maximises a single weighted score. All coverage and volume goals are 
 
 ### 4.2 Soft Objective Terms
 
-| Priority   | Term                                                 | Weight    |
-| ---------- | ---------------------------------------------------- | --------- |
-| **P1**     | Each guard-slot below a segment's **critical floor** | **−1000** |
-| **P2**     | Each shift a guard falls short of `effective_kamut`  | **−100**  |
-| **P3**     | Each unfilled **target** slot above the floor        | **−10**   |
-| **P-rest** | Each 8-hour-rest occurrence (⚠️ cells in §2.6)       | **−5**    |
-| **P4**     | Each assignment matching a declared preference       | **+1**    |
+| Priority   | Term                                                          | Weight    |
+| ---------- | -------------------------------------------------------------- | --------- |
+| **P1**     | Each guard-slot below a segment's **critical floor**            | **−1000** × `segmentWeight(seg)` |
+| **P2**     | Each shift a guard falls short of `effective_kamut`             | **−100**  |
+| **P3**     | Each unfilled **target** slot above the floor                   | **−10** × `segmentWeight(seg)`   |
+| **P-rest** | Each 8-hour-rest occurrence (⚠️ cells in §2.6)                  | **−5**    |
+| **P4**     | Each assignment matching a declared preference (availability is hard, so this is every assignment) | **+1**    |
+| **P4b**    | Each assignment matching a slot marked **עדיפות** (strength 2, §3.8) | **+2**, additive on top of P4 |
 
 ```
-maximise   Σ pref_weight·x
-         − 1000·Σ floor_gap
+maximise   Σ pref_weight·x  +  preferred_weight·Σ preferred_x
+         − 1000·Σ segmentWeight(seg)·floor_gap
          −  100·Σ kamut_gap
-         −   10·Σ target_gap
+         −   10·Σ segmentWeight(seg)·target_gap
          −    5·Σ rest_violation
 ```
 
-> **Note on P4:** because availability is hard (H1), every assignment matches a preference, so with the single-level POC form the P4 term reduces to "+1 per shift worked". This is harmless — it is dominated by P1–P3 and merely acts as a gentle tie-breaker toward using willing guards. Enabling the reserved `strength` column (§3.1) restores real discriminating power if the rosters ever feel arbitrary.
+### 4.2a Segment-Length Weighting (v2.4)
+
+`floor_gap` and `target_gap` are per-segment, but the four segments are not equal length (§2.3): S1
+and S4 are 8h, S2 and S3 are 4h. A flat per-slot count cannot tell an 8-guard-hour hole from a
+4-guard-hour one, so the solver was found to be genuinely indifferent between them — the same real
+week, solved twice at identical weights, landed on two different Saturday layouts with an identical
+score. `segmentWeight(seg)` (`src/lib/shifts.ts`, mirrored as `segment_weight()` in
+`solver/models.py`) is `SEGMENT_DEFS[seg].hours / 4` — 2 for S1/S4, 1 for S2/S3 — multiplied into
+every floor/target gap term in both engines and both referees. This scales *within* the P1/P3
+tiers, not a new tier: a worst-case target-gap unit becomes 2×10=20, still far below P2's 100.
+Verified on live data: before, repeated identical generations varied which segment was left short;
+after, they consistently pick the cheaper (4h) one when the trade-off is otherwise tied.
+
+> **Note on P4/P4b:** because availability is hard (H1), every assignment matches a preference, so
+> P4 alone reduces to "+1 per shift worked" — dominated by P1–P3, a gentle tie-breaker toward using
+> willing guards. P4b (§3.8) adds real discriminating power on top of that for a guard's specific
+> עדיפות-marked slots, at a weight (2) measured against live data rather than assumed — see §3.8 for
+> the trade-off that ruled out a larger value.
 
 ---
 
@@ -435,7 +508,7 @@ CREATE TABLE weekly_wish_preferences (
   allows_12h  BOOLEAN NOT NULL DEFAULT FALSE,
   CONSTRAINT twelve_h_on_extendable_shift
     CHECK (NOT allows_12h OR shift IN ('morning', 'night')),
-  strength    SMALLINT NOT NULL DEFAULT 1 CHECK (strength IN (1, 2)), -- reserved; POC always 1
+  strength    SMALLINT NOT NULL DEFAULT 1 CHECK (strength IN (1, 2)), -- 2 = עדיפות (v2.4, §3.8)
   UNIQUE (guard_id, target_date, shift),
   CHECK (target_date >= week_start AND target_date <= week_start + 6)
 );
@@ -702,12 +775,13 @@ rather than saved.
   "guards": [
     { "id": "uuid", "effective_kamut": 3,
       "availability": { "0": ["morning"], "1": ["morning","night"] },  // day index → base shifts
+      "preferred":    { "1": ["night"] },   // day index → base shifts marked עדיפות (strength 2, §3.8)
       "twelve_hour_day":   [1, 2],   // day indices where day12 is allowed
       "twelve_hour_night": [1]       // day indices where night12 is allowed
     }
   ],
   "carry_in": { "uuid": "night" },   // previous Saturday's shift, or null
-  "weights": { "floor": 1000, "kamut": 100, "target": 10, "rest8": 5, "pref": 1 }
+  "weights": { "floor": 1000, "kamut": 100, "target": 10, "rest8": 5, "pref": 1, "preferred": 2 }
 }
 
 // SolverOutput
@@ -848,6 +922,12 @@ def generate_schedule(inp):
     status = solver.Solve(m)
     # ... marshal assignments + coverage_report per §9.2 ...
 ```
+
+> This snippet predates v2.4 and is illustrative only, per this doc's own convention (§7.1) —
+> `solver/scheduler.py` is the source of truth. As of v2.4 it additionally: scales `floor_gaps` and
+> `target_gaps` by `segment_weight(seg)` before summing (§4.2a) rather than summing the bare
+> `IntVar`s shown above, and adds a `w.preferred * sum(preferred_terms)` term to `model.Maximize`
+> (§3.8, P4b) alongside the `w.pref` term.
 
 ### 9.4 Mock versus CP-SAT — measured, not assumed
 
@@ -1229,7 +1309,7 @@ delete a seeded code through `delete_employee()`, rerun `seed.sql` verbatim, ass
 
 | #   | Item                                                          | Status / default                                                                                                                                                                                                                   |
 | --- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | 2-level preference strength (`יכול` / `מעדיף`)                | **Deferred** — column reserved, POC uses the single-level form                                                                                                                                                                     |
+| 1   | 2-level preference strength (`יכול` / `עדיפות`)                | **Implemented, v2.4** (migration 31) — §3.8. Weight (2) measured against live data, not assumed                                                                                                                                    |
 | 2   | `night → next-day afternoon` is legal at exactly 8h rest      | Allowed with −5 penalty, per §2.6                                                                                                                                                                                                  |
 | 3   | `day12 → day12` on consecutive days is unpenalised (12h rest) | Allowed; bounded only by the 5-shift ceiling                                                                                                                                                                                       |
 | 4   | Fairness / rotation of weekend and night shifts across guards | Not modelled                                                                                                                                                                                                                       |
@@ -1258,10 +1338,14 @@ delete a seeded code through `delete_employee()`, rerun `seed.sql` verbatim, ass
 | **I**     | Manager dashboard defaults to next week; configurable submission window (§12.5); short-staffed dash convention (§10.1)                                                                                                                                | ✅ complete                      |
 | **J**     | Cleanup pass: dropped the dead `schedule_assignments.post` column (migration 23); fixed `seed.sql` re-seeding a deleted employee on every `db:apply`; removed the two never-hired placeholder codes; this document brought back in sync with the code | ✅ complete                      |
 | **K**     | Deployed to Vercel (§11.2); admin week cursor + orphaned-week sweep fix (§12.1); guard can cancel a submission outright (§3.7); mobile layout fixes (SPA rewrite, viewport overflow, `AppShell` flex-shell restructure); guard-facing copy/UI polish | ✅ complete                      |
+| **L**     | Two-level preference strength (§3.8, migration 31); coverage gaps weighted by segment length, not a flat per-slot count (§4.2a) — built on separate branches, merged, deployed to Render together | ✅ complete                      |
 
 ### 14.2 Verification
 
-Eleven suites, all green. Every gate runs against the live project except the PGlite one.
+Eleven suites, all green. Every gate runs against the live project except the PGlite one. (Gate E
+engines now run 10 golden fixtures, not 8 — two added in v2.4: a segment-weight tie-break and a
+preference tie-break, both empirically constructed and verified against a hand-patched "flat
+weighting" baseline to confirm the tie they test was real before asserting the fix resolves it.)
 
 | Suite             | Command                                                   | Covers                                                                          |
 | ----------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------- |
@@ -1284,8 +1368,20 @@ CP-SAT never scores below the mock.
 
 Nothing blocking. Live in production at `work-organizer-iota.vercel.app`, GitHub auto-deploy
 connected, all suites green. Open item 9 (§13, tiered כמות penalty) was investigated and rejected —
-not something to revisit unless the hard-constraint set changes. Everything else in §13 is either
-decided or a deliberately deferred design choice, not a build gap.
+not something to revisit unless the hard-constraint set changes. Open item 1 (2-level preference
+strength) shipped in v2.4 (§3.8). Everything else in §13 is either decided or a deliberately
+deferred design choice, not a build gap.
+
+Two threads explicitly deferred by Ben during v2.4 testing, not build gaps either:
+
+- Whether `configured_kamut` should act as a soft *ceiling* (discouraging a guard from working past
+  it, not just failing to reward it) — surfaced once during testing but the segment-weighting fix
+  alone was independently sufficient in the case that raised it. Not pursued unless a real case
+  turns up where segment-weighting alone doesn't resolve it.
+- The live demo week (`2026-08-09`) currently carries hand-set עדיפות marks across the whole active
+  roster (night preferred over afternoon, afternoon over morning, wherever a guard has both marked
+  the same day) — a deliberate sanity-test dataset, not real guard input. Worth knowing before
+  reading too much into that week's generated rosters as a preference-satisfaction demo.
 
 ### 14.4 Local development
 
