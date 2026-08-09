@@ -171,6 +171,18 @@ def main() -> int:
             else:
                 bad("segment weighting", f"gap landed on {day0_gap!r}, expected S2 or S3")
 
+        if name.startswith("10-"):
+            # morning and night are otherwise perfectly symmetric (each closes
+            # exactly one segment's floor+target by the same amount, same
+            # kamut contribution, no rest neighbours) -- only the עדיפות mark
+            # on night breaks the tie. If this ever picks morning, the
+            # preferred bonus isn't reaching the objective.
+            solo = next((a.shift for a in out.assignments if a.guard_id == "solo"), None)
+            if solo == "night":
+                ok("preferred slot (night) wins an otherwise perfect coverage tie")
+            else:
+                bad("preference tie-break", f"solo assigned {solo!r}, expected 'night'")
+
         print()
 
     # CP-SAT is optimal; the greedy mock is not. Recording the scores lets

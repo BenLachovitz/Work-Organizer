@@ -161,13 +161,24 @@ def verify(inp: SolverInput, assignments: list[Assignment]) -> tuple[list[str], 
 def score(inp: SolverInput, assignments: list[Assignment], report: CoverageReport) -> int:
     """The weighted objective from spec 4.2, recomputed independently."""
     w = inp.weights
+    guards = {g.id: g for g in inp.guards}
     # segment_weight() scales each gap by the segment's length (S1/S4 = 2,
     # S2/S3 = 1) -- see the docstring on that function in models.py.
     floor_gap = sum(segment_weight(b.segment) * (b.required - b.assigned) for b in report.floor_breaches)
     target_gap = sum(segment_weight(b.segment) * (b.target - b.assigned) for b in report.target_gaps)
     kamut_gap = sum(b.effective_kamut - b.assigned for b in report.unmet_kamut)
+
+    # Each assignment scores the flat pref weight, plus the preferred bonus if
+    # it matches a slot the guard marked עדיפות (strength 2) that day.
+    pref_score = 0
+    for a in assignments:
+        pref_score += w.pref
+        g = guards.get(a.guard_id)
+        if g and REQUIRES_BASE[a.shift] in g.preferred.get(str(a.day), []):
+            pref_score += w.preferred
+
     return (
-        w.pref * len(assignments)
+        pref_score
         - w.floor * floor_gap
         - w.kamut * kamut_gap
         - w.target * target_gap

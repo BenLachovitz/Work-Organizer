@@ -168,6 +168,8 @@ export interface GuardRow {
   /** How many days the guard opted to extend, per extended shift type. */
   twelveHourDayCount: number;
   twelveHourNightCount: number;
+  /** How many marked slots the guard flagged עדיפות (strength 2). */
+  preferredCount: number;
   configuredKamut: number;
   /** min(configured, availableDays, 5) -- what the solver will actually target. */
   effectiveKamut: number;
@@ -204,6 +206,7 @@ export function buildGuardRows(data: ManagerWeekData): GuardRow[] {
       // Derived from the preference rows now that the opt-in is per day.
       twelveHourDayCount: prefs.filter((p) => p.allows_12h && p.shift === 'morning').length,
       twelveHourNightCount: prefs.filter((p) => p.allows_12h && p.shift === 'night').length,
+      preferredCount: prefs.filter((p) => p.strength === 2).length,
       configuredKamut: configured,
       effectiveKamut: effective,
       lowered: effective < configured,

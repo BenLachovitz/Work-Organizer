@@ -76,8 +76,9 @@ export function useGuardWeek(weekStart: DateKey) {
 
 export interface SavePreferencesInput {
   weekStart: DateKey;
-  /** allows12h is per slot: the 12h opt-in binds to one day, not the week. */
-  slots: { date: DateKey; shift: BaseShift; allows12h: boolean }[];
+  /** allows12h and strength are both per slot: the 12h opt-in and the
+   *  עדיפות mark each bind to one day, not the week. */
+  slots: { date: DateKey; shift: BaseShift; allows12h: boolean; strength: 1 | 2 }[];
   /** Free text for the manager, e.g. "עדיפות למשמרות לילה". Never fed to the solver. */
   notes?: string;
 }

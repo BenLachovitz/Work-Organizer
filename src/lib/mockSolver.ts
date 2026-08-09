@@ -80,6 +80,11 @@ export function mockSolve(input: SolverInput): SolverOutput {
   function gain(guardId: string, day: number, shift: ShiftType): number {
     let score = w.pref;
 
+    const g = input.guards.find((x) => x.id === guardId)!;
+    if (g.preferred[String(day)]?.includes(SHIFTS[shift].requiresBase)) {
+      score += w.preferred;
+    }
+
     for (const seg of SHIFTS[shift].covers) {
       const c = covOf(day, seg);
       // Below the floor is also below the target, so both penalties shrink --
@@ -91,7 +96,6 @@ export function mockSolve(input: SolverInput): SolverOutput {
       if (c < targetsOn(day)[seg]) score += w.target * segmentWeight(seg);
     }
 
-    const g = input.guards.find((x) => x.id === guardId)!;
     if (workedOf(guardId) < g.effective_kamut) score += w.kamut;
 
     const before = day > 0 ? shiftOn.get(`${guardId}|${day - 1}`) : undefined;

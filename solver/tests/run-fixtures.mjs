@@ -192,6 +192,16 @@ for (const file of files) {
       : bad('segment weighting', `gap landed on ${JSON.stringify(day0Gap)}, expected S2 or S3`);
   }
 
+  if (file.startsWith('10-')) {
+    // morning and night are otherwise perfectly symmetric (same floor/target
+    // closure, same kamut contribution, no rest neighbours) -- only the
+    // עדיפות mark on night breaks the tie.
+    const solo = output.assignments.find((a) => a.guard_id === 'solo')?.shift;
+    solo === 'night'
+      ? ok('preferred slot (night) wins an otherwise perfect coverage tie')
+      : bad('preference tie-break', `solo assigned ${JSON.stringify(solo)}, expected 'night'`);
+  }
+
   console.log(`    ${summarise(verdict.report).join(' · ')}\n`);
 }
 

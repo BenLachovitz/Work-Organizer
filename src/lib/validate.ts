@@ -257,6 +257,7 @@ export function scoreSchedule(
   report: CoverageReport,
 ): number {
   const w = input.weights;
+  const guards = new Map(input.guards.map((g) => [g.id, g]));
   // segmentWeight() scales each gap by the segment's length (S1/S4 = 2,
   // S2/S3 = 1) -- a missing guard on an 8h segment is twice the uncovered
   // guard-hours of one on a 4h segment, and the flat count couldn't tell
@@ -271,8 +272,16 @@ export function scoreSchedule(
   );
   const kamutGap = report.unmet_kamut.reduce((s, b) => s + (b.effective_kamut - b.assigned), 0);
 
+  // Each assignment scores the flat pref weight, plus the preferred bonus if
+  // it matches a slot the guard marked עדיפות (strength 2) that day.
+  const prefScore = assignments.reduce((s, a) => {
+    const g = guards.get(a.guard_id);
+    const preferred = g?.preferred[String(a.day)]?.includes(SHIFTS[a.shift].requiresBase);
+    return s + w.pref + (preferred ? w.preferred : 0);
+  }, 0);
+
   return (
-    w.pref * assignments.length -
+    prefScore -
     w.floor * floorGap -
     w.kamut * kamutGap -
     w.target * targetGap -
