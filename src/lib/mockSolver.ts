@@ -5,6 +5,7 @@ import {
   classifyRest,
   segmentFloors,
   segmentTargets,
+  segmentWeight,
   type Segment,
   type ShiftType,
 } from '@/lib/shifts';
@@ -82,9 +83,12 @@ export function mockSolve(input: SolverInput): SolverOutput {
     for (const seg of SHIFTS[shift].covers) {
       const c = covOf(day, seg);
       // Below the floor is also below the target, so both penalties shrink --
-      // which is exactly why floor-filling dominates everything else.
-      if (c < floorsOn(day)[seg]) score += w.floor;
-      if (c < targetsOn(day)[seg]) score += w.target;
+      // which is exactly why floor-filling dominates everything else. Scaled
+      // by segmentWeight() so closing an 8h segment's gap (S1/S4) is worth
+      // more than closing a 4h segment's gap (S2/S3) -- otherwise the solver
+      // can't tell an 8-guard-hour hole from a 4-guard-hour one.
+      if (c < floorsOn(day)[seg]) score += w.floor * segmentWeight(seg);
+      if (c < targetsOn(day)[seg]) score += w.target * segmentWeight(seg);
     }
 
     const g = input.guards.find((x) => x.id === guardId)!;

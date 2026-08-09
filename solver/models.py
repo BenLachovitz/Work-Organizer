@@ -87,6 +87,18 @@ def segment_floors(week_setting: int, day_index: int) -> dict[Segment, int]:
     return {"S1": 2 if morning == 3 else 1, "S2": 1, "S3": 1, "S4": 1}
 
 
+# Segment lengths in hours (spec 2.3). S1/S4 are the 8h morning/night windows;
+# S2/S3 are the two 4h halves of the afternoon.
+SEGMENT_HOURS: dict[Segment, int] = {"S1": 8, "S2": 4, "S3": 4, "S4": 8}
+
+
+def segment_weight(segment: Segment) -> int:
+    """How much a segment's floor/target gap should weigh, relative to the
+    shortest segment (4h). Mirrors segmentWeight() in src/lib/shifts.ts --
+    see that docstring for why this exists."""
+    return SEGMENT_HOURS[segment] // 4
+
+
 class SolverWeights(BaseModel):
     floor: int = 1000
     kamut: int = 100

@@ -181,6 +181,17 @@ for (const file of files) {
       : bad('carry-in', `${bad1.join(', ')} scheduled Sunday morning after a night shift`);
   }
 
+  if (file.startsWith('09-')) {
+    // Capacity is exactly one guard-shift short of full day-0 coverage, and
+    // (verified by hand) leaving an 8h segment (S1/S4) short scores
+    // identically to leaving a 4h one (S2/S3) under a flat per-slot count --
+    // segmentWeight() is what breaks that tie correctly.
+    const day0Gap = verdict.report.target_gaps.find((g) => g.day === 0)?.segment;
+    day0Gap === 'S2' || day0Gap === 'S3'
+      ? ok(`the unavoidable gap lands on the cheaper 4h segment (${day0Gap})`)
+      : bad('segment weighting', `gap landed on ${JSON.stringify(day0Gap)}, expected S2 or S3`);
+  }
+
   console.log(`    ${summarise(verdict.report).join(' · ')}\n`);
 }
 

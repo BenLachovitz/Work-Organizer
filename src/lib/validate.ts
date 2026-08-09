@@ -6,6 +6,7 @@ import {
   restHours,
   segmentFloors,
   segmentTargets,
+  segmentWeight,
   type Segment,
   type ShiftType,
 } from '@/lib/shifts';
@@ -256,8 +257,18 @@ export function scoreSchedule(
   report: CoverageReport,
 ): number {
   const w = input.weights;
-  const floorGap = report.floor_breaches.reduce((s, b) => s + (b.required - b.assigned), 0);
-  const targetGap = report.target_gaps.reduce((s, b) => s + (b.target - b.assigned), 0);
+  // segmentWeight() scales each gap by the segment's length (S1/S4 = 2,
+  // S2/S3 = 1) -- a missing guard on an 8h segment is twice the uncovered
+  // guard-hours of one on a 4h segment, and the flat count couldn't tell
+  // them apart.
+  const floorGap = report.floor_breaches.reduce(
+    (s, b) => s + segmentWeight(b.segment) * (b.required - b.assigned),
+    0,
+  );
+  const targetGap = report.target_gaps.reduce(
+    (s, b) => s + segmentWeight(b.segment) * (b.target - b.assigned),
+    0,
+  );
   const kamutGap = report.unmet_kamut.reduce((s, b) => s + (b.effective_kamut - b.assigned), 0);
 
   return (

@@ -27,6 +27,7 @@ from models import (
     rest_hours,
     segment_floors,
     segment_targets,
+    segment_weight,
 )
 
 
@@ -160,8 +161,10 @@ def verify(inp: SolverInput, assignments: list[Assignment]) -> tuple[list[str], 
 def score(inp: SolverInput, assignments: list[Assignment], report: CoverageReport) -> int:
     """The weighted objective from spec 4.2, recomputed independently."""
     w = inp.weights
-    floor_gap = sum(b.required - b.assigned for b in report.floor_breaches)
-    target_gap = sum(b.target - b.assigned for b in report.target_gaps)
+    # segment_weight() scales each gap by the segment's length (S1/S4 = 2,
+    # S2/S3 = 1) -- see the docstring on that function in models.py.
+    floor_gap = sum(segment_weight(b.segment) * (b.required - b.assigned) for b in report.floor_breaches)
+    target_gap = sum(segment_weight(b.segment) * (b.target - b.assigned) for b in report.target_gaps)
     kamut_gap = sum(b.effective_kamut - b.assigned for b in report.unmet_kamut)
     return (
         w.pref * len(assignments)

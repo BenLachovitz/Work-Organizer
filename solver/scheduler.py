@@ -25,6 +25,7 @@ from models import (
     rest_hours,
     segment_floors,
     segment_targets,
+    segment_weight,
 )
 from verify import add_days, verify
 
@@ -96,8 +97,12 @@ def solve(inp: SolverInput, time_limit_s: float = 20.0, workers: int = 8) -> Sol
                     rest_penalties.append(x[gi, 0, n])
 
     # --- H6 ceiling + P1/P3 soft coverage --------------------------------------
-    floor_gaps: list[cp_model.IntVar] = []
-    target_gaps: list[cp_model.IntVar] = []
+    # Gap terms are scaled by segment_weight() (S1/S4 = 2, S2/S3 = 1) so a
+    # missing guard on an 8h segment costs twice what it does on a 4h segment
+    # -- otherwise the objective can't tell an 8-guard-hour hole from a
+    # 4-guard-hour one, and the solver picks between them arbitrarily.
+    floor_gap_terms: list[cp_model.LinearExprT] = []
+    target_gap_terms: list[cp_model.LinearExprT] = []
     for d in range(DAYS):
         # Per day: the raised morning target applies Mon-Fri only, so Saturday
         # and Sunday cap at 2 in the morning even when the week is set to 3.
@@ -118,11 +123,11 @@ def solve(inp: SolverInput, time_limit_s: float = 20.0, workers: int = 8) -> Sol
 
             fg = model.NewIntVar(0, floors[seg], f"fg_{d}_{seg}")
             model.Add(fg >= floors[seg] - cov)
-            floor_gaps.append(fg)
+            floor_gap_terms.append(segment_weight(seg) * fg)
 
             tg = model.NewIntVar(0, targets[seg], f"tg_{d}_{seg}")
             model.Add(tg >= targets[seg] - cov)
-            target_gaps.append(tg)
+            target_gap_terms.append(segment_weight(seg) * tg)
 
     # --- P2: כמות shortfall -----------------------------------------------------
     kamut_gaps: list[cp_model.IntVar] = []
@@ -139,9 +144,9 @@ def solve(inp: SolverInput, time_limit_s: float = 20.0, workers: int = 8) -> Sol
 
     model.Maximize(
         w.pref * sum(pref_terms)
-        - w.floor * sum(floor_gaps)
+        - w.floor * sum(floor_gap_terms)
         - w.kamut * sum(kamut_gaps)
-        - w.target * sum(target_gaps)
+        - w.target * sum(target_gap_terms)
         - w.rest8 * sum(rest_penalties)
     )
 

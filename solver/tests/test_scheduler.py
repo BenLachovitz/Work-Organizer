@@ -160,6 +160,17 @@ def main() -> int:
             else:
                 bad("carry-in", f"{offenders} scheduled Sunday morning after a night shift")
 
+        if name.startswith("09-"):
+            # Capacity is exactly one guard-shift short of full day-0 coverage,
+            # and (verified by hand) leaving an 8h segment (S1/S4) short scores
+            # identically to leaving a 4h one (S2/S3) under a flat per-slot
+            # count -- segment_weight() is what breaks that tie correctly.
+            day0_gap = next((g.segment for g in report.target_gaps if g.day == 0), None)
+            if day0_gap in ("S2", "S3"):
+                ok(f"the unavoidable gap lands on the cheaper 4h segment ({day0_gap})")
+            else:
+                bad("segment weighting", f"gap landed on {day0_gap!r}, expected S2 or S3")
+
         print()
 
     # CP-SAT is optimal; the greedy mock is not. Recording the scores lets

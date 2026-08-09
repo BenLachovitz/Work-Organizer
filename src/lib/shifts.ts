@@ -144,6 +144,20 @@ export const SEGMENT_DEFS: Record<Segment, SegmentDef> = {
   S4: { id: 'S4', he: 'לילה', label: '22:45-06:45', hours: 8 },
 };
 
+/**
+ * How much a segment's floor/target gap should weigh, relative to the
+ * shortest segment (4h). A guard missing from S1/S4 (8h) leaves twice the
+ * uncovered guard-hours of a guard missing from S2/S3 (4h), but a flat
+ * per-slot count can't tell them apart -- which let the solver land on
+ * either with the same total objective, arbitrarily. This scales *within*
+ * the existing floor(1000)/target(10) tiers (worst case 2x), so it can only
+ * decide WHICH segment gets left short in an otherwise-tied trade-off; it
+ * never approaches the kamut(100) or rest8(5) tiers.
+ */
+export function segmentWeight(segment: Segment): number {
+  return SEGMENT_DEFS[segment].hours / 4;
+}
+
 export type MorningTarget = 2 | 3;
 
 /**
