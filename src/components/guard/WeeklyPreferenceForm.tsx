@@ -12,6 +12,7 @@ import {
   BASE_SHIFTS,
   MAX_SHIFTS_PER_WEEK,
   SHIFTS,
+  classifyRest,
   effectiveKamut,
   isWeekendDay,
   type BaseShift,
@@ -140,6 +141,17 @@ export function WeeklyPreferenceForm({
       const k = slotKey(date, shift);
       const cur = prev.get(k);
       if (!cur) return prev; // cannot prefer a shift you are not working
+      if (cur.strength === 1) {
+        // Turning ON: capped at N-1 of the day's marked shifts (1 of 2, 2 of
+        // 3), so there is always at least one non-preferred option left --
+        // marking every marked shift preferred is a null signal, since the
+        // solver would have nothing to favour it over.
+        const daySlotCount = BASE_SHIFTS.filter((s) => prev.has(slotKey(date, s))).length;
+        const preferredNow = BASE_SHIFTS.filter(
+          (s) => prev.get(slotKey(date, s))?.strength === 2,
+        ).length;
+        if (preferredNow >= daySlotCount - 1) return prev;
+      }
       const next = new Map(prev);
       next.set(k, { ...cur, strength: cur.strength === 2 ? 1 : 2 });
       return next;
@@ -170,6 +182,44 @@ export function WeeklyPreferenceForm({
     () => new Set([...slots.keys()].map((k) => k.split('|')[0])).size,
     [slots],
   );
+
+  /**
+   * The best shift count actually achievable from the marked slots alone,
+   * respecting the same >=8h rest rule the solver enforces (H5) -- a guard
+   * who marks Sunday night and Monday morning has NOT bought two shifts,
+   * since the two can never legally combine (0h rest, ⛔). A simple day
+   * count would overstate what the submission can produce; this doesn't.
+   *
+   * Deliberately shown instead of the manager-set כמות target (not the
+   * guard's business, spec 1.4 item 33) -- this is a fact about the guard's
+   * OWN submission, not about what was configured for them.
+   *
+   * Small DP over the week: for each day, the best count ending in "worked
+   * shift S" is 1 + the best count from the previous day that isn't blocked
+   * by resting into S (or the best "day off" count, always compatible).
+   * Extended (12h) shifts aren't modelled separately -- this is a guide
+   * number for the guard, not the generation input.
+   */
+  const maxFeasibleShifts = useMemo(() => {
+    const DAY_OFF = Symbol('off');
+    let prev = new Map<BaseShift | typeof DAY_OFF, number>([[DAY_OFF, 0]]);
+    for (const date of dates) {
+      const options = BASE_SHIFTS.filter((s) => slots.has(slotKey(date, s)));
+      const bestSoFar = Math.max(...prev.values());
+      const next = new Map<BaseShift | typeof DAY_OFF, number>([[DAY_OFF, bestSoFar]]);
+      for (const shift of options) {
+        let best = prev.get(DAY_OFF) ?? 0;
+        for (const [prevShift, count] of prev) {
+          if (prevShift === DAY_OFF) continue;
+          if (classifyRest(prevShift, shift) !== 'blocked') best = Math.max(best, count);
+        }
+        next.set(shift, best + 1);
+      }
+      prev = next;
+    }
+    return Math.min(MAX_SHIFTS_PER_WEEK, Math.max(...prev.values()));
+  }, [slots, dates]);
+
   const effective = effectiveKamut(configuredKamut, availableDays);
   const isEmpty = slots.size === 0;
   const wasLowered = effective < configuredKamut;
@@ -295,34 +345,44 @@ export function WeeklyPreferenceForm({
                 {/* Preference chips. One per selected shift regardless of
                     type -- unlike the 12h chip, preference is not limited to
                     morning/night, since the whole point is choosing between
-                    e.g. afternoon and night on a day both are marked. */}
-                {daySlots.length > 0 && (
+                    e.g. afternoon and night on a day both are marked. Only
+                    shown with 2+ marked shifts -- with just one, there is
+                    nothing to prefer it over. Capped at N-1 preferred (see
+                    toggleStrength): the chip for a currently-unpreferred
+                    shift disables once the cap is reached. */}
+                {daySlots.length > 1 && (
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {daySlots.map((shift) => {
-                      const def = SHIFTS[shift];
-                      const preferred = slots.get(slotKey(date, shift))?.strength === 2;
-                      return (
-                        <button
-                          key={shift}
-                          type="button"
-                          disabled={locked}
-                          onClick={() => toggleStrength(date, shift)}
-                          aria-pressed={preferred}
-                          className={cn(
-                            'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5',
-                            'text-[11px] font-semibold transition-all disabled:opacity-50',
-                            preferred
-                              ? 'border-transparent text-white'
-                              : 'border-dashed border-slate-300 bg-white text-slate-500 hover:border-slate-400',
-                          )}
-                          style={preferred ? { backgroundColor: def.colorVar } : undefined}
-                        >
-                          <span>{preferred ? '★' : '☆'}</span>
-                          <span>עדיפות</span>
-                          <span className="opacity-80">{def.he}</span>
-                        </button>
-                      );
-                    })}
+                    {(() => {
+                      const dayPreferredCount = daySlots.filter(
+                        (s) => slots.get(slotKey(date, s))?.strength === 2,
+                      ).length;
+                      const atCap = dayPreferredCount >= daySlots.length - 1;
+                      return daySlots.map((shift) => {
+                        const def = SHIFTS[shift];
+                        const preferred = slots.get(slotKey(date, shift))?.strength === 2;
+                        return (
+                          <button
+                            key={shift}
+                            type="button"
+                            disabled={locked || (atCap && !preferred)}
+                            onClick={() => toggleStrength(date, shift)}
+                            aria-pressed={preferred}
+                            className={cn(
+                              'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5',
+                              'text-[11px] font-semibold transition-all disabled:opacity-50',
+                              preferred
+                                ? 'border-transparent text-white'
+                                : 'border-dashed border-slate-300 bg-white text-slate-500 hover:border-slate-400',
+                            )}
+                            style={preferred ? { backgroundColor: def.colorVar } : undefined}
+                          >
+                            <span>{preferred ? '★' : '☆'}</span>
+                            <span>עדיפות</span>
+                            <span className="opacity-80">{def.he}</span>
+                          </button>
+                        );
+                      });
+                    })()}
                   </div>
                 )}
               </div>
@@ -412,11 +472,14 @@ export function WeeklyPreferenceForm({
           <span className="font-bold text-slate-900">{availableDays} מתוך 7</span>
         </div>
         <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-500">הכמות שהוגדרה לך</span>
-          <span className="font-bold text-slate-900">
-            {configuredKamut} <span className="text-slate-400">/ {MAX_SHIFTS_PER_WEEK} מקסימום</span>
-          </span>
+          <span className="text-slate-500">משמרות אפשריות מהסימונים שלך</span>
+          <span className="font-bold text-slate-900">{maxFeasibleShifts}</span>
         </div>
+        {!isEmpty && maxFeasibleShifts < availableDays && (
+          <p className="text-xs text-slate-400">
+            חלק מהימים שסימנת לא יכולים להצטרף יחד - נדרשות לפחות 8 שעות מנוחה בין משמרות.
+          </p>
+        )}
 
         {wasLowered && !isEmpty && (
           <Alert tone="warn" title="הכמות שלך תרד אוטומטית">
