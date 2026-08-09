@@ -277,4 +277,16 @@ export const WEIGHTS = {
   target: 10,
   rest8: 5,
   pref: 1,
+  /** Added on top of `pref` for a guard's עדיפות-marked slot. Deliberately
+   *  small: 1 (pref) + 2 (preferred) = 3, still well under rest8 (5) and
+   *  target (10), so it can only break ties, never outweigh a real rule.
+   *
+   *  Measured trade-off (see git history around this line): raising this to
+   *  50 -- enough to reliably win an ordinary coverage trade-off -- bought
+   *  one guard's last preferred shift at the cost of two EXTRA 8h-rest
+   *  occurrences elsewhere in the roster on the one real dataset tested,
+   *  for no change in total target-gap count. At 2, the same guard still
+   *  got 4 of 5 preferred shifts with zero cost anywhere. Don't raise this
+   *  without re-measuring on real data the way that comparison did. */
+  preferred: 2,
 } as const;

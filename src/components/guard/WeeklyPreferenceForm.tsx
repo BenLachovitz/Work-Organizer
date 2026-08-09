@@ -20,13 +20,19 @@ import {
 /**
  * Selection state.
  *
- * Key is "YYYY-MM-DD|shift"; presence means available, and the value says
- * whether the guard will extend that specific shift to 12 hours. Keeping the
- * flag inside the same entry is what makes it impossible to be opted in for a
- * day you are not working -- removing the slot removes the flag with it,
- * mirroring how `allows_12h` lives on the preference row in the database.
+ * Key is "YYYY-MM-DD|shift"; presence means available. The value carries the
+ * two per-slot flags that ride alongside availability: whether the guard will
+ * extend that specific shift to 12 hours, and whether they prefer it over
+ * their other marked shifts. Keeping both inside the same entry is what makes
+ * it impossible to be opted into either for a day you are not working --
+ * removing the slot removes both with it, mirroring how `allows_12h` and
+ * `strength` live on the preference row in the database.
  */
-export type Selection = Map<string, boolean>;
+export interface SlotFlags {
+  allows12h: boolean;
+  strength: 1 | 2;
+}
+export type Selection = Map<string, SlotFlags>;
 
 const slotKey = (date: DateKey, shift: BaseShift) => `${date}|${shift}`;
 
@@ -40,17 +46,22 @@ const EXTENDED_OF: Record<'morning' | 'night', 'day12' | 'night12'> = {
 
 export function selectionToSlots(
   sel: Selection,
-): { date: DateKey; shift: BaseShift; allows12h: boolean }[] {
-  return [...sel.entries()].map(([k, allows12h]) => {
+): { date: DateKey; shift: BaseShift; allows12h: boolean; strength: 1 | 2 }[] {
+  return [...sel.entries()].map(([k, flags]) => {
     const [date, shift] = k.split('|');
-    return { date: date!, shift: shift as BaseShift, allows12h };
+    return { date: date!, shift: shift as BaseShift, ...flags };
   });
 }
 
 export function rowsToSelection(
-  rows: { target_date: string; shift: BaseShift; allows_12h?: boolean }[],
+  rows: { target_date: string; shift: BaseShift; allows_12h?: boolean; strength?: 1 | 2 }[],
 ): Selection {
-  return new Map(rows.map((r) => [slotKey(r.target_date, r.shift), Boolean(r.allows_12h)]));
+  return new Map(
+    rows.map((r) => [
+      slotKey(r.target_date, r.shift),
+      { allows12h: Boolean(r.allows_12h), strength: r.strength ?? 1 },
+    ]),
+  );
 }
 
 /** Matches the `notes_length` CHECK on weekly_submissions. */
@@ -102,9 +113,10 @@ export function WeeklyPreferenceForm({
     setSlots((prev) => {
       const next = new Map(prev);
       const k = slotKey(date, shift);
-      // Deleting the slot drops its 12h flag automatically -- no orphan state.
+      // Deleting the slot drops its 12h flag and its strength automatically --
+      // no orphan state.
       if (next.has(k)) next.delete(k);
-      else next.set(k, false);
+      else next.set(k, { allows12h: false, strength: 1 });
       return next;
     });
     setConfirmEmpty(false);
@@ -114,9 +126,22 @@ export function WeeklyPreferenceForm({
     if (locked) return;
     setSlots((prev) => {
       const k = slotKey(date, shift);
-      if (!prev.has(k)) return prev; // cannot extend a shift you are not working
+      const cur = prev.get(k);
+      if (!cur) return prev; // cannot extend a shift you are not working
       const next = new Map(prev);
-      next.set(k, !prev.get(k));
+      next.set(k, { ...cur, allows12h: !cur.allows12h });
+      return next;
+    });
+  };
+
+  const toggleStrength = (date: DateKey, shift: BaseShift) => {
+    if (locked) return;
+    setSlots((prev) => {
+      const k = slotKey(date, shift);
+      const cur = prev.get(k);
+      if (!cur) return prev; // cannot prefer a shift you are not working
+      const next = new Map(prev);
+      next.set(k, { ...cur, strength: cur.strength === 2 ? 1 : 2 });
       return next;
     });
   };
@@ -126,15 +151,15 @@ export function WeeklyPreferenceForm({
     if (locked) return;
     setSlots((prev) => {
       const next = new Map(prev);
-      for (const [k] of prev) {
-        if (k.endsWith(`|${shift}`)) next.set(k, on);
+      for (const [k, flags] of prev) {
+        if (k.endsWith(`|${shift}`)) next.set(k, { ...flags, allows12h: on });
       }
       return next;
     });
   };
 
   const count12h = (shift: 'morning' | 'night') =>
-    [...slots.entries()].filter(([k, on]) => on && k.endsWith(`|${shift}`)).length;
+    [...slots.entries()].filter(([k, flags]) => flags.allows12h && k.endsWith(`|${shift}`)).length;
 
   const countSelected = (shift: 'morning' | 'night') =>
     [...slots.keys()].filter((k) => k.endsWith(`|${shift}`)).length;
@@ -241,7 +266,7 @@ export function WeeklyPreferenceForm({
                   <div className="mt-2 flex flex-wrap gap-2">
                     {extendable.map((shift) => {
                       const ext = SHIFTS[EXTENDED_OF[shift]];
-                      const on = slots.get(slotKey(date, shift)) === true;
+                      const on = slots.get(slotKey(date, shift))?.allows12h === true;
                       return (
                         <button
                           key={shift}
@@ -261,6 +286,40 @@ export function WeeklyPreferenceForm({
                           <span>{on ? '✓' : '+'}</span>
                           <span>12 שעות</span>
                           <span className="num opacity-80">{ext.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Preference chips. One per selected shift regardless of
+                    type -- unlike the 12h chip, preference is not limited to
+                    morning/night, since the whole point is choosing between
+                    e.g. afternoon and night on a day both are marked. */}
+                {daySlots.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {daySlots.map((shift) => {
+                      const def = SHIFTS[shift];
+                      const preferred = slots.get(slotKey(date, shift))?.strength === 2;
+                      return (
+                        <button
+                          key={shift}
+                          type="button"
+                          disabled={locked}
+                          onClick={() => toggleStrength(date, shift)}
+                          aria-pressed={preferred}
+                          className={cn(
+                            'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5',
+                            'text-[11px] font-semibold transition-all disabled:opacity-50',
+                            preferred
+                              ? 'border-transparent text-white'
+                              : 'border-dashed border-slate-300 bg-white text-slate-500 hover:border-slate-400',
+                          )}
+                          style={preferred ? { backgroundColor: def.colorVar } : undefined}
+                        >
+                          <span>{preferred ? '★' : '☆'}</span>
+                          <span>עדיפות</span>
+                          <span className="opacity-80">{def.he}</span>
                         </button>
                       );
                     })}

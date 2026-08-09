@@ -160,6 +160,18 @@ def main() -> int:
             else:
                 bad("carry-in", f"{offenders} scheduled Sunday morning after a night shift")
 
+        if name.startswith("09-"):
+            # morning and night are otherwise perfectly symmetric (each closes
+            # exactly one segment's floor+target by the same amount, same
+            # kamut contribution, no rest neighbours) -- only the עדיפות mark
+            # on night breaks the tie. If this ever picks morning, the
+            # preferred bonus isn't reaching the objective.
+            solo = next((a.shift for a in out.assignments if a.guard_id == "solo"), None)
+            if solo == "night":
+                ok("preferred slot (night) wins an otherwise perfect coverage tie")
+            else:
+                bad("preference tie-break", f"solo assigned {solo!r}, expected 'night'")
+
         print()
 
     # CP-SAT is optimal; the greedy mock is not. Recording the scores lets

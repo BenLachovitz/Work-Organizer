@@ -181,6 +181,16 @@ for (const file of files) {
       : bad('carry-in', `${bad1.join(', ')} scheduled Sunday morning after a night shift`);
   }
 
+  if (file.startsWith('09-')) {
+    // morning and night are otherwise perfectly symmetric (same floor/target
+    // closure, same kamut contribution, no rest neighbours) -- only the
+    // עדיפות mark on night breaks the tie.
+    const solo = output.assignments.find((a) => a.guard_id === 'solo')?.shift;
+    solo === 'night'
+      ? ok('preferred slot (night) wins an otherwise perfect coverage tie')
+      : bad('preference tie-break', `solo assigned ${JSON.stringify(solo)}, expected 'night'`);
+  }
+
   console.log(`    ${summarise(verdict.report).join(' · ')}\n`);
 }
 

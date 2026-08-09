@@ -39,6 +39,7 @@ export function buildSolverInput(
     const prefs = data.preferences.filter((p) => p.guard_id === guard.id);
 
     const availability: Record<string, BaseShift[]> = {};
+    const preferred: Record<string, BaseShift[]> = {};
     const twelveHourDay: number[] = [];
     const twelveHourNight: number[] = [];
 
@@ -47,6 +48,7 @@ export function buildSolverInput(
       if (d < 0) continue; // outside the week: ignore rather than mis-index
       const key = String(d);
       (availability[key] ??= []).push(p.shift);
+      if (p.strength === 2) (preferred[key] ??= []).push(p.shift);
 
       if (p.allows_12h) {
         if (p.shift === 'morning') twelveHourDay.push(d);
@@ -64,6 +66,7 @@ export function buildSolverInput(
       display_name: guard.display_name,
       effective_kamut: effectiveKamut(configured, availableDays),
       availability,
+      preferred,
       twelve_hour_day: twelveHourDay,
       twelve_hour_night: twelveHourNight,
     };

@@ -21,6 +21,13 @@ export const solverWeightsSchema = z.object({
   target: z.number().int().nonnegative(),
   rest8: z.number().int().nonnegative(),
   pref: z.number().int().nonnegative(),
+  /** Added on top of `pref` for a slot the guard marked עדיפות (strength 2).
+   *  A minor tie-breaker only -- stays below rest8 and target so it can never
+   *  cause a floor breach, an unmet כמות, or an extra rest penalty just to
+   *  honour a preference (measured trade-off: see the comment on WEIGHTS in
+   *  src/lib/shifts.ts). Defaulted, like the Python twin, so a fixture or
+   *  caller written before this existed still parses. */
+  preferred: z.number().int().nonnegative().default(2),
 });
 
 export const solverGuardSchema = z.object({
@@ -30,6 +37,10 @@ export const solverGuardSchema = z.object({
   effective_kamut: z.number().int().min(0).max(5),
   /** Day index "0".."6" (Sunday-first) -> the base shifts they marked. */
   availability: z.record(z.string(), z.array(baseShiftSchema)),
+  /** Day index -> the base shifts marked עדיפות (strength 2) that day.
+   *  Always a subset of `availability` for the same day -- a shift cannot be
+   *  preferred without being marked available first. */
+  preferred: z.record(z.string(), z.array(baseShiftSchema)).default({}),
   /**
    * Day indices on which the guard will extend to a 12h shift. Per day, not
    * per week: someone can be willing to do a long Monday and a short Tuesday.

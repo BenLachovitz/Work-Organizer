@@ -93,6 +93,10 @@ class SolverWeights(BaseModel):
     target: int = 10
     rest8: int = 5
     pref: int = 1
+    # Added on top of `pref` for a slot marked עדיפות (strength 2). Kept below
+    # rest8/target so it can only break ties, never outweigh a real rule
+    # (measured trade-off: see the comment on WEIGHTS in src/lib/shifts.ts).
+    preferred: int = 2
 
 
 class SolverGuard(BaseModel):
@@ -102,6 +106,9 @@ class SolverGuard(BaseModel):
     effective_kamut: int = Field(ge=0, le=5)
     # Day index "0".."6" (Sunday first) -> the base shifts they marked.
     availability: dict[str, list[BaseShift]] = Field(default_factory=dict)
+    # Day index -> the base shifts marked עדיפות (strength 2) that day. Always
+    # a subset of availability for the same day.
+    preferred: dict[str, list[BaseShift]] = Field(default_factory=dict)
     # Day indices the guard will extend to 12h. Per day, not per week:
     #   day12 on day d  <=>  "morning" in availability[d] and d in twelve_hour_day
     twelve_hour_day: list[int] = Field(default_factory=list)

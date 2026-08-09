@@ -62,7 +62,7 @@ const HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', '�
 
 const week = (await sql(`SELECT morning_target_slots t FROM roster_weeks WHERE week_start='${WEEK}'`))[0];
 const guards = await sql(`SELECT id, display_name FROM profiles WHERE is_active ORDER BY employee_code`);
-const prefs = await sql(`SELECT guard_id, target_date::text, shift::text, allows_12h FROM weekly_wish_preferences WHERE week_start='${WEEK}'`);
+const prefs = await sql(`SELECT guard_id, target_date::text, shift::text, allows_12h, strength FROM weekly_wish_preferences WHERE week_start='${WEEK}'`);
 const targets = await sql(`SELECT guard_id, configured_kamut FROM weekly_guard_targets WHERE week_start='${WEEK}'`);
 
 const input = solverInputSchema.parse({
@@ -72,10 +72,12 @@ const input = solverInputSchema.parse({
   guards: guards.map((g) => {
     const mine = prefs.filter((p) => p.guard_id === g.id);
     const availability = {};
+    const preferred = {};
     const d12 = [], n12 = [];
     for (const p of mine) {
       const d = dayIndexInWeek(WEEK, p.target_date);
       (availability[String(d)] ??= []).push(p.shift);
+      if (p.strength === 2) (preferred[String(d)] ??= []).push(p.shift);
       if (p.allows_12h && p.shift === 'morning') d12.push(d);
       if (p.allows_12h && p.shift === 'night') n12.push(d);
     }
@@ -86,6 +88,7 @@ const input = solverInputSchema.parse({
       display_name: g.display_name,
       effective_kamut: effectiveKamut(configured, days),
       availability,
+      preferred,
       twelve_hour_day: d12,
       twelve_hour_night: n12,
     };

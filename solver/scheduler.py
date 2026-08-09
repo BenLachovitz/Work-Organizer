@@ -137,8 +137,22 @@ def solve(inp: SolverInput, time_limit_s: float = 20.0, workers: int = 8) -> Sol
     # is a mild tie-breaker toward using willing guards.
     pref_terms = [x[gi, d, s] for gi in range(len(guards)) for d in range(DAYS) for s in SHIFT_TYPES]
 
+    # --- P4b: עדיפות bonus -------------------------------------------------------
+    # Added on top of pref_terms for a slot the guard marked strength 2. Kept
+    # below rest8/target (spec 4.2) so it only breaks ties the other terms are
+    # already indifferent to (measured trade-off: see WEIGHTS in
+    # src/lib/shifts.ts).
+    preferred_terms = [
+        x[gi, d, s]
+        for gi, g in enumerate(guards)
+        for d in range(DAYS)
+        for s in SHIFT_TYPES
+        if REQUIRES_BASE[s] in g.preferred.get(str(d), [])
+    ]
+
     model.Maximize(
         w.pref * sum(pref_terms)
+        + w.preferred * sum(preferred_terms)
         - w.floor * sum(floor_gaps)
         - w.kamut * sum(kamut_gaps)
         - w.target * sum(target_gaps)

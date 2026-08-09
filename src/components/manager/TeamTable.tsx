@@ -57,7 +57,9 @@ export function TeamTable({
                   {/* Day counts, not a yes/no: the opt-in is per day now, and
                       "3 days" is the number that tells a manager how much
                       extended cover is actually available. */}
-                  {(row.twelveHourDayCount > 0 || row.twelveHourNightCount > 0) && (
+                  {(row.twelveHourDayCount > 0 ||
+                    row.twelveHourNightCount > 0 ||
+                    row.preferredCount > 0) && (
                     <div className="mt-1.5 flex gap-1.5">
                       {row.twelveHourDayCount > 0 && (
                         <span
@@ -73,6 +75,11 @@ export function TeamTable({
                           style={{ backgroundColor: 'var(--color-shift-night12)' }}
                         >
                           לילה 12ש׳ · {row.twelveHourNightCount} ימים
+                        </span>
+                      )}
+                      {row.preferredCount > 0 && (
+                        <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                          ★ עדיפות · {row.preferredCount}
                         </span>
                       )}
                     </div>
