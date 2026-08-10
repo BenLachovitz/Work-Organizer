@@ -177,6 +177,14 @@ export function ManagerDashboard() {
               }
             />
 
+            {/* TeamTable above only shows aggregate counts per guard. This page
+                shows the actual day/shift breakdown and lets the manager edit
+                a guard's availability and עדיפות marks on their behalf --
+                carries the currently selected week over via ?week=. */}
+            <ButtonLink to={`/manage/preferences?week=${selected}`} variant="secondary" fullWidth>
+              העדפות הצוות - צפייה ועריכה לפי יום ומשמרת
+            </ButtonLink>
+
             {/* Team CRUD (add/remove employees, edit their baseline כמות) lives on
                 its own page -- a config screen, not part of the weekly workflow
                 this dashboard is otherwise about. */}

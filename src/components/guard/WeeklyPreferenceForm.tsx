@@ -238,7 +238,14 @@ export function WeeklyPreferenceForm({
       <Card className={cn('flex items-center justify-between gap-3', locked && 'bg-slate-50')}>
         <div className="min-w-0">
           <p className="font-bold text-slate-900">
-            {locked ? 'ההגשות נסגרו' : `נותרו ${left} להגשה`}
+            {locked
+              ? 'ההגשות נסגרו'
+              : left
+                ? `נותרו ${left} להגשה`
+                // Reachable only when a manager edits on a guard's behalf after
+                // that guard's own deadline passed -- locked stays false since
+                // a manager's edit isn't bound by it, but `left` is null.
+                : 'מועד ההגשה הרגיל עבר - פתוח לעריכה על ידך'}
           </p>
           <p className="mt-0.5 truncate text-xs text-slate-500">{formatDeadline(deadline)}</p>
         </div>
