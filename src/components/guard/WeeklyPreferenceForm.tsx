@@ -10,11 +10,11 @@ import {
 } from '@/lib/dates';
 import {
   BASE_SHIFTS,
-  MAX_SHIFTS_PER_WEEK,
   SHIFTS,
   effectiveKamut,
   isWeekendDay,
   maxFeasibleShifts as computeMaxFeasibleShifts,
+  maxRequestableShifts,
   type BaseShift,
 } from '@/lib/shifts';
 
@@ -118,7 +118,7 @@ export function WeeklyPreferenceForm({
       initialSlots.has(slotKey(date, shift)),
     );
     const base = initial?.requestedShifts ?? configuredKamut;
-    return Math.max(0, Math.min(base, feasible, MAX_SHIFTS_PER_WEEK));
+    return Math.max(0, Math.min(base, feasible, maxRequestableShifts(configuredKamut)));
   });
   const [confirmSubmit, setConfirmSubmit] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -228,7 +228,7 @@ export function WeeklyPreferenceForm({
   // from the currently marked slots (rule: requested <= feasible) -- if the
   // guard unmarks days after picking a higher number, this pulls it back
   // down rather than leaving a now-infeasible value sitting in the field.
-  const requestedMax = Math.min(maxFeasibleShifts, MAX_SHIFTS_PER_WEEK);
+  const requestedMax = Math.min(maxFeasibleShifts, maxRequestableShifts(configuredKamut));
   useEffect(() => {
     setRequestedShifts((prev) => Math.min(prev, requestedMax));
   }, [requestedMax]);

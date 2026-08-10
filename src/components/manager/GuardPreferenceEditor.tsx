@@ -3,10 +3,10 @@ import { Button, Stepper, cn } from '@/components/ui';
 import { HEBREW_DAYS, formatDayMonth, weekDates, type DateKey } from '@/lib/dates';
 import {
   BASE_SHIFTS,
-  MAX_SHIFTS_PER_WEEK,
   SHIFTS,
   isWeekendDay,
   maxFeasibleShifts,
+  maxRequestableShifts,
   type BaseShift,
 } from '@/lib/shifts';
 import {
@@ -66,9 +66,9 @@ export function GuardPreferenceEditor({
     () =>
       Math.min(
         maxFeasibleShifts(dates, (date, shift) => slots.has(slotKey(date, shift))),
-        MAX_SHIFTS_PER_WEEK,
+        maxRequestableShifts(configuredKamut),
       ),
-    [slots, dates],
+    [slots, dates, configuredKamut],
   );
   useEffect(() => {
     setRequestedShifts((prev) => Math.min(prev, requestedMax));

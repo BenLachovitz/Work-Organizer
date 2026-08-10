@@ -273,6 +273,32 @@ export function isEligible(
 export const MAX_SHIFTS_PER_WEEK = 5;
 
 /**
+ * The highest number of shifts ANY guard may ever reach in a week -- one
+ * more than the ordinary ceiling. Only reachable by a guard already AT the
+ * ordinary ceiling (configuredKamut === MAX_SHIFTS_PER_WEEK) who explicitly
+ * asks for one more; see maxRequestableShifts() below. Every other guard's
+ * hard ceiling stays exactly MAX_SHIFTS_PER_WEEK, request or not.
+ */
+export const ABSOLUTE_MAX_SHIFTS_PER_WEEK = 6;
+
+/**
+ * The highest a guard's own request could ever raise their ceiling to.
+ * Ordinarily MAX_SHIFTS_PER_WEEK; only a guard already configured at that
+ * ordinary ceiling gets ABSOLUTE_MAX_SHIFTS_PER_WEEK instead -- the "a 5-כמות
+ * guard may ask for a 6th shift, nobody else" rule. Whether they actually
+ * reach it is still entirely up to guardShiftCeiling() (guaranteed, only on
+ * an explicit LOWER request) or stretchTarget()/WEIGHTS.stretch (a soft
+ * bonus, only on an explicit HIGHER request) -- this only says how far up
+ * either of those is allowed to go, and is also what both stepper UIs
+ * (WeeklyPreferenceForm.tsx, GuardPreferenceEditor.tsx) show as the max.
+ */
+export function maxRequestableShifts(configuredKamut: number): number {
+  return configuredKamut === MAX_SHIFTS_PER_WEEK
+    ? ABSOLUTE_MAX_SHIFTS_PER_WEEK
+    : MAX_SHIFTS_PER_WEEK;
+}
+
+/**
  * Pre-flight כמות override. A guard who marked only 2 days can never reach a
  * כמות of 4, so we lower the target instead of handing the solver a constraint
  * it cannot satisfy. This is what prevents unexplainable INFEASIBLE results.
@@ -305,20 +331,27 @@ export function effectiveKamut(
  * already is -- so it tightens the ceiling itself, guaranteeing the request is
  * never exceeded even when the roster would otherwise benefit from it.
  *
- * A request for MORE than configured never reaches this function at all: it
- * only ever feeds stretchTarget()'s soft bonus below, so the "ask for more"
- * path can never accidentally tighten (or loosen) anyone's hard ceiling.
+ * A request for MORE than configured ordinarily never reaches this function
+ * at all -- it only feeds stretchTarget()'s soft bonus below, so the "ask for
+ * more" path can never accidentally tighten anyone's hard ceiling. The one
+ * exception is the guard already AT the ordinary ceiling (configuredKamut
+ * === MAX_SHIFTS_PER_WEEK): for them alone, an explicit request for a 6th
+ * shift raises the hard ceiling just enough to let stretchTarget()'s soft
+ * bonus actually reach it -- the ceiling move itself grants nothing, it only
+ * permits the existing soft mechanism to work past 5 for this one case.
  */
 export function guardShiftCeiling(
   configuredKamut: number,
   distinctAvailableDays: number,
   requestedShifts: number | null | undefined,
-  base: number = MAX_SHIFTS_PER_WEEK,
 ): number {
   if (requestedShifts != null && requestedShifts < configuredKamut) {
     return effectiveKamut(configuredKamut, distinctAvailableDays, requestedShifts);
   }
-  return base;
+  if (requestedShifts != null && requestedShifts > configuredKamut) {
+    return Math.min(requestedShifts, maxRequestableShifts(configuredKamut));
+  }
+  return MAX_SHIFTS_PER_WEEK;
 }
 
 /**
@@ -329,21 +362,24 @@ export function guardShiftCeiling(
  * a new priority tier, weighted low enough it can only win a trade the rest
  * of the objective is already indifferent to.
  *
- * `guardMaxShifts` defaults to the ordinary 5-shift ceiling. It exists as a
- * parameter (not hardcoded to MAX_SHIFTS_PER_WEEK) purely so a future,
- * deliberately separate change can pass 6 for a guard already configured at
- * 5 -- that requires relaxing the hard weekly ceiling itself in both solver
- * engines, which this function does not attempt.
+ * The reachable ceiling is maxRequestableShifts(configuredKamut) -- ordinarily
+ * MAX_SHIFTS_PER_WEEK, or ABSOLUTE_MAX_SHIFTS_PER_WEEK for a guard already
+ * configured at that ordinary ceiling asking for one more. Getting there
+ * still requires guardShiftCeiling() to have raised the guard's actual hard
+ * cap to match (only true for that same 5-configured case) -- this function
+ * only ever computes the reward target, never the enforcement.
  */
 export function stretchTarget(
   configuredKamut: number,
   distinctAvailableDays: number,
   requestedShifts: number | null | undefined,
-  guardMaxShifts: number = MAX_SHIFTS_PER_WEEK,
 ): number {
   const eff = effectiveKamut(configuredKamut, distinctAvailableDays, requestedShifts);
   if (requestedShifts == null || requestedShifts <= configuredKamut) return eff;
-  return Math.max(eff, Math.min(requestedShifts, distinctAvailableDays, guardMaxShifts));
+  return Math.max(
+    eff,
+    Math.min(requestedShifts, distinctAvailableDays, maxRequestableShifts(configuredKamut)),
+  );
 }
 
 /**

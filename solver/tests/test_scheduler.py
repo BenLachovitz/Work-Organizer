@@ -237,6 +237,36 @@ def main() -> int:
             else:
                 bad("guard shift ceiling", f"expected exactly 1 S1 floor breach across days 0-1, got {len(s1_breaches)}")
 
+        if name.startswith("13-"):
+            # sixth_shift_guard is configured at 5 (the ordinary ceiling) and
+            # asked for a 6th; they are also the ONLY guard available for S1
+            # on days 0-5, so all 6 floors can only close through them --
+            # proves max_shifts=6 actually lets the solver reach 6 (the
+            # CP-SAT domain-bound class of bug a naive per-guard H4 change
+            # could reintroduce).
+            sixth = [a for a in out.assignments if a.guard_id == "sixth_shift_guard"]
+            if len(sixth) == 6:
+                ok("a guard configured at 5 who explicitly asked for a 6th shift can actually reach it")
+            else:
+                bad("sixth shift grant", f"sixth_shift_guard assigned {len(sixth)} shifts, expected 6")
+
+            # capped_at_five requested 5 (not 6) and is under IDENTICAL
+            # temptation (sole coverage for S4 on the same 6 days) -- not
+            # being configured at 5 means max_shifts stayed 5, so one night
+            # floor must go unfilled rather than let them sneak past the
+            # ordinary ceiling too.
+            capped = [a for a in out.assignments if a.guard_id == "capped_at_five"]
+            if len(capped) <= 5:
+                ok(f"the 6th-shift allowance stays exclusive to a guard configured at 5 (capped_at_five: {len(capped)} shift(s))")
+            else:
+                bad("sixth shift exclusivity", f"capped_at_five assigned {len(capped)} shifts, ceiling was 5")
+
+            s4_breaches = [b for b in report.floor_breaches if b.day <= 5 and b.segment == "S4"]
+            if len(s4_breaches) == 1:
+                ok("the un-eligible guard hitting their real ceiling shows up as a genuine floor breach")
+            else:
+                bad("sixth shift exclusivity", f"expected exactly 1 S4 floor breach across days 0-5, got {len(s4_breaches)}")
+
         print()
 
     # CP-SAT is optimal; the greedy mock is not. Recording the scores lets

@@ -253,6 +253,34 @@ for (const file of files) {
       : bad('guard shift ceiling', `expected exactly 1 S1 floor breach across days 0-1, got ${s1Breaches.length}`);
   }
 
+  if (file.startsWith('13-')) {
+    // sixth_shift_guard is configured at 5 (the ordinary ceiling) and asked
+    // for a 6th; they are also the ONLY guard available for S1 on days 0-5,
+    // so all 6 floors can only close through them -- proves max_shifts=6
+    // actually lets the solver reach 6 (the CP-SAT domain-bound class of bug
+    // a naive per-guard H4 change could reintroduce).
+    const sixth = output.assignments.filter((a) => a.guard_id === 'sixth_shift_guard');
+    sixth.length === 6
+      ? ok('a guard configured at 5 who explicitly asked for a 6th shift can actually reach it')
+      : bad('sixth shift grant', `sixth_shift_guard assigned ${sixth.length} shifts, expected 6`);
+
+    // capped_at_five requested 5 (not 6) and is under IDENTICAL temptation
+    // (sole coverage for S4 on the same 6 days) -- not being configured at 5
+    // means max_shifts stayed 5, so one night floor must go unfilled rather
+    // than let them sneak past the ordinary ceiling too.
+    const capped = output.assignments.filter((a) => a.guard_id === 'capped_at_five');
+    capped.length <= 5
+      ? ok(`the 6th-shift allowance stays exclusive to a guard configured at 5 (capped_at_five: ${capped.length} shift(s))`)
+      : bad('sixth shift exclusivity', `capped_at_five assigned ${capped.length} shifts, ceiling was 5`);
+
+    const s4Breaches = verdict.report.floor_breaches.filter(
+      (b) => b.day <= 5 && b.segment === 'S4',
+    );
+    s4Breaches.length === 1
+      ? ok('the un-eligible guard hitting their real ceiling shows up as a genuine floor breach')
+      : bad('sixth shift exclusivity', `expected exactly 1 S4 floor breach across days 0-5, got ${s4Breaches.length}`);
+  }
+
   console.log(`    ${summarise(verdict.report).join(' · ')}\n`);
 }
 

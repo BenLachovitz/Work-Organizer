@@ -159,9 +159,15 @@ def solve(inp: SolverInput, time_limit_s: float = 20.0, workers: int = 8) -> Sol
     stretch_bonus: list[cp_model.IntVar] = []
     for gi, g in enumerate(guards):
         worked = sum(x[gi, d, s] for d in range(DAYS) for s in SHIFT_TYPES)
-        diff = model.NewIntVar(-MAX_SHIFTS_PER_WEEK, MAX_SHIFTS_PER_WEEK, f"sdiff_{gi}")
+        # Domain bounds sized off THIS guard's own max_shifts (H4), not the
+        # flat constant -- a guard configured at 5 who requested a 6th can
+        # legitimately reach worked=6, and a domain capped at 5 would make
+        # `diff == worked - effective_kamut` unsatisfiable the moment that
+        # happens (the same class of bug the AddMaxEquality below fixes for
+        # the negative side).
+        diff = model.NewIntVar(-MAX_SHIFTS_PER_WEEK, g.max_shifts, f"sdiff_{gi}")
         model.Add(diff == worked - g.effective_kamut)
-        overflow = model.NewIntVar(0, MAX_SHIFTS_PER_WEEK, f"sover_{gi}")
+        overflow = model.NewIntVar(0, g.max_shifts, f"sover_{gi}")
         model.AddMaxEquality(overflow, [diff, model.NewConstant(0)])
 
         cap = max(0, g.stretch_target - g.effective_kamut)

@@ -56,6 +56,11 @@ END_H: dict[ShiftType, float] = {
 HARD_REST = 8.0   # below this is physically impossible
 FREE_REST = 12.0  # at or above this costs nothing
 MAX_SHIFTS_PER_WEEK = 5
+# The highest number of shifts ANY guard may ever reach in a week -- one more
+# than the ordinary ceiling. Only reachable by a guard already AT the
+# ordinary ceiling who explicitly asks for one more (see SolverGuard.max_shifts
+# and maxRequestableShifts() in src/lib/shifts.ts).
+ABSOLUTE_MAX_SHIFTS_PER_WEEK = 6
 
 
 def rest_hours(prev: ShiftType, nxt: ShiftType) -> float:
@@ -130,9 +135,10 @@ class SolverGuard(BaseModel):
     # This guard's hard weekly ceiling (H4) -- ordinarily the flat
     # MAX_SHIFTS_PER_WEEK everyone shares, but tightened to the guard's own
     # requested count when they explicitly asked for FEWER shifts than
-    # configured (guardShiftCeiling() in src/lib/shifts.ts). A request for
-    # MORE never touches this field -- that path only feeds stretch_target.
-    max_shifts: int = Field(ge=0, le=MAX_SHIFTS_PER_WEEK, default=MAX_SHIFTS_PER_WEEK)
+    # configured, or (only for a guard already configured at the ordinary
+    # ceiling) raised to ABSOLUTE_MAX_SHIFTS_PER_WEEK when they explicitly
+    # asked for one more (guardShiftCeiling() in src/lib/shifts.ts).
+    max_shifts: int = Field(ge=0, le=ABSOLUTE_MAX_SHIFTS_PER_WEEK, default=MAX_SHIFTS_PER_WEEK)
     # Day index "0".."6" (Sunday first) -> the base shifts they marked.
     availability: dict[str, list[BaseShift]] = Field(default_factory=dict)
     # Day index -> the base shifts marked עדיפות (strength 2) that day. Always
