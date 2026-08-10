@@ -97,8 +97,8 @@ export function ManagerDashboard() {
     return (
       <AppShell title="ניהול">
         <Card>
-          <p className="font-bold text-slate-900">אין שבועות מוגדרים</p>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="font-bold text-slate-900 dark:text-slate-100">אין שבועות מוגדרים</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             יש להוסיף שבוע חדש לפני שניתן לנהל שיבוצים.
           </p>
         </Card>
@@ -177,6 +177,14 @@ export function ManagerDashboard() {
               }
             />
 
+            {/* TeamTable above only shows aggregate counts per guard. This page
+                shows the actual day/shift breakdown and lets the manager edit
+                a guard's availability and עדיפות marks on their behalf --
+                carries the currently selected week over via ?week=. */}
+            <ButtonLink to={`/manage/preferences?week=${selected}`} variant="secondary" fullWidth>
+              העדפות הצוות - צפייה ועריכה לפי יום ומשמרת
+            </ButtonLink>
+
             {/* Team CRUD (add/remove employees, edit their baseline כמות) lives on
                 its own page -- a config screen, not part of the weekly workflow
                 this dashboard is otherwise about. */}
@@ -193,8 +201,8 @@ export function ManagerDashboard() {
             {/* ---------------- generate ---------------- */}
             <Card className="space-y-3">
               <div>
-                <p className="font-bold text-slate-900">יצירת סידור</p>
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="font-bold text-slate-900 dark:text-slate-100">יצירת סידור</p>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                   המנוע קורא את הזמינות והכמויות שלמעלה ומחזיר סידור יחד עם דוח כיסוי. כל הרצה
                   נשמרת כגרסה חדשה - אפשר לייצר שוב ולהשוות.
                 </p>

@@ -103,15 +103,15 @@ export function CodeInput({
           onPaste={handlePaste}
           onFocus={(e) => e.target.select()}
           className={cn(
-            'size-10 rounded-xl border-2 bg-white text-center text-lg font-bold',
+            'size-10 rounded-xl border-2 bg-white text-center text-lg font-bold dark:bg-slate-800',
             'transition-all duration-150 focus:outline-none sm:size-14 sm:text-2xl',
             invalid
-              ? 'border-rose-400 text-rose-700'
+              ? 'border-rose-400 text-rose-700 dark:text-rose-400'
               : value[i]
-                ? 'border-brand-500 text-slate-900'
-                : 'border-slate-300 text-slate-900',
+                ? 'border-brand-500 text-slate-900 dark:text-slate-100'
+                : 'border-slate-300 text-slate-900 dark:border-slate-600 dark:text-slate-100',
             'focus:border-brand-600 focus:ring-4 focus:ring-brand-500/15',
-            disabled && 'cursor-not-allowed bg-slate-100 opacity-60',
+            disabled && 'cursor-not-allowed bg-slate-100 opacity-60 dark:bg-slate-700',
           )}
         />
       ))}

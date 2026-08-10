@@ -1,5 +1,10 @@
 @import 'tailwindcss';
 
+/* Class-based dark mode: `dark:` utilities apply whenever `.dark` is on
+   <html> (or an ancestor) -- set by ThemeContext, not by the OS media query
+   directly, so a manual override can win over prefers-color-scheme. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ===========================================================================
    Design tokens (Tailwind v4 CSS-first config)
    =========================================================================== */
@@ -32,6 +37,27 @@
   --radius-card: 1rem;
 }
 
+/* Shift colours, one step darker/less luminous under dark mode -- these are
+   applied via inline `style={{ backgroundColor: 'var(--color-shift-*)' }}`
+   (SHIFTS[x].colorVar, src/lib/shifts.ts), not a Tailwind class, so a `dark:`
+   variant can't reach them; overriding the variable itself is what does.
+   Deliberately still fully saturated (not desaturated toward grey) -- these
+   are the app's one and only way to tell shifts apart at a glance, and white
+   chip text still needs to read against them. Scoped to `.dark`, not `:root`,
+   so the base @theme values above remain the canonical/light ones.
+
+   The roster JPEG export (src/lib/exportRoster.ts) reads these same
+   variables via getComputedStyle -- it deliberately neutralises `.dark`
+   before measuring, so an exported image always matches the light palette
+   above regardless of which theme was active when it was generated. */
+.dark {
+  --color-shift-morning: #d97706; /* בוקר    amber-600 */
+  --color-shift-afternoon: #0284c7; /* צהריים  sky-600 */
+  --color-shift-night: #4f46e5; /* לילה    indigo-600 */
+  --color-shift-day12: #ea580c; /* יום 12  orange-600 */
+  --color-shift-night12: #9333ea; /* לילה 12 purple-600 */
+}
+
 /* ===========================================================================
    Base
    =========================================================================== */
@@ -49,7 +75,7 @@
   }
 
   body {
-    @apply bg-slate-100 font-sans text-slate-900 antialiased;
+    @apply bg-slate-100 font-sans text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
     /* Respect iOS notches; the bottom nav adds its own inset. */
     padding-top: env(safe-area-inset-top);
   }

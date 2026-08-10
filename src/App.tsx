@@ -2,6 +2,7 @@ import { Suspense, lazy, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 import { Login } from '@/pages/Login';
 import { GuardHome } from '@/pages/GuardHome';
 import { Preferences } from '@/pages/Preferences';
@@ -20,6 +21,9 @@ const ManagerDashboard = lazy(() =>
 const TeamManagement = lazy(() =>
   import('@/pages/TeamManagement').then((m) => ({ default: m.TeamManagement })),
 );
+const ManagerPreferences = lazy(() =>
+  import('@/pages/ManagerPreferences').then((m) => ({ default: m.ManagerPreferences })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,7 +38,7 @@ const queryClient = new QueryClient({
 function FullScreenLoader() {
   return (
     // svh, not dvh -- see the comment on the same swap in Login.tsx.
-    <div className="grid min-h-svh place-items-center bg-slate-100">
+    <div className="grid min-h-svh place-items-center bg-slate-100 dark:bg-slate-950">
       <Spinner className="size-8 text-brand-600" />
     </div>
   );
@@ -114,6 +118,16 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/manage/preferences"
+        element={
+          <ManagerOnly>
+            <Suspense fallback={<FullScreenLoader />}>
+              <ManagerPreferences />
+            </Suspense>
+          </ManagerOnly>
+        }
+      />
+      <Route
         path="*"
         element={
           <Protected>
@@ -128,11 +142,13 @@ function AppRoutes() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <AuthProvider>
-          <AppRoutes />
-        </AuthProvider>
-      </BrowserRouter>
+      <ThemeProvider>
+        <BrowserRouter>
+          <AuthProvider>
+            <AppRoutes />
+          </AuthProvider>
+        </BrowserRouter>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

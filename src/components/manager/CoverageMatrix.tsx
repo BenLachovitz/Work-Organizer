@@ -56,9 +56,9 @@ export function CoverageMatrix({
 
   return (
     <Card className="p-0">
-      <div className="border-b border-slate-200 px-4 py-3">
-        <p className="font-bold text-slate-900">זמינות הצוות</p>
-        <p className="mt-0.5 text-sm text-slate-500">
+      <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+        <p className="font-bold text-slate-900 dark:text-slate-100">זמינות הצוות</p>
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
           כמה מאבטחים סימנו שהם יכולים לעבוד בכל משמרת
         </p>
       </div>
@@ -75,7 +75,9 @@ export function CoverageMatrix({
                   className={cn(
                     'pb-1 text-center text-xs font-bold',
                     // Marks why Saturday and Sunday show 2 even at target 3.
-                    isWeekendDay(i) ? 'text-amber-600' : 'text-slate-500',
+                    isWeekendDay(i)
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : 'text-slate-500 dark:text-slate-400',
                   )}
                 >
                   {HEBREW_DAYS_SHORT[i]}
@@ -91,7 +93,7 @@ export function CoverageMatrix({
                     className="inline-block size-2.5 rounded-full align-middle"
                     style={{ backgroundColor: SHIFTS[shift].colorVar }}
                   />
-                  <span className="ms-1.5 align-middle text-xs font-bold text-slate-700">
+                  <span className="ms-1.5 align-middle text-xs font-bold text-slate-700 dark:text-slate-300">
                     {SHIFTS[shift].he}
                   </span>
                 </td>
@@ -107,10 +109,10 @@ export function CoverageMatrix({
                         className={cn(
                           'grid h-9 place-items-center rounded-lg text-sm font-bold tabular-nums',
                           below
-                            ? 'bg-rose-100 text-rose-700 ring-1 ring-rose-300'
+                            ? 'bg-rose-100 text-rose-700 ring-1 ring-rose-300 dark:bg-rose-950/50 dark:text-rose-400 dark:ring-rose-800'
                             : short
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-emerald-100 text-emerald-800',
+                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-400'
+                              : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-400',
                         )}
                       >
                         {a}
@@ -124,30 +126,30 @@ export function CoverageMatrix({
         </table>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 px-4 py-2.5 text-xs">
+      <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 px-4 py-2.5 text-xs dark:border-slate-800 dark:text-slate-300">
         <span className="flex items-center gap-1.5">
-          <span className="size-3 rounded bg-emerald-100 ring-1 ring-emerald-300" />
+          <span className="size-3 rounded bg-emerald-100 ring-1 ring-emerald-300 dark:bg-emerald-950/60 dark:ring-emerald-700" />
           מספיק ליעד
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="size-3 rounded bg-amber-100 ring-1 ring-amber-300" />
+          <span className="size-3 rounded bg-amber-100 ring-1 ring-amber-300 dark:bg-amber-950/60 dark:ring-amber-700" />
           מעל הרצפה, מתחת ליעד
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="size-3 rounded bg-rose-100 ring-1 ring-rose-300" />
+          <span className="size-3 rounded bg-rose-100 ring-1 ring-rose-300 dark:bg-rose-950/60 dark:ring-rose-700" />
           מתחת לרצפה
         </span>
       </div>
 
       {(breaches > 0 || gaps > 0) && (
-        <div className="border-t border-slate-200 px-4 py-3 text-sm">
+        <div className="border-t border-slate-200 px-4 py-3 text-sm dark:border-slate-800">
           {breaches > 0 ? (
-            <p className="font-semibold text-rose-700">
+            <p className="font-semibold text-rose-700 dark:text-rose-400">
               {breaches} משמרות ללא מספיק מתנדבים כדי לעמוד ברצפה. שום מנוע שיבוץ לא יוכל לאייש
               אותן - צריך לפנות למאבטחים.
             </p>
           ) : (
-            <p className="font-semibold text-amber-700">
+            <p className="font-semibold text-amber-700 dark:text-amber-400">
               {gaps} משמרות יאוישו מתחת ליעד, אך מעל הרצפה.
             </p>
           )}

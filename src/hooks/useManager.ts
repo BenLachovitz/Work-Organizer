@@ -131,6 +131,59 @@ export function useUpdateWeek() {
   });
 }
 
+/** Same slot shape SavePreferencesInput uses (src/hooks/useGuardPortal.ts) --
+ *  allows12h and strength are per slot, not per week. */
+export interface ManagerSavePreferencesInput {
+  weekStart: DateKey;
+  guardId: string;
+  slots: { date: DateKey; shift: BaseShift; allows12h: boolean; strength: 1 | 2 }[];
+  notes?: string;
+}
+
+/**
+ * Saves a guard's whole week on their behalf, through
+ * manager_save_week_preferences (migration 32) -- the manager-keyed twin of
+ * save_week_preferences. Not bound by the guard's own submission deadline,
+ * unlike the guard-facing mutation: a manager's edit isn't automation, so it
+ * isn't swept by the same window.
+ */
+export function useManagerSavePreferences() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: ManagerSavePreferencesInput) => {
+      const { error } = await requireSupabase().rpc('manager_save_week_preferences', {
+        p_guard_id: input.guardId,
+        p_week_start: input.weekStart,
+        p_slots: input.slots,
+        p_notes: input.notes ?? null,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: (_data, input) => {
+      void qc.invalidateQueries({ queryKey: managerKeys.week(input.weekStart) });
+    },
+  });
+}
+
+/** Cancels a guard's submission on their behalf, through
+ *  manager_delete_week_submission (migration 32) -- the manager-keyed twin of
+ *  delete_week_submission. */
+export function useManagerDeleteSubmission() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { weekStart: DateKey; guardId: string }) => {
+      const { error } = await requireSupabase().rpc('manager_delete_week_submission', {
+        p_guard_id: input.guardId,
+        p_week_start: input.weekStart,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: (_data, input) => {
+      void qc.invalidateQueries({ queryKey: managerKeys.week(input.weekStart) });
+    },
+  });
+}
+
 export function useSetGuardTarget() {
   const qc = useQueryClient();
   return useMutation({

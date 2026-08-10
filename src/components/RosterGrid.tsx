@@ -85,7 +85,7 @@ function Chip({
         'text-[11px] font-semibold text-white',
         // A ring rather than a different colour: the colour already encodes the
         // shift type, and overloading it would cost more than it gains.
-        mine && 'ring-2 ring-slate-900 ring-offset-1',
+        mine && 'ring-2 ring-slate-900 ring-offset-1 dark:ring-slate-100 dark:ring-offset-slate-900',
         className,
       )}
       style={{ backgroundColor: SHIFTS[assignment.shift].colorVar }}
@@ -156,10 +156,10 @@ export function RosterGrid({
     const below = segs.some((s) => covers(date, s) < floors[s]);
     const short = !below && segs.some((s) => covers(date, s) < targets[s]);
     return below
-      ? 'bg-rose-50 ring-rose-300'
+      ? 'bg-rose-50 ring-rose-300 dark:bg-rose-950/40 dark:ring-rose-800'
       : short
-        ? 'bg-amber-50 ring-amber-200'
-        : 'bg-emerald-50/60 ring-emerald-200';
+        ? 'bg-amber-50 ring-amber-200 dark:bg-amber-950/40 dark:ring-amber-800'
+        : 'bg-emerald-50/60 ring-emerald-200 dark:bg-emerald-950/30 dark:ring-emerald-800';
   };
 
   const blocks = [
@@ -170,9 +170,9 @@ export function RosterGrid({
 
   return (
     <Card className="p-0">
-      <div className="border-b border-slate-200 px-4 py-3">
-        <p className="font-bold text-slate-900">{title}</p>
-        <p className="mt-0.5 text-sm text-slate-500">
+      <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+        <p className="font-bold text-slate-900 dark:text-slate-100">{title}</p>
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
           משמרת 12 שעות מסומנת ״עד 18:45״ או ״מ 18:45״. בצהריים, שני שמות מופרדים ב־/ הם חילוף
           ב־18:45 - הראשון עד, השני מ־18:45.
         </p>
@@ -201,12 +201,15 @@ export function RosterGrid({
                     className={cn(
                       'rounded text-xs font-bold',
                       d === todayDate && 'bg-brand-600 text-white',
-                      d !== todayDate && (isWeekendDay(i) ? 'text-amber-600' : 'text-slate-700'),
+                      d !== todayDate &&
+                        (isWeekendDay(i)
+                          ? 'text-amber-600 dark:text-amber-400'
+                          : 'text-slate-700 dark:text-slate-300'),
                     )}
                   >
                     {HEBREW_DAYS_SHORT[i]}
                   </div>
-                  <div className="num text-[10px] font-normal text-slate-400">
+                  <div className="num text-[10px] font-normal text-slate-400 dark:text-slate-500">
                     {formatDayMonth(d).replace(/\sב.*/, '')}
                   </div>
                 </th>
@@ -218,11 +221,15 @@ export function RosterGrid({
             {blocks.map((block) => (
               <tr key={block.key}>
                 <td className="pe-2 align-top">
-                  <div className="text-right text-xs font-bold text-slate-800">{block.he}</div>
+                  <div className="text-right text-xs font-bold text-slate-800 dark:text-slate-200">
+                    {block.he}
+                  </div>
                   {/* .num forces direction: ltr, which pushed the time to the
                       LEFT edge while the Hebrew label sat at the right. Pinning
                       it right lines the two up and reclaims the gap between. */}
-                  <div className="num text-right text-[10px] text-slate-400">{block.label}</div>
+                  <div className="num text-right text-[10px] text-slate-400 dark:text-slate-500">
+                    {block.label}
+                  </div>
                 </td>
 
                 {dates.map((date, dayIndex) => {
@@ -315,7 +322,7 @@ export function RosterGrid({
                             ) : (
                               <Gap />
                             )}
-                            <span className="self-center text-[10px] font-bold text-slate-400">
+                            <span className="self-center text-[10px] font-bold text-slate-400 dark:text-slate-500">
                               /
                             </span>
                             {r.late ? (
@@ -357,7 +364,7 @@ export function RosterGrid({
         </table>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 px-4 py-2.5 text-[11px]">
+      <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 px-4 py-2.5 text-[11px] dark:border-slate-800 dark:text-slate-300">
         <span className="flex items-center gap-1.5">
           <span className="size-3 rounded" style={{ backgroundColor: SHIFTS.morning.colorVar }} />
           בוקר
@@ -385,7 +392,9 @@ export function RosterGrid({
 
 function Empty() {
   return (
-    <div className="grid h-10 place-items-center text-[11px] font-bold text-rose-600">ריק</div>
+    <div className="grid h-10 place-items-center text-[11px] font-bold text-rose-600 dark:text-rose-400">
+      ריק
+    </div>
   );
 }
 
@@ -404,7 +413,7 @@ function Gap() {
   return (
     <span
       title="אין כיסוי במשבצת הזו"
-      className="grid min-w-0 flex-1 place-items-center rounded bg-rose-100 px-1.5 py-1 text-[11px] font-bold text-rose-500 ring-1 ring-rose-200"
+      className="grid min-w-0 flex-1 place-items-center rounded bg-rose-100 px-1.5 py-1 text-[11px] font-bold text-rose-500 ring-1 ring-rose-200 dark:bg-rose-950/50 dark:text-rose-400 dark:ring-rose-800"
     >
       —
     </span>

@@ -41,18 +41,21 @@ export function RunVersions({
   return (
     <Card className="space-y-3">
       <div>
-        <p className="font-bold text-slate-900">גרסאות הסידור</p>
-        <p className="mt-0.5 text-sm text-slate-500">
+        <p className="font-bold text-slate-900 dark:text-slate-100">גרסאות הסידור</p>
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
           כל הרצה נשמרת בנפרד. אפשר לערוך, לפרסם או למחוק כל אחת - גם לאחר פרסום.
         </p>
       </div>
 
-      <div className="divide-y divide-slate-100">
+      <div className="divide-y divide-slate-100 dark:divide-slate-800">
         {runs.map((run) => {
           const selected = run.id === selectedId;
           const edited = run.solver_status.includes('+EDITED');
           return (
-            <div key={run.id} className={cn('py-2.5', selected && 'bg-brand-50/40')}>
+            <div
+              key={run.id}
+              className={cn('py-2.5', selected && 'bg-brand-50/40 dark:bg-brand-950/30')}
+            >
               <button
                 type="button"
                 onClick={() => onSelect(run.id)}
@@ -61,16 +64,20 @@ export function RunVersions({
                 <span
                   className={cn(
                     'size-2.5 shrink-0 rounded-full',
-                    selected ? 'bg-brand-600' : 'bg-slate-300',
+                    selected ? 'bg-brand-600' : 'bg-slate-300 dark:bg-slate-600',
                   )}
                 />
                 <span className="min-w-0 flex-1">
-                  <span className="font-bold text-slate-900">גרסה {run.version}</span>
-                  <span className="num ms-2 text-xs text-slate-500">
+                  <span className="font-bold text-slate-900 dark:text-slate-100">
+                    גרסה {run.version}
+                  </span>
+                  <span className="num ms-2 text-xs text-slate-500 dark:text-slate-400">
                     {run.solver_status.replace('+EDITED', '')}
                   </span>
                   {run.objective_value !== null && (
-                    <span className="ms-2 text-xs text-slate-400">ניקוד {run.objective_value}</span>
+                    <span className="ms-2 text-xs text-slate-400 dark:text-slate-500">
+                      ניקוד {run.objective_value}
+                    </span>
                   )}
                 </span>
                 {edited && <Badge tone="amber">נערך ידנית</Badge>}

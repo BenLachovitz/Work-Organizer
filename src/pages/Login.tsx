@@ -142,8 +142,12 @@ export function Login() {
           {step === 'code' && (
             <>
               <div className="text-center">
-                <h2 className="text-lg font-bold text-slate-900">כניסה למערכת</h2>
-                <p className="mt-1 text-sm text-slate-500">הזן את קוד העובד בן 6 הספרות</p>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                  כניסה למערכת
+                </h2>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  הזן את קוד העובד בן 6 הספרות
+                </p>
               </div>
 
               <CodeInput
@@ -175,10 +179,12 @@ export function Login() {
           {step === 'pin' && (
             <>
               <div className="text-center">
-                <h2 className="text-lg font-bold text-slate-900">
+                <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
                   שלום{displayName ? `, ${displayName}` : ''}
                 </h2>
-                <p className="mt-1 text-sm text-slate-500">הזן את הסיסמה האישית שלך</p>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  הזן את הסיסמה האישית שלך
+                </p>
               </div>
 
               <CodeInput
@@ -214,10 +220,10 @@ export function Login() {
           {step === 'setPin' && (
             <>
               <div className="text-center">
-                <h2 className="text-lg font-bold text-slate-900">
+                <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
                   ברוך הבא{displayName ? `, ${displayName}` : ''}
                 </h2>
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                   זו הכניסה הראשונה שלך. בחר סיסמה אישית בת {PIN_MIN_LENGTH} ספרות.
                 </p>
               </div>
@@ -227,7 +233,9 @@ export function Login() {
               </Alert>
 
               <div className="space-y-2">
-                <p className="text-center text-sm font-semibold text-slate-700">סיסמה חדשה</p>
+                <p className="text-center text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  סיסמה חדשה
+                </p>
                 <CodeInput
                   value={pin}
                   onChange={setPin}
@@ -240,7 +248,9 @@ export function Login() {
               </div>
 
               <div className="space-y-2">
-                <p className="text-center text-sm font-semibold text-slate-700">אימות סיסמה</p>
+                <p className="text-center text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  אימות סיסמה
+                </p>
                 <CodeInput
                   value={pinConfirm}
                   onChange={setPinConfirm}

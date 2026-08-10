@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, Badge, Button, Card, cn } from '@/components/ui';
+import { Alert, Badge, Button, Card, Modal, cn } from '@/components/ui';
 import {
   HEBREW_DAYS,
   formatDayMonth,
@@ -103,7 +103,7 @@ export function WeeklyPreferenceForm({
 }) {
   const [slots, setSlots] = useState<Selection>(() => new Map(initial?.slots ?? []));
   const [notes, setNotes] = useState(initial?.notes ?? '');
-  const [confirmEmpty, setConfirmEmpty] = useState(false);
+  const [confirmSubmit, setConfirmSubmit] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const dates = useMemo(() => weekDates(weekStart), [weekStart]);
@@ -120,7 +120,6 @@ export function WeeklyPreferenceForm({
       else next.set(k, { allows12h: false, strength: 1 });
       return next;
     });
-    setConfirmEmpty(false);
   };
 
   const toggle12h = (date: DateKey, shift: BaseShift) => {
@@ -224,23 +223,39 @@ export function WeeklyPreferenceForm({
   const isEmpty = slots.size === 0;
   const wasLowered = effective < configuredKamut;
 
-  const submit = () => {
-    if (isEmpty && !confirmEmpty) {
-      setConfirmEmpty(true);
-      return;
-    }
+  // "שלח בקשות" only opens the confirmation modal below -- the actual
+  // onSubmit call happens from its confirm button, so a guard (or a manager
+  // editing on their behalf) always sees exactly what is about to be sent
+  // before it goes out.
+  const submit = () => setConfirmSubmit(true);
+  const confirmAndSubmit = () => {
+    setConfirmSubmit(false);
     onSubmit({ slots, notes });
   };
 
   return (
     <div className="space-y-4">
       {/* ---------------- deadline ---------------- */}
-      <Card className={cn('flex items-center justify-between gap-3', locked && 'bg-slate-50')}>
+      <Card
+        className={cn(
+          'flex items-center justify-between gap-3',
+          locked && 'bg-slate-50 dark:bg-slate-800',
+        )}
+      >
         <div className="min-w-0">
-          <p className="font-bold text-slate-900">
-            {locked ? 'ההגשות נסגרו' : `נותרו ${left} להגשה`}
+          <p className="font-bold text-slate-900 dark:text-slate-100">
+            {locked
+              ? 'ההגשות נסגרו'
+              : left
+                ? `נותרו ${left} להגשה`
+                // Reachable only when a manager edits on a guard's behalf after
+                // that guard's own deadline passed -- locked stays false since
+                // a manager's edit isn't bound by it, but `left` is null.
+                : 'מועד ההגשה הרגיל עבר - פתוח לעריכה על ידך'}
           </p>
-          <p className="mt-0.5 truncate text-xs text-slate-500">{formatDeadline(deadline)}</p>
+          <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
+            {formatDeadline(deadline)}
+          </p>
         </div>
         <Badge tone={locked ? 'rose' : 'green'}>{locked ? 'נעול' : 'פתוח'}</Badge>
       </Card>
@@ -253,9 +268,9 @@ export function WeeklyPreferenceForm({
 
       {/* ---------------- the grid ---------------- */}
       <Card className="p-0">
-        <div className="border-b border-slate-200 px-4 py-3">
-          <p className="font-bold text-slate-900">מתי אתה זמין?</p>
-          <p className="mt-0.5 text-sm text-slate-500">
+        <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+          <p className="font-bold text-slate-900 dark:text-slate-100">מתי אתה זמין?</p>
+          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             סמן כל משמרת שאתה יכול לעבוד. אפשר לסמן כמה שתרצה - השיבוץ בפועל ייקבע לפי הצרכים.
           </p>
         </div>
@@ -269,12 +284,17 @@ export function WeeklyPreferenceForm({
             const extendable = daySlots.filter(canExtend) as ('morning' | 'night')[];
 
             return (
-              <div key={date} className={cn('px-4 py-3', isWeekend && 'bg-amber-50/40')}>
+              <div
+                key={date}
+                className={cn('px-4 py-3', isWeekend && 'bg-amber-50/40 dark:bg-amber-950/20')}
+              >
                 <div className="mb-2 flex items-baseline gap-2">
-                  <span className="text-[15px] font-bold text-slate-900">
+                  <span className="text-[15px] font-bold text-slate-900 dark:text-slate-100">
                     יום {HEBREW_DAYS[dayIdx]}
                   </span>
-                  <span className="text-xs text-slate-400">{formatDayMonth(date)}</span>
+                  <span className="text-xs text-slate-400 dark:text-slate-500">
+                    {formatDayMonth(date)}
+                  </span>
                   {daySlots.length > 0 && (
                     <span className="ms-auto text-xs font-semibold text-brand-600">
                       {daySlots.length} נבחרו
@@ -298,7 +318,7 @@ export function WeeklyPreferenceForm({
                           'transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50',
                           on
                             ? 'border-transparent text-white shadow-sm'
-                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300',
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-600',
                         )}
                         style={on ? { backgroundColor: def.colorVar } : undefined}
                       >
@@ -329,7 +349,7 @@ export function WeeklyPreferenceForm({
                             'text-[11px] font-semibold transition-all disabled:opacity-50',
                             on
                               ? 'border-transparent text-white'
-                              : 'border-dashed border-slate-300 bg-white text-slate-500 hover:border-slate-400',
+                              : 'border-dashed border-slate-300 bg-white text-slate-500 hover:border-slate-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-500',
                           )}
                           style={on ? { backgroundColor: ext.colorVar } : undefined}
                         >
@@ -372,7 +392,7 @@ export function WeeklyPreferenceForm({
                               'text-[11px] font-semibold transition-all disabled:opacity-50',
                               preferred
                                 ? 'border-transparent text-white'
-                                : 'border-dashed border-slate-300 bg-white text-slate-500 hover:border-slate-400',
+                                : 'border-dashed border-slate-300 bg-white text-slate-500 hover:border-slate-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-500',
                             )}
                             style={preferred ? { backgroundColor: def.colorVar } : undefined}
                           >
@@ -394,8 +414,8 @@ export function WeeklyPreferenceForm({
       {/* ---------------- 12h summary + bulk actions ---------------- */}
       <Card className="space-y-3">
         <div>
-          <p className="font-bold text-slate-900">משמרות 12 שעות</p>
-          <p className="mt-0.5 text-sm text-slate-500">
+          <p className="font-bold text-slate-900 dark:text-slate-100">משמרות 12 שעות</p>
+          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             אופציונלי, ונבחר לכל יום בנפרד. משמרת 12 שעות נחשבת כמשמרת אחת בלבד לצורך הכמות
             השבועית.
           </p>
@@ -408,13 +428,16 @@ export function WeeklyPreferenceForm({
           return (
             <div
               key={shift}
-              className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2.5"
+              className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2.5 dark:bg-slate-800"
             >
               <div className="min-w-0">
-                <p className="text-sm font-bold text-slate-800">
-                  {ext.he} <span className="num font-normal text-slate-500">{ext.label}</span>
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                  {ext.he}{' '}
+                  <span className="num font-normal text-slate-500 dark:text-slate-400">
+                    {ext.label}
+                  </span>
                 </p>
-                <p className="mt-0.5 text-xs text-slate-500">
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                   {selected === 0
                     ? `סמן ${SHIFTS[shift].he} בימים שתרצה, ואז אפשר להאריך אותם`
                     : `${opted} מתוך ${selected} ימי ${SHIFTS[shift].he} מסומנים`}
@@ -438,8 +461,8 @@ export function WeeklyPreferenceForm({
       {/* ---------------- notes ---------------- */}
       <Card className="space-y-2">
         <div>
-          <p className="font-bold text-slate-900">הערות</p>
-          <p className="mt-0.5 text-sm text-slate-500">
+          <p className="font-bold text-slate-900 dark:text-slate-100">הערות</p>
+          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             משהו שכדאי שנדע ולא נכנס לטבלה - למשל "עדיפות למשמרות לילה", "עד 4 משמרות השבוע", "דבר
             איתי אם אתה צריך עזרה".
           </p>
@@ -452,11 +475,12 @@ export function WeeklyPreferenceForm({
           placeholder="לא חובה..."
           className={cn(
             'w-full resize-none rounded-xl border-2 border-slate-200 p-3 text-sm text-slate-800',
-            'placeholder:text-slate-400 focus:border-brand-400 focus:outline-none',
-            'disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-70',
+            'dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100',
+            'placeholder:text-slate-400 focus:border-brand-400 focus:outline-none dark:placeholder:text-slate-500',
+            'disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-70 dark:disabled:bg-slate-800/50',
           )}
         />
-        <p className="text-end text-xs text-slate-400">
+        <p className="text-end text-xs text-slate-400 dark:text-slate-500">
           {notes.length}/{NOTES_MAX_LENGTH}
         </p>
       </Card>
@@ -464,19 +488,21 @@ export function WeeklyPreferenceForm({
       {/* ---------------- summary ---------------- */}
       <Card className="space-y-3">
         <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-500">משמרות שסומנו</span>
-          <span className="font-bold text-slate-900">{slots.size}</span>
+          <span className="text-slate-500 dark:text-slate-400">משמרות שסומנו</span>
+          <span className="font-bold text-slate-900 dark:text-slate-100">{slots.size}</span>
         </div>
         <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-500">ימים זמינים</span>
-          <span className="font-bold text-slate-900">{availableDays} מתוך 7</span>
+          <span className="text-slate-500 dark:text-slate-400">ימים זמינים</span>
+          <span className="font-bold text-slate-900 dark:text-slate-100">
+            {availableDays} מתוך 7
+          </span>
         </div>
         <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-500">משמרות אפשריות מהסימונים שלך</span>
-          <span className="font-bold text-slate-900">{maxFeasibleShifts}</span>
+          <span className="text-slate-500 dark:text-slate-400">משמרות אפשריות מהסימונים שלך</span>
+          <span className="font-bold text-slate-900 dark:text-slate-100">{maxFeasibleShifts}</span>
         </div>
         {!isEmpty && maxFeasibleShifts < availableDays && (
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-400 dark:text-slate-500">
             חלק מהימים שסימנת לא יכולים להצטרף יחד - נדרשות לפחות 8 שעות מנוחה בין משמרות.
           </p>
         )}
@@ -495,30 +521,78 @@ export function WeeklyPreferenceForm({
           </Alert>
         )}
 
-        {confirmEmpty && (
-          <Alert tone="warn" title="לאשר הגשה ריקה?">
-            לחיצה נוספת על ״שלח״ תגיש שבוע ריק - לא תשובץ לאף משמרת.
-          </Alert>
-        )}
-
-        <Button
-          fullWidth
-          size="lg"
-          disabled={locked}
-          loading={submitting}
-          onClick={submit}
-          variant={confirmEmpty ? 'danger' : 'primary'}
-        >
-          {confirmEmpty ? 'אשר הגשה ריקה' : 'שלח בקשות'}
+        <Button fullWidth size="lg" disabled={locked} loading={submitting} onClick={submit}>
+          שלח בקשות
         </Button>
       </Card>
+
+      {/* ---------------- confirm before submit ---------------- */}
+      {confirmSubmit && (
+        <Modal title="לאשר שליחה?" onClose={() => setConfirmSubmit(false)}>
+          <div className="space-y-3">
+            {isEmpty ? (
+              <Alert tone="warn" title="הגשה ריקה">
+                לא סימנת אף משמרת. הגשה ריקה מסמנת שאינך זמין השבוע, ולא תשובץ כלל.
+              </Alert>
+            ) : (
+              <>
+                <p className="text-sm text-slate-500 dark:text-slate-400">אלו הבקשות שיישלחו:</p>
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {dates.map((date, dayIdx) => {
+                    const daySlots = BASE_SHIFTS.filter((s) => slots.has(slotKey(date, s)));
+                    if (daySlots.length === 0) return null;
+                    return (
+                      <div key={date} className="flex flex-wrap items-center gap-2 py-2">
+                        <span className="w-14 shrink-0 text-xs font-bold text-slate-700 dark:text-slate-300">
+                          {HEBREW_DAYS[dayIdx]}
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {daySlots.map((shift) => {
+                            const flags = slots.get(slotKey(date, shift))!;
+                            const def = SHIFTS[shift];
+                            return (
+                              <span
+                                key={shift}
+                                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-white"
+                                style={{ backgroundColor: def.colorVar }}
+                              >
+                                {flags.strength === 2 && <span aria-label="עדיפות">★</span>}
+                                <span>{def.he}</span>
+                                {flags.allows12h && <span className="opacity-80">12ש׳</span>}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <Button
+                fullWidth
+                loading={submitting}
+                onClick={confirmAndSubmit}
+                variant={isEmpty ? 'danger' : 'primary'}
+              >
+                {isEmpty ? 'אשר הגשה ריקה' : 'אישור ושליחה'}
+              </Button>
+              <Button variant="ghost" onClick={() => setConfirmSubmit(false)}>
+                ביטול
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* ---------------- cancel submission ---------------- */}
       {hasSubmitted && !locked && onDelete && (
         <Card className="space-y-2">
           <div>
-            <p className="font-bold text-slate-900">ביטול ההגשה</p>
-            <p className="mt-0.5 text-sm text-slate-500">
+            <p className="font-bold text-slate-900 dark:text-slate-100">ביטול ההגשה</p>
+            <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
               מוחק את הבקשות ששלחת לשבוע זה ומחזיר אותך למצב ״טרם הגשת״. אפשר להגיש מחדש עד מועד
               הסגירה.
             </p>

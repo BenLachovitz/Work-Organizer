@@ -98,14 +98,28 @@ export interface RosterImageInput {
  * SHIFTS[x].colorVar is a `var(--color-shift-*)` reference, which means nothing
  * to a canvas. Reading the computed value keeps one source of truth: recolour a
  * shift in index.css and the exported image follows.
+ *
+ * Dark mode overrides these same variables under `.dark` (index.css) so the
+ * on-screen chips read a shade less vivid against a dark background -- but the
+ * export is a picture that ends up in the team's WhatsApp group regardless of
+ * which theme the manager happened to be in, so it must always match the one
+ * canonical (light) palette. `.dark` is stripped from <html> for the instant it
+ * takes to read the computed values, then restored -- synchronous, so nothing
+ * else observes the flip.
  */
 function shiftColors(): Record<string, string> {
-  const style = getComputedStyle(document.documentElement);
+  const root = document.documentElement;
+  const wasDark = root.classList.contains('dark');
+  if (wasDark) root.classList.remove('dark');
+
+  const style = getComputedStyle(root);
   const out: Record<string, string> = {};
   for (const [key, def] of Object.entries(SHIFTS)) {
     const name = def.colorVar.replace(/^var\(|\)$/g, '').trim();
     out[key] = style.getPropertyValue(name).trim() || '#64748b';
   }
+
+  if (wasDark) root.classList.add('dark');
   return out;
 }
 
