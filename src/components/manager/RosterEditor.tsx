@@ -162,17 +162,19 @@ export function RosterEditor({
     const targets = segmentTargets(morningTarget, dayIndex);
     const cov = (s: Segment) =>
       onDate(date).filter((d) => SHIFTS[d.shift].covers.includes(s)).length;
-    if (segs.some((s) => cov(s) < floors[s])) return 'bg-rose-50 ring-rose-300';
-    if (segs.some((s) => cov(s) < targets[s])) return 'bg-amber-50 ring-amber-200';
-    return 'bg-emerald-50/60 ring-emerald-200';
+    if (segs.some((s) => cov(s) < floors[s]))
+      return 'bg-rose-50 ring-rose-300 dark:bg-rose-950/40 dark:ring-rose-800';
+    if (segs.some((s) => cov(s) < targets[s]))
+      return 'bg-amber-50 ring-amber-200 dark:bg-amber-950/40 dark:ring-amber-800';
+    return 'bg-emerald-50/60 ring-emerald-200 dark:bg-emerald-950/30 dark:ring-emerald-800';
   };
 
   return (
     <Card className="p-0">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
         <div>
-          <p className="font-bold text-slate-900">עריכת הסידור</p>
-          <p className="mt-0.5 text-sm text-slate-500">
+          <p className="font-bold text-slate-900 dark:text-slate-100">עריכת הסידור</p>
+          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             לחץ על תא כדי לשנות שיבוץ. השינויים נשמרים רק בלחיצה על ״שמור״.
           </p>
         </div>
@@ -202,12 +204,14 @@ export function RosterEditor({
                   <div
                     className={cn(
                       'text-xs font-bold',
-                      isWeekendDay(i) ? 'text-amber-600' : 'text-slate-700',
+                      isWeekendDay(i)
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-slate-700 dark:text-slate-300',
                     )}
                   >
                     {HEBREW_DAYS_SHORT[i]}
                   </div>
-                  <div className="num text-[10px] font-normal text-slate-400">
+                  <div className="num text-[10px] font-normal text-slate-400 dark:text-slate-500">
                     {formatDayMonth(d).replace(/\sב.*/, '')}
                   </div>
                 </th>
@@ -218,11 +222,15 @@ export function RosterEditor({
             {BLOCKS.map((block) => (
               <tr key={block.key}>
                 <td className="pe-2 align-top">
-                  <div className="text-right text-xs font-bold text-slate-800">{block.he}</div>
+                  <div className="text-right text-xs font-bold text-slate-800 dark:text-slate-200">
+                    {block.he}
+                  </div>
                   {/* .num forces direction: ltr, which pushed the time to the
                       LEFT edge while the Hebrew label sat at the right. Pinning
                       it right lines the two up and reclaims the gap between. */}
-                  <div className="num text-right text-[10px] text-slate-400">{block.label}</div>
+                  <div className="num text-right text-[10px] text-slate-400 dark:text-slate-500">
+                    {block.label}
+                  </div>
                 </td>
                 {dates.map((date, dayIndex) => {
                   const rows = onDate(date).filter((d) => block.shifts.includes(d.shift));
@@ -238,7 +246,7 @@ export function RosterEditor({
                         )}
                       >
                         {rows.length === 0 && (
-                          <span className="grid h-10 place-items-center text-[11px] font-bold text-rose-600">
+                          <span className="grid h-10 place-items-center text-[11px] font-bold text-rose-600 dark:text-rose-400">
                             ריק
                           </span>
                         )}
@@ -270,7 +278,7 @@ export function RosterEditor({
       </div>
 
       {/* ---------------- verdict ---------------- */}
-      <div className="space-y-2 border-t border-slate-200 px-4 py-3">
+      <div className="space-y-2 border-t border-slate-200 px-4 py-3 dark:border-slate-800">
         {blocking.length > 0 && (
           <Alert tone="error" title={`${blocking.length} בעיות בטיחות - לא ניתן לשמור`}>
             <ul className="space-y-0.5">
@@ -433,41 +441,47 @@ function SlotEditor({
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-end bg-black/40 sm:place-items-center">
-      <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl">
+      <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl dark:bg-slate-900">
         <div className="mb-3 flex items-baseline justify-between">
           <div>
-            <p className="font-bold text-slate-900">
+            <p className="font-bold text-slate-900 dark:text-slate-100">
               {block.he} · יום {HEBREW_DAYS[dayIdx]}
             </p>
-            <p className="num text-xs text-slate-500">
+            <p className="num text-xs text-slate-500 dark:text-slate-400">
               {formatDayMonth(date)} · {block.label}
             </p>
           </div>
-          <button onClick={onClose} className="rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-100">
+          <button
+            onClick={onClose}
+            className="rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-100 dark:text-slate-500 dark:hover:bg-slate-800"
+          >
             ✕
           </button>
         </div>
 
         {dayIdx === 0 && Object.keys(solverInput.carry_in ?? {}).length > 0 && (
-          <p className="mb-2 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">
+          <p className="mb-2 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             יום ראשון: המנוחה נבדקת גם מול משמרות שבת של השבוע הקודם.
           </p>
         )}
 
         <div className="space-y-2">
           {rows.length === 0 && (
-            <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950 dark:text-rose-300">
               אין אף אחד משובץ במשמרת הזו.
             </p>
           )}
 
           {rows.map((r) => (
-            <div key={r.key} className="space-y-2 rounded-xl bg-slate-50 p-2.5">
+            <div
+              key={r.key}
+              className="space-y-2 rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800"
+            >
               <div className="flex gap-2">
                 <select
                   value={r.guard_id}
                   onChange={(e) => onUpdate(r.key, { guard_id: e.target.value })}
-                  className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                  className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 >
                   {guards.map((g) => (
                     <option key={g.id} value={g.id}>
@@ -480,7 +494,7 @@ function SlotEditor({
                 <select
                   value={r.shift}
                   onChange={(e) => onUpdate(r.key, { shift: e.target.value as ShiftType })}
-                  className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                  className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 >
                   {SHIFT_TYPES.map((s) => (
                     <option key={s} value={s}>
@@ -490,22 +504,25 @@ function SlotEditor({
                 </select>
                 <button
                   onClick={() => onRemove(r.key)}
-                  className="rounded-lg bg-rose-100 px-2.5 text-sm font-bold text-rose-700 hover:bg-rose-200"
+                  className="rounded-lg bg-rose-100 px-2.5 text-sm font-bold text-rose-700 hover:bg-rose-200 dark:bg-rose-950 dark:text-rose-300 dark:hover:bg-rose-900"
                   title="הסר"
                 >
                   ✕
                 </button>
               </div>
               {!marked(r.guard_id, r.shift) && (
-                <p className="text-xs text-amber-700">
+                <p className="text-xs text-amber-700 dark:text-amber-400">
                   ⚠ לא סומן על ידי המאבטח - שיבוץ ידני
                 </p>
               )}
               {carriedIn(r.guard_id) && (
-                <p className="text-xs text-slate-600">
+                <p className="text-xs text-slate-600 dark:text-slate-400">
                   עבד {SHIFTS[carriedIn(r.guard_id)!].he} בשבת שעברה
                   {classifyRest(carriedIn(r.guard_id)!, r.shift) === 'blocked' && (
-                    <span className="font-bold text-rose-700"> — מנוחה קצרה מדי, לא ניתן לשמור</span>
+                    <span className="font-bold text-rose-700 dark:text-rose-400">
+                      {' '}
+                      — מנוחה קצרה מדי, לא ניתן לשמור
+                    </span>
                   )}
                 </p>
               )}
@@ -514,13 +531,13 @@ function SlotEditor({
         </div>
 
         {/* ---------------- add ---------------- */}
-        <div className="mt-3 space-y-2 rounded-xl border border-dashed border-slate-300 p-2.5">
-          <p className="text-xs font-bold text-slate-600">הוספת מאבטח</p>
+        <div className="mt-3 space-y-2 rounded-xl border border-dashed border-slate-300 p-2.5 dark:border-slate-600">
+          <p className="text-xs font-bold text-slate-600 dark:text-slate-300">הוספת מאבטח</p>
           <div className="flex gap-2">
             <select
               value={addGuard}
               onChange={(e) => setAddGuard(e.target.value)}
-              className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm"
+              className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             >
               <option value="">בחר מאבטח…</option>
               {guards.map((g) => (
@@ -534,7 +551,7 @@ function SlotEditor({
             <select
               value={addShift}
               onChange={(e) => setAddShift(e.target.value as ShiftType)}
-              className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm"
+              className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             >
               {block.shifts.map((s) => (
                 <option key={s} value={s}>
@@ -554,7 +571,7 @@ function SlotEditor({
             </Button>
           </div>
           {block.key === 'afternoon' && (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               משמרת 12 שעות מתווספת דרך הבוקר (עד 18:45) או דרך הלילה (מ-18:45).
             </p>
           )}

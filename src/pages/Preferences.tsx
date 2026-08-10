@@ -76,8 +76,8 @@ export function Preferences() {
     return (
       <AppShell title="הגשת בקשות">
         <Card>
-          <p className="font-bold text-slate-900">אין כרגע שבוע פתוח להגשה</p>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="font-bold text-slate-900 dark:text-slate-100">אין כרגע שבוע פתוח להגשה</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             עדיין לא נפתח שבוע חדש להגשה, או שכל חלונות ההגשה נסגרו. נסה שוב מאוחר יותר.
           </p>
         </Card>

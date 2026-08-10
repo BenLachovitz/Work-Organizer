@@ -24,8 +24,8 @@ export function DefaultMorningTargetSettings() {
         className="flex w-full items-center justify-between px-4 py-3 text-start"
       >
         <div>
-          <p className="font-bold text-slate-900">יעד בוקר · ברירת מחדל</p>
-          <p className="mt-0.5 text-sm text-slate-500">
+          <p className="font-bold text-slate-900 dark:text-slate-100">יעד בוקר · ברירת מחדל</p>
+          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             {isLoading
               ? 'טוען…'
               : data
@@ -33,13 +33,18 @@ export function DefaultMorningTargetSettings() {
                 : 'שגיאה בטעינה'}
           </p>
         </div>
-        <span className={cn('text-slate-400 transition-transform', expanded && 'rotate-180')}>
+        <span
+          className={cn(
+            'text-slate-400 transition-transform dark:text-slate-500',
+            expanded && 'rotate-180',
+          )}
+        >
           ▾
         </span>
       </button>
 
       {expanded && (
-        <div className="border-t border-slate-200 px-4 py-3">
+        <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">
           {error ? (
             <Alert tone="error">{error instanceof Error ? error.message : 'שגיאה בטעינה.'}</Alert>
           ) : isLoading || !data ? (
@@ -71,7 +76,7 @@ function SettingsForm({ current }: { current: MorningTarget }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-slate-500 dark:text-slate-400">
         משפיע על שבועות חדשים מעכשיו והלאה. כדי לשנות שבוע ספציפי שכבר קיים, יש להשתמש ביעד משמרת
         הבוקר למעלה.
       </p>
@@ -86,12 +91,16 @@ function SettingsForm({ current }: { current: MorningTarget }) {
             className={cn(
               'rounded-xl border-2 px-3 py-2.5 text-center transition-all disabled:opacity-50',
               target === t
-                ? 'border-brand-600 bg-brand-50'
-                : 'border-slate-200 bg-white hover:border-slate-300',
+                ? 'border-brand-600 bg-brand-50 dark:bg-brand-950'
+                : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600',
             )}
           >
-            <span className="block text-lg font-extrabold text-slate-900">{t}</span>
-            <span className="block text-[11px] text-slate-500">רצפה {segmentFloors(t, 1).S1}</span>
+            <span className="block text-lg font-extrabold text-slate-900 dark:text-slate-100">
+              {t}
+            </span>
+            <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+              רצפה {segmentFloors(t, 1).S1}
+            </span>
           </button>
         ))}
       </div>

@@ -104,9 +104,9 @@ export function RosterExport({
 
   return (
     <Card className="p-0">
-      <div className="border-b border-slate-200 px-4 py-3">
-        <p className="font-bold text-slate-900">שליחת הסידור לקבוצה</p>
-        <p className="mt-0.5 text-sm text-slate-500">
+      <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+        <p className="font-bold text-slate-900 dark:text-slate-100">שליחת הסידור לקבוצה</p>
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
           תמונה של הסידור המפורסם, מוכנה לשליחה בוואטסאפ.
         </p>
       </div>
@@ -167,15 +167,15 @@ function PreviewModal({
       onClick={onClose}
     >
       <div
-        className="flex max-h-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+        className="flex max-h-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-          <p className="font-bold text-slate-900">תצוגה מקדימה</p>
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+          <p className="font-bold text-slate-900 dark:text-slate-100">תצוגה מקדימה</p>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
             aria-label="סגירה"
           >
             <svg className="size-5" viewBox="0 0 20 20" fill="currentColor">
@@ -186,7 +186,7 @@ function PreviewModal({
         <div className="overflow-auto p-3">
           <img src={url} alt="תצוגה מקדימה של הסידור" className="w-full rounded-lg" />
         </div>
-        <div className="border-t border-slate-200 p-3">
+        <div className="border-t border-slate-200 p-3 dark:border-slate-800">
           <Button fullWidth onClick={() => void onDownload()}>
             הורדת JPEG
           </Button>

@@ -97,8 +97,8 @@ export function ManagerDashboard() {
     return (
       <AppShell title="ניהול">
         <Card>
-          <p className="font-bold text-slate-900">אין שבועות מוגדרים</p>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="font-bold text-slate-900 dark:text-slate-100">אין שבועות מוגדרים</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             יש להוסיף שבוע חדש לפני שניתן לנהל שיבוצים.
           </p>
         </Card>
@@ -193,8 +193,8 @@ export function ManagerDashboard() {
             {/* ---------------- generate ---------------- */}
             <Card className="space-y-3">
               <div>
-                <p className="font-bold text-slate-900">יצירת סידור</p>
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="font-bold text-slate-900 dark:text-slate-100">יצירת סידור</p>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                   המנוע קורא את הזמינות והכמויות שלמעלה ומחזיר סידור יחד עם דוח כיסוי. כל הרצה
                   נשמרת כגרסה חדשה - אפשר לייצר שוב ולהשוות.
                 </p>

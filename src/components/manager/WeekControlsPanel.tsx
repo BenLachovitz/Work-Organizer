@@ -38,10 +38,10 @@ export function WeekControlsPanel({
       {/* ---------------- week picker ---------------- */}
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <p className="text-sm font-bold text-slate-700">
+          <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
             {showArchive ? 'שבועות אחרים' : 'שבועות פעילים'}
             {!showArchive && (
-              <span className="font-normal text-slate-400"> · נוכחי והבא</span>
+              <span className="font-normal text-slate-400 dark:text-slate-500"> · נוכחי והבא</span>
             )}
           </p>
           {archive.length > 0 && (
@@ -65,19 +65,21 @@ export function WeekControlsPanel({
                 'shrink-0 rounded-xl px-3 py-2 text-sm font-semibold transition-colors',
                 w.week_start === selected
                   ? 'bg-brand-600 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700',
               )}
             >
               {formatWeekRange(w.week_start)}
             </button>
           ))}
           {showArchive && archive.length === 0 && (
-            <p className="py-2 text-sm text-slate-400">אין עדיין שבועות שהסתיימו</p>
+            <p className="py-2 text-sm text-slate-400 dark:text-slate-500">
+              אין עדיין שבועות שהסתיימו
+            </p>
           )}
         </div>
 
         {showArchive && (
-          <p className="mt-1.5 text-xs text-slate-500">
+          <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
             שבועות שאינם הנוכחי או הבא. שבועות שהסתיימו גלויים לך בלבד - מאבטחים אינם רואים אותם
             כלל.
           </p>
@@ -87,13 +89,13 @@ export function WeekControlsPanel({
       {week && (
         <>
           {/* ---------------- status ---------------- */}
-          <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2.5 dark:bg-slate-800">
             <div className="min-w-0">
-              <p className="text-sm font-bold text-slate-800">
+              <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
                 {left ? `נותרו ${left} להגשה` : 'חלון ההגשה סגור'}
               </p>
               {deadline && (
-                <p className="mt-0.5 truncate text-xs text-slate-500">
+                <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
                   {formatDeadline(deadline)}
                 </p>
               )}
@@ -111,10 +113,13 @@ export function WeekControlsPanel({
 
           {/* ---------------- morning capacity ---------------- */}
           <div>
-            <p className="mb-1 text-sm font-bold text-slate-700">
-              יעד משמרת בוקר <span className="font-normal text-slate-400">· ימי שני-שישי</span>
+            <p className="mb-1 text-sm font-bold text-slate-700 dark:text-slate-300">
+              יעד משמרת בוקר{' '}
+              <span className="font-normal text-slate-400 dark:text-slate-500">
+                · ימי שני-שישי
+              </span>
             </p>
-            <p className="mb-2 text-xs text-slate-500">
+            <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
               מספר המאבטחים הרצוי במשמרת הבוקר בימי העבודה. הרצפה נגזרת אוטומטית.
             </p>
             <div className="grid grid-cols-2 gap-2">
@@ -127,21 +132,23 @@ export function WeekControlsPanel({
                   className={cn(
                     'rounded-xl border-2 px-3 py-2.5 text-center transition-all disabled:opacity-50',
                     target === t
-                      ? 'border-brand-600 bg-brand-50'
-                      : 'border-slate-200 bg-white hover:border-slate-300',
+                      ? 'border-brand-600 bg-brand-50 dark:bg-brand-950'
+                      : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600',
                   )}
                 >
-                  <span className="block text-lg font-extrabold text-slate-900">{t}</span>
-                  <span className="block text-[11px] text-slate-500">
+                  <span className="block text-lg font-extrabold text-slate-900 dark:text-slate-100">
+                    {t}
+                  </span>
+                  <span className="block text-[11px] text-slate-500 dark:text-slate-400">
                     רצפה {segmentFloors(t, 1).S1}
                   </span>
                 </button>
               ))}
             </div>
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               ימי שני-שישי: יעד {target}, לפחות {workingFloor} מאבטחים במשמרת.
             </p>
-            <p className="mt-1 text-xs text-amber-700">
+            <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
               שבת וראשון הם ימי מנוחה - יעד הבוקר בהם תמיד 2, גם כשנבחר 3.
             </p>
           </div>
@@ -170,7 +177,7 @@ export function WeekControlsPanel({
               </Button>
             )}
           </div>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-400 dark:text-slate-500">
             נעילה חוסמת עריכה של מאבטחים ברמת מסד הנתונים, לא רק בממשק.
             {week.status !== 'open' && new Date(week.submission_deadline) <= new Date() && (
               <> פתיחה מחדש תאריך את מועד הסגירה ב-24 שעות מעכשיו.</>
