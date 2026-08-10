@@ -114,7 +114,7 @@ export function TeamTable({
                 </p>
               )}
               {row.state === 'none' && row.configuredKamut > 0 && (
-                <p className="mt-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800 dark:bg-rose-950 dark:text-rose-300">
+                <p className="mt-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800 dark:bg-rose-950/50 dark:text-rose-400">
                   טרם הגיש - היעד יירד ל-0 אם לא יגיש עד מועד הסגירה
                 </p>
               )}

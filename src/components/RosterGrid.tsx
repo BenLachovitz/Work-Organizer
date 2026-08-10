@@ -413,7 +413,7 @@ function Gap() {
   return (
     <span
       title="אין כיסוי במשבצת הזו"
-      className="grid min-w-0 flex-1 place-items-center rounded bg-rose-100 px-1.5 py-1 text-[11px] font-bold text-rose-500 ring-1 ring-rose-200 dark:bg-rose-950/60 dark:text-rose-400 dark:ring-rose-800"
+      className="grid min-w-0 flex-1 place-items-center rounded bg-rose-100 px-1.5 py-1 text-[11px] font-bold text-rose-500 ring-1 ring-rose-200 dark:bg-rose-950/50 dark:text-rose-400 dark:ring-rose-800"
     >
       —
     </span>

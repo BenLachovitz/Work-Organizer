@@ -109,10 +109,10 @@ export function CoverageMatrix({
                         className={cn(
                           'grid h-9 place-items-center rounded-lg text-sm font-bold tabular-nums',
                           below
-                            ? 'bg-rose-100 text-rose-700 ring-1 ring-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:ring-rose-800'
+                            ? 'bg-rose-100 text-rose-700 ring-1 ring-rose-300 dark:bg-rose-950/50 dark:text-rose-400 dark:ring-rose-800'
                             : short
                               ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                              : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
+                              : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-400',
                         )}
                       >
                         {a}
@@ -128,7 +128,7 @@ export function CoverageMatrix({
 
       <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 px-4 py-2.5 text-xs dark:border-slate-800 dark:text-slate-300">
         <span className="flex items-center gap-1.5">
-          <span className="size-3 rounded bg-emerald-100 ring-1 ring-emerald-300 dark:bg-emerald-950 dark:ring-emerald-700" />
+          <span className="size-3 rounded bg-emerald-100 ring-1 ring-emerald-300 dark:bg-emerald-950/60 dark:ring-emerald-700" />
           מספיק ליעד
         </span>
         <span className="flex items-center gap-1.5">
@@ -136,7 +136,7 @@ export function CoverageMatrix({
           מעל הרצפה, מתחת ליעד
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="size-3 rounded bg-rose-100 ring-1 ring-rose-300 dark:bg-rose-950 dark:ring-rose-700" />
+          <span className="size-3 rounded bg-rose-100 ring-1 ring-rose-300 dark:bg-rose-950/60 dark:ring-rose-700" />
           מתחת לרצפה
         </span>
       </div>

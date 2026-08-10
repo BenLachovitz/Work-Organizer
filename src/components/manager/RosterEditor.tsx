@@ -467,7 +467,7 @@ function SlotEditor({
 
         <div className="space-y-2">
           {rows.length === 0 && (
-            <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+            <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-400">
               אין אף אחד משובץ במשמרת הזו.
             </p>
           )}
@@ -504,7 +504,7 @@ function SlotEditor({
                 </select>
                 <button
                   onClick={() => onRemove(r.key)}
-                  className="rounded-lg bg-rose-100 px-2.5 text-sm font-bold text-rose-700 hover:bg-rose-200 dark:bg-rose-950 dark:text-rose-300 dark:hover:bg-rose-900"
+                  className="rounded-lg bg-rose-100 px-2.5 text-sm font-bold text-rose-700 hover:bg-rose-200 dark:bg-rose-950/50 dark:text-rose-400 dark:hover:bg-rose-900/60"
                   title="הסר"
                 >
                   ✕

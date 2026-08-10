@@ -282,7 +282,7 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
       )}
 
       {(updateDefault.isError || deleteEmployee.isError) && (
-        <p className="mt-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800 dark:bg-rose-950 dark:text-rose-300">
+        <p className="mt-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800 dark:bg-rose-950/50 dark:text-rose-400">
           {[updateDefault.error, deleteEmployee.error]
             .filter((e): e is Error => e instanceof Error)
             .map((e) => e.message)
