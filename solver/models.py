@@ -127,6 +127,12 @@ class SolverGuard(BaseModel):
     # requested shift count; this solver never sees the raw request or
     # configured_kamut, only these two pre-derived numbers.
     stretch_target: int = Field(ge=0, le=6, default=0)
+    # This guard's hard weekly ceiling (H4) -- ordinarily the flat
+    # MAX_SHIFTS_PER_WEEK everyone shares, but tightened to the guard's own
+    # requested count when they explicitly asked for FEWER shifts than
+    # configured (guardShiftCeiling() in src/lib/shifts.ts). A request for
+    # MORE never touches this field -- that path only feeds stretch_target.
+    max_shifts: int = Field(ge=0, le=MAX_SHIFTS_PER_WEEK, default=MAX_SHIFTS_PER_WEEK)
     # Day index "0".."6" (Sunday first) -> the base shifts they marked.
     availability: dict[str, list[BaseShift]] = Field(default_factory=dict)
     # Day index -> the base shifts marked עדיפות (strength 2) that day. Always

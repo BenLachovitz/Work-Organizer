@@ -296,6 +296,32 @@ export function effectiveKamut(
 }
 
 /**
+ * A guard's hard weekly ceiling -- the actual H4 cap the solver may never
+ * cross, distinct from effectiveKamut() (a soft floor the solver is only
+ * penalized for missing, never stopped from exceeding). Ordinarily this is
+ * just the flat MAX_SHIFTS_PER_WEEK everyone shares. But a guard who
+ * explicitly asked for FEWER shifts than configured is stating a personal
+ * constraint, not a manager target -- the same kind of thing H1 (availability)
+ * already is -- so it tightens the ceiling itself, guaranteeing the request is
+ * never exceeded even when the roster would otherwise benefit from it.
+ *
+ * A request for MORE than configured never reaches this function at all: it
+ * only ever feeds stretchTarget()'s soft bonus below, so the "ask for more"
+ * path can never accidentally tighten (or loosen) anyone's hard ceiling.
+ */
+export function guardShiftCeiling(
+  configuredKamut: number,
+  distinctAvailableDays: number,
+  requestedShifts: number | null | undefined,
+  base: number = MAX_SHIFTS_PER_WEEK,
+): number {
+  if (requestedShifts != null && requestedShifts < configuredKamut) {
+    return effectiveKamut(configuredKamut, distinctAvailableDays, requestedShifts);
+  }
+  return base;
+}
+
+/**
  * The rewarded (never penalized) ceiling for a guard who asked for MORE than
  * their configured כמות -- always >= effectiveKamut(). Feeds the solver's
  * soft "stretch" bonus (WEIGHTS.stretch), which mirrors how the עדיפות bonus

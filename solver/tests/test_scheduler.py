@@ -217,6 +217,26 @@ def main() -> int:
             else:
                 bad("stretch vs rest8 alternative", "decoy_no_rest was not assigned")
 
+        if name.startswith("12-"):
+            # capped_guard explicitly requested fewer shifts than configured
+            # (max_shifts: 1) and is the ONLY guard available on day 0 or day
+            # 1 -- assigning him both would trivially clear two S1 floor
+            # breaches (each worth 1000), the strongest possible incentive to
+            # exceed the cap. The hard per-guard H4 ceiling must win anyway:
+            # this is exactly the bug a real guard hit in production
+            # (requested 1, was assigned 2).
+            worked = [a for a in out.assignments if a.guard_id == "capped_guard"]
+            if len(worked) <= 1:
+                ok(f"guard-requested ceiling holds even when coverage would reward breaking it ({len(worked)} shift(s))")
+            else:
+                bad("guard shift ceiling", f"capped_guard assigned {len(worked)} shifts, requested max was 1")
+
+            s1_breaches = [b for b in report.floor_breaches if b.day <= 1 and b.segment == "S1"]
+            if len(s1_breaches) == 1:
+                ok("the day the ceiling blocked him shows up as a genuine floor breach, not a silently absorbed cost")
+            else:
+                bad("guard shift ceiling", f"expected exactly 1 S1 floor breach across days 0-1, got {len(s1_breaches)}")
+
         print()
 
     # CP-SAT is optimal; the greedy mock is not. Recording the scores lets

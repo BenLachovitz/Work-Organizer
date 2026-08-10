@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { BASE_SHIFTS, SHIFT_TYPES, SEGMENTS, WEIGHTS } from '@/lib/shifts';
+import { BASE_SHIFTS, SHIFT_TYPES, SEGMENTS, WEIGHTS, MAX_SHIFTS_PER_WEEK } from '@/lib/shifts';
 
 /**
  * The wire contract between the app and the scheduling engine.
@@ -49,6 +49,14 @@ export const solverGuardSchema = z.object({
    *  parses -- both engines clamp the derived bonus cap at 0 rather than
    *  going negative if a caller sends effective_kamut > stretch_target. */
   stretch_target: z.number().int().min(0).max(6).default(0),
+  /** This guard's hard weekly ceiling (H4) -- ordinarily the flat 5-shift
+   *  cap everyone shares, but tightened to the guard's own requested count
+   *  when they explicitly asked for FEWER shifts than configured
+   *  (guardShiftCeiling() in src/lib/shifts.ts). A request for MORE never
+   *  touches this field -- that path only feeds stretch_target's soft bonus.
+   *  Defaults to MAX_SHIFTS_PER_WEEK so a fixture/caller written before this
+   *  existed still parses to today's unchanged behaviour. */
+  max_shifts: z.number().int().min(0).max(MAX_SHIFTS_PER_WEEK).default(MAX_SHIFTS_PER_WEEK),
   /** Day index "0".."6" (Sunday-first) -> the base shifts they marked. */
   availability: z.record(z.string(), z.array(baseShiftSchema)),
   /** Day index -> the base shifts marked עדיפות (strength 2) that day.

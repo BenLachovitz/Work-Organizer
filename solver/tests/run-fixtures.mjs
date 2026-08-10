@@ -233,6 +233,26 @@ for (const file of files) {
       : bad('stretch vs rest8 alternative', 'decoy_no_rest was not assigned');
   }
 
+  if (file.startsWith('12-')) {
+    // capped_guard explicitly requested fewer shifts than configured
+    // (max_shifts: 1) and is the ONLY guard available on day 0 or day 1 --
+    // assigning him both would trivially clear two S1 floor breaches (each
+    // worth 1000), the strongest possible incentive to exceed the cap. The
+    // hard per-guard H4 ceiling must win anyway: this is exactly the bug a
+    // real guard hit in production (requested 1, was assigned 2).
+    const worked = output.assignments.filter((a) => a.guard_id === 'capped_guard');
+    worked.length <= 1
+      ? ok(`guard-requested ceiling holds even when coverage would reward breaking it (${worked.length} shift(s))`)
+      : bad('guard shift ceiling', `capped_guard assigned ${worked.length} shifts, requested max was 1`);
+
+    const s1Breaches = verdict.report.floor_breaches.filter(
+      (b) => b.day <= 1 && b.segment === 'S1',
+    );
+    s1Breaches.length === 1
+      ? ok('the day the ceiling blocked him shows up as a genuine floor breach, not a silently absorbed cost')
+      : bad('guard shift ceiling', `expected exactly 1 S1 floor breach across days 0-1, got ${s1Breaches.length}`);
+  }
+
   console.log(`    ${summarise(verdict.report).join(' · ')}\n`);
 }
 

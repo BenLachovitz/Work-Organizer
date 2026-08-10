@@ -1,5 +1,4 @@
 import {
-  MAX_SHIFTS_PER_WEEK,
   SHIFTS,
   SHIFT_TYPES,
   classifyRest,
@@ -47,8 +46,8 @@ export function mockSolve(input: SolverInput): SolverOutput {
     // H3: one shift per day
     if (shiftOn.has(`${guardId}|${day}`)) return false;
 
-    // H4: weekly ceiling
-    if (workedOf(guardId) >= MAX_SHIFTS_PER_WEEK) return false;
+    // H4: weekly ceiling (per-guard -- tightened for an explicit lower request)
+    if (workedOf(guardId) >= g.max_shifts) return false;
 
     // H1 + H2: availability and 12h opt-in
     const marked = g.availability[String(day)] ?? [];

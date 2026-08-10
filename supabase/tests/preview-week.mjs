@@ -33,7 +33,7 @@ register(
 const { mockSolve } = await import('@/lib/mockSolver.ts');
 const { verifySchedule, summarise } = await import('@/lib/validate.ts');
 const { solverInputSchema } = await import('@/lib/solverContract.ts');
-const { effectiveKamut, stretchTarget } = await import('@/lib/shifts.ts');
+const { effectiveKamut, stretchTarget, guardShiftCeiling } = await import('@/lib/shifts.ts');
 const { dayIndexInWeek } = await import('@/lib/dates.ts');
 
 // --request <guard_id>:<n> overrides that guard's requested shift count for
@@ -104,6 +104,7 @@ const input = solverInputSchema.parse({
       display_name: g.display_name,
       effective_kamut: effectiveKamut(configured, days, requested),
       stretch_target: stretchTarget(configured, days, requested),
+      max_shifts: guardShiftCeiling(configured, days, requested),
       availability,
       preferred,
       twelve_hour_day: d12,
@@ -157,7 +158,8 @@ for (const g of input.guards) {
   const n = worked.get(g.id) ?? 0;
   const mark = n < g.effective_kamut ? `  <- short of ${g.effective_kamut}` : '';
   const stretch = g.stretch_target > g.effective_kamut ? `  (stretch target ${g.stretch_target})` : '';
-  console.log(`  ${(g.display_name ?? '?').padEnd(10)} [${g.id}] ${n} / ${g.effective_kamut}${stretch}${mark}`);
+  const ceiling = g.max_shifts < 5 ? `  (capped at ${g.max_shifts} by request)` : '';
+  console.log(`  ${(g.display_name ?? '?').padEnd(10)} [${g.id}] ${n} / ${g.effective_kamut}${stretch}${ceiling}${mark}`);
 }
 
 console.log(`\nassignments: ${out.assignments.length}   objective: ${v.objective}   hard-rule violations: ${v.violations.length}`);

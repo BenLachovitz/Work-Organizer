@@ -126,10 +126,11 @@ export function verifySchedule(input: SolverInput, output: SolverOutput): Verify
     }
   }
   for (const [guardId, n] of totals) {
-    if (n > MAX_SHIFTS_PER_WEEK) {
+    const ceiling = input.guards.find((g) => g.id === guardId)?.max_shifts ?? MAX_SHIFTS_PER_WEEK;
+    if (n > ceiling) {
       violations.push({
         rule: 'H4',
-        message: `${guardId} works ${n} shifts, ceiling is ${MAX_SHIFTS_PER_WEEK}`,
+        message: `${guardId} works ${n} shifts, ceiling is ${ceiling}`,
         guardId,
       });
     }

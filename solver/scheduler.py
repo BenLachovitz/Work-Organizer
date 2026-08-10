@@ -65,10 +65,11 @@ def solve(inp: SolverInput, time_limit_s: float = 20.0, workers: int = 8) -> Sol
         for d in range(DAYS):
             model.Add(sum(x[gi, d, s] for s in SHIFT_TYPES) <= 1)
 
-    # --- H4: weekly ceiling ----------------------------------------------------
-    for gi in range(len(guards)):
+    # --- H4: weekly ceiling (per-guard -- tightened for an explicit lower
+    # request, see SolverGuard.max_shifts) --------------------------------------
+    for gi, g in enumerate(guards):
         model.Add(
-            sum(x[gi, d, s] for d in range(DAYS) for s in SHIFT_TYPES) <= MAX_SHIFTS_PER_WEEK
+            sum(x[gi, d, s] for d in range(DAYS) for s in SHIFT_TYPES) <= g.max_shifts
         )
 
     # --- H5 hard rest + the soft 12h-rest preference ---------------------------

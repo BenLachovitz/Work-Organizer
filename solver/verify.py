@@ -78,8 +78,9 @@ def verify(inp: SolverInput, assignments: list[Assignment]) -> tuple[list[str], 
         if len(shifts) > 1:
             violations.append(f"H3: {gid} has {len(shifts)} shifts on day {day}")
     for gid, n in totals.items():
-        if n > MAX_SHIFTS_PER_WEEK:
-            violations.append(f"H4: {gid} works {n} shifts, ceiling {MAX_SHIFTS_PER_WEEK}")
+        ceiling = guards[gid].max_shifts if gid in guards else MAX_SHIFTS_PER_WEEK
+        if n > ceiling:
+            violations.append(f"H4: {gid} works {n} shifts, ceiling {ceiling}")
 
     # --- H5 rest, H7 carry-in -------------------------------------------------
     rest_violations: list[RestViolation] = []
