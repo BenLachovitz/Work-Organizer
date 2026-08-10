@@ -2,12 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { GuardPreferenceDetail } from '@/components/manager/GuardPreferenceDetail';
-import {
-  WeeklyPreferenceForm,
-  rowsToSelection,
-  selectionToSlots,
-  type PreferenceFormValue,
-} from '@/components/guard/WeeklyPreferenceForm';
+import { GuardPreferenceEditor } from '@/components/manager/GuardPreferenceEditor';
 import { Alert, Badge, Button, ButtonLink, Card, Spinner } from '@/components/ui';
 import { useSplitWeeks } from '@/hooks/useWeeks';
 import {
@@ -15,7 +10,7 @@ import {
   useManagerSavePreferences,
   useManagerWeek,
 } from '@/hooks/useManager';
-import { formatWeekRange, submissionDeadline } from '@/lib/dates';
+import { formatWeekRange } from '@/lib/dates';
 import type { WishPreference } from '@/types/database';
 
 const STATE_BADGE = {
@@ -31,15 +26,17 @@ const STATE_BADGE = {
  * at carried over via ?week=, so the manager doesn't have to re-pick it.
  *
  * Per guard, two modes: a compact read-only breakdown (GuardPreferenceDetail)
- * by default, swapped for the real WeeklyPreferenceForm -- unconditionally
- * unlocked, since a manager's edit on a guard's behalf isn't bound by that
- * guard's own submission deadline -- when "עריכה" is clicked. Saves/deletes
- * go through the manager-keyed RPCs (migration 32), not the guard-keyed ones
+ * by default, swapped for GuardPreferenceEditor -- a minimal click-to-toggle
+ * grid, deliberately not the guard-facing WeeklyPreferenceForm -- when
+ * "עריכה" is clicked. Cancelling a submission outright is a separate, small
+ * action in the card header rather than living inside the editor, since it
+ * is a distinct action from correcting availability. Saves/deletes go
+ * through the manager-keyed RPCs (migration 32), not the guard-keyed ones
  * the guard's own /preferences page uses.
  */
 export function ManagerPreferences() {
   const [searchParams] = useSearchParams();
-  const { data: allWeeks, live, archive, nextStart, isLoading: weeksLoading } = useSplitWeeks();
+  const { live, archive, nextStart, isLoading: weeksLoading } = useSplitWeeks();
   const weeks = [...live, ...archive];
 
   const [selected, setSelected] = useState(searchParams.get('week') ?? '');
@@ -58,9 +55,7 @@ export function ManagerPreferences() {
   const save = useManagerSavePreferences();
   const del = useManagerDeleteSubmission();
   const [editingId, setEditingId] = useState<string | null>(null);
-
-  const week = allWeeks?.find((w) => w.week_start === selected) ?? null;
-  const deadline = week ? new Date(week.submission_deadline) : submissionDeadline(selected || '');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const prefsByGuard = useMemo(() => {
     const map = new Map<string, WishPreference[]>();
@@ -73,10 +68,6 @@ export function ManagerPreferences() {
   }, [data]);
   const subByGuard = useMemo(
     () => new Map((data?.submissions ?? []).map((s) => [s.guard_id, s])),
-    [data],
-  );
-  const targetByGuard = useMemo(
-    () => new Map((data?.targets ?? []).map((t) => [t.guard_id, t])),
     [data],
   );
 
@@ -117,6 +108,7 @@ export function ManagerPreferences() {
             onChange={(e) => {
               setSelected(e.target.value);
               setEditingId(null);
+              setConfirmDeleteId(null);
             }}
             className="w-full min-w-0 rounded-xl border-2 border-slate-200 px-3 py-2 text-sm text-slate-800"
           >
@@ -151,10 +143,10 @@ export function ManagerPreferences() {
             {(data?.guards ?? []).map((guard) => {
               const prefs = prefsByGuard.get(guard.id) ?? [];
               const sub = subByGuard.get(guard.id);
-              const target = targetByGuard.get(guard.id);
               const state = !sub ? 'none' : prefs.length === 0 ? 'empty' : 'filled';
               const badge = STATE_BADGE[state];
               const isEditing = editingId === guard.id;
+              const confirmingDelete = confirmDeleteId === guard.id;
 
               return (
                 <Card key={guard.id} className="space-y-3">
@@ -165,43 +157,54 @@ export function ManagerPreferences() {
                       </span>
                       <Badge tone={badge.tone}>{badge.label}</Badge>
                     </div>
-                    <Button
-                      size="sm"
-                      variant={isEditing ? 'secondary' : 'ghost'}
-                      onClick={() => setEditingId(isEditing ? null : guard.id)}
-                    >
-                      {isEditing ? 'סגירה' : 'עריכה'}
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {sub && !isEditing && (
+                        <Button
+                          size="sm"
+                          variant={confirmingDelete ? 'danger' : 'ghost'}
+                          loading={confirmingDelete && del.isPending}
+                          onClick={() =>
+                            confirmingDelete
+                              ? del.mutate(
+                                  { weekStart: selected, guardId: guard.id },
+                                  { onSuccess: () => setConfirmDeleteId(null) },
+                                )
+                              : setConfirmDeleteId(guard.id)
+                          }
+                        >
+                          {confirmingDelete ? 'לחץ שוב לביטול' : 'ביטול הגשה'}
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant={isEditing ? 'secondary' : 'ghost'}
+                        onClick={() => {
+                          setEditingId(isEditing ? null : guard.id);
+                          setConfirmDeleteId(null);
+                        }}
+                      >
+                        {isEditing ? 'סגירה' : 'עריכה'}
+                      </Button>
+                    </div>
                   </div>
 
                   {isEditing ? (
-                    <WeeklyPreferenceForm
+                    <GuardPreferenceEditor
                       key={`${guard.id}:${selected}:${sub?.updated_at ?? 'new'}`}
                       weekStart={selected}
-                      deadline={deadline}
-                      locked={false}
-                      configuredKamut={target?.configured_kamut ?? 0}
-                      initial={{ slots: rowsToSelection(prefs), notes: sub?.notes ?? '' }}
-                      hasSubmitted={Boolean(sub)}
-                      onSubmit={(value: PreferenceFormValue) =>
+                      initialPreferences={prefs}
+                      saving={save.isPending}
+                      onSave={(slots) =>
                         save.mutate(
-                          {
-                            weekStart: selected,
-                            guardId: guard.id,
-                            slots: selectionToSlots(value.slots),
-                            notes: value.notes,
-                          },
+                          // Notes aren't editable from this quick editor -- pass
+                          // the guard's existing note through unchanged, since
+                          // the save RPC always overwrites the column (it can't
+                          // tell "no change" from "clear it").
+                          { weekStart: selected, guardId: guard.id, slots, notes: sub?.notes ?? '' },
                           { onSuccess: () => setEditingId(null) },
                         )
                       }
-                      submitting={save.isPending}
-                      onDelete={() =>
-                        del.mutate(
-                          { weekStart: selected, guardId: guard.id },
-                          { onSuccess: () => setEditingId(null) },
-                        )
-                      }
-                      deleting={del.isPending}
+                      onCancel={() => setEditingId(null)}
                     />
                   ) : (
                     <GuardPreferenceDetail
