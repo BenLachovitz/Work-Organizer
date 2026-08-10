@@ -1,8 +1,8 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.7** — §14 there is the
-build status and roadmap, §1.7–§1.8 is the changelog for everything since v2.5. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.8** — §14 there is the
+build status and roadmap, §1.9 is the changelog for everything since v2.7. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
@@ -39,25 +39,32 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–O complete, live and in daily use
+## State: build steps A–P complete, live and in daily use
 
-Full list in spec §14.1; changelog for every step is spec §1.1–§1.8. Steps N and O (10–11 August —
-manager preference detail/edit window, submission confirmation modal, dark mode; then the
-guard-requested shift count in two phases plus two production bug fixes) are all shipped, merged to
-`main`, and deployed — nothing mid-flight, no open branches.
+Full list in spec §14.1; changelog for every step is spec §1.1–§1.9. Step P (11 August) — per-day
+morning target override, a morning-priority coverage weight, the roster view stacking every
+published week instead of a selector, and an admin real/test view-mode toggle — is shipped, merged
+to `main`, and deployed, alongside a live production bug fix found while testing it (see below).
+Nothing mid-flight, no open branches.
 
 **Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
 different underlying mechanism.
 
-**Eleven test suites, all green** (`npm run test:cloud` + `test:fixtures` + `test_scheduler.py` +
-`test:compare` — spec §14.2). Gate E's engine fixtures grew from 8 to 10 in step L, then to 13 in
-step O.
+**Eleven test suites, mostly green** (`npm run test:cloud` + `test:fixtures` + `test_scheduler.py` +
+`test:compare` — spec §14.2). Gate E's engine fixtures grew from 8 to 13 in step L/O, then to 15 in
+step P. **Gate D has a known, pre-existing, date-driven flake** — spec §14.2 has the full mechanics;
+short version: its dedicated test week (`2026-09-06`) now sits exactly on `ensure_roster_weeks()`'s
+sweep-window boundary, so real production traffic mid-test-run can sweep the test's own fixture row.
+Not a regression, self-resolves as the calendar moves past mid-September 2026; deliberately left
+unfixed (Ben's call, 11 August) rather than touched as part of an unrelated feature branch.
 
-**A real production bug was found and fixed in step O** (spec §3.10, §1.8 item 47) — worth knowing
-if anything about guard-requested shift counts looks off: a guard's request for *fewer* shifts than
-configured was, for one deploy, silently ignored whenever coverage benefited from scheduling them
-more anyway (identical to pre-feature behaviour). Root cause and fix are in the spec; re-verified
-directly against the production run that surfaced it.
+**A real, live production bug was found and fixed in step P**, purely as a side effect of manually
+testing the new features in a browser (spec §12.1, §1.9 item 57): `ensure_roster_weeks()`'s
+"keep every untouched week's deadline live" step performed an unconditional `UPDATE`, and a
+same-value write still broadcasts a Realtime event — which the manager dashboard's own realtime
+subscription reacted to by re-triggering the same call, forever, for as long as `/manage` stayed
+open. Confirmed live against the production project (roughly one `ensure_roster_weeks()` call every
+100ms) before being fixed and re-verified gone.
 
 ---
 
@@ -106,6 +113,17 @@ Wednesday-night availability row was deleted outright (not just left unpreferred
 step — she had added it manually *after* the roster was already published once, so it was never
 part of a genuine weekly submission, and leaving it in was distorting her כמות math during testing.
 
+**The 7 mock guards are now explicitly flagged** (`is_demo = TRUE` on `profiles`/`roster_codes`,
+migration 34, spec §12.8) rather than only identifiable by their `- דמה` display-name suffix. This
+is what the admin header's real/test view-mode toggle filters on — display-only, doesn't change who
+the solver schedules.
+
+**Weight measured, not assumed — still open for the newest one.** Step L's preference weight and
+step O's stretch weight were each verified against live data before shipping (spec §3.8, §3.10). The
+new step P `WEIGHTS.morning_priority` bonus (spec §4.2b) shipped at a starting hypothesis of **1**,
+not yet measured the same way — worth running the same before/after comparison via
+`npm run preview:cpsat` before trusting it as final, the same discipline the habit below describes.
+
 ---
 
 ## Live environment
@@ -117,16 +135,16 @@ part of a genuine weekly submission, and leaving it in was distorting her כמו
 - Edge Functions `claim-code` and `generate-schedule` are deployed
 - Solver live at `https://guard-solver.onrender.com`; `SOLVER_URL` and `SOLVER_SECRET` are set as
   Supabase Edge Function secrets
-- 33 migrations applied, tracked in a `schema_migrations` ledger
+- 36 migrations applied, tracked in a `schema_migrations` ledger
 
 ### Current database contents
 
 - Weeks `2026-08-02` (locked, archive), `2026-08-09` (generated — many draft versions accumulated
   during step L/M/O testing against the demo data above, including roster version 30, the run that
   surfaced the step O production bug (spec §3.10); none published), `2026-08-16` (open for
-  submissions)
-- 9 profiles: Ben, the 7 mock guards (`{שם} - דמה`), and one real team member (עידן) who has already
-  claimed their real badge code
+  submissions, morning target 3)
+- 9 profiles: Ben, the 7 mock guards (`{שם} - דמה`, now also flagged `is_demo = TRUE`), and one real
+  team member (עידן) who has already claimed their real badge code
 - 16 badge codes: the 8 original (Ben + 7 mocks) plus 8 real codes Ben has started registering for
   the actual team (one claimed so far)
 
@@ -150,7 +168,7 @@ npm run test:cloud       # all eight cloud suites against the live project
 
 ---
 
-## Five habits worth keeping
+## Six habits worth keeping
 
 **Nothing is trusted on the solver's word.** Both engines hand their assignments to an independent
 referee (`src/lib/validate.ts` and its Python twin `solver/verify.py`) which re-derives the coverage
@@ -177,7 +195,8 @@ zero cost. The segment-weighting fix (§4.2a) was verified the same way: the tie
 confirmed real by temporarily patching the weighting back to flat and watching the solver land on
 the worse option in most trials, before trusting that the fix's determinism was actually the fix
 working and not a coincidence. A weight change that "should" help is a hypothesis, not a result —
-solve real data before and after, and look at what specifically moved.
+solve real data before and after, and look at what specifically moved. Step P's `morning_priority`
+bonus (spec §4.2b) shipped without this measurement yet — flagged above, still open.
 
 **A "target" is not a ceiling unless something enforces it as one.** Step O's production bug (spec
 §3.10, §1.8 item 47): a guard's lowered `effective_kamut` was correctly computed but only ever fed
@@ -187,6 +206,17 @@ outcome. Easy to miss because `effective_kamut` reads like it should cap the gua
 change meant to make an outcome "guaranteed" or "never exceeded" needs the real hard-constraint
 treatment (a `<=` in CP-SAT, a rejected move in the mock, checked in both referees) — a lowered
 target alone only ever changes what gets penalised, never what's actually allowed.
+
+**A same-value write still broadcasts a change — audit anything realtime-adjacent for this.** Step
+P's production bug (spec §12.1, §1.9 item 57): `ensure_roster_weeks()`'s deadline-refresh `UPDATE`
+had no guard checking whether the computed value actually differed from what was stored, so it
+rewrote the same value on every call. Postgres still performs a physical row write for a same-value
+`SET`, and Realtime broadcasts that as a genuine change regardless — which a subscriber reacting to
+it by re-invalidating and re-fetching turned into an infinite loop, live, in production. Any write
+inside a function a realtime-subscribed table's listener can indirectly re-trigger needs a value
+guard (`WHERE ... IS DISTINCT FROM ...`), the same discipline the two status-reconciliation `UPDATE`s
+in that same function already used correctly — one unguarded write among several guarded ones was
+enough.
 
 ---
 
