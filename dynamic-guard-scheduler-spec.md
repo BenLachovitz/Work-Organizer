@@ -1,9 +1,9 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.5 (build steps A–M complete; live and in daily use; deployed to production)
+**Version:** 2.7 (build steps A–O complete; live and in daily use; deployed to production)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
-**Document Date:** 10 August 2026
+**Document Date:** 11 August 2026
 
 ---
 
@@ -82,6 +82,30 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | 37  | The עדיפות chip (§3.8) now only renders on a day with **more than one** marked shift, and is capped at **N−1 preferred** of N marked shifts that day (1 of 2, 2 of 3) | With one marked shift there is nothing to prefer it over; with no cap a guard could mark every shift preferred, which is a null signal — the solver would have nothing to favour it over. Both close the same gap: preference only means something as a *relative* choice |
 | 38  | Guard-facing preference form: the manager-configured כמות number is no longer shown; replaced with a **feasible-shifts estimate** — the best shift count actually achievable from the guard's own marked slots, respecting the same ≥8h rest rule the solver enforces (§3.9) | Consistent with item 33 (v2.3) — a guard doesn't need to see a target set for them behind the scenes. A plain day-count would overstate what a submission can produce (e.g. Sunday night + Monday morning can never both happen, 0h rest) — the guard gets an honest number instead of either the hidden target or a misleading one |
+
+### 1.7 Changes in Version 2.6
+
+| #   | Change                                                                                            | Rationale                                                                                                                     |
+| --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 39  | **Manager preference detail view + edit-on-behalf-of window** (`GuardPreferenceDetail.tsx`, `GuardPreferenceEditor.tsx`) — a manager can see a guard's actual submitted availability slot-by-slot, not just `TeamTable`'s aggregate counts, and edit it directly | `TeamTable` only ever showed badge counts (12h opt-ins, עדיפות marks); a manager fixing a mistake on a guard's behalf (a guard who can't use the app, a phoned-in correction) had no way to see or change the underlying slots at all |
+| 40  | The manager-facing editor is a **minimal click-to-toggle grid**, deliberately not a reuse of the guard-facing `WeeklyPreferenceForm` | First built by reusing the guard form; rejected as over-complex for what a manager actually needs — clicking the shift cubes and one save button, none of the guard-facing chrome (deadline countdown, feasible-shifts summary, submit-confirmation step) applies when a manager is directly fixing a row |
+| 41  | **Confirmation modal before a preference submission is sent** (guard-facing, and the manager-editor's save) — a summary of what is about to be submitted, requiring an explicit confirm | A guard tapping "שלח" had no chance to review what they were about to send before it went out; the same review step was extended to the manager's edit-on-behalf-of save for the same reason |
+| 42  | **Dark mode** — system-preference default (`prefers-color-scheme`), with a manual override toggle; Tailwind v4 `@custom-variant dark`, CSS custom properties for shift colours with `.dark` overrides | Guards use this from their phones at night; forcing a light theme regardless of the phone's own setting was the one piece of UI polish flagged repeatedly |
+| 43  | Dark-mode shift/status colours **softened** (red, green, then orange/light-blue/purple) — less saturated, not desaturated | The first pass read as over-saturated / too vibrant against a dark background once actually used; adjusted by feel rather than a formula, one colour family at a time |
+| 44  | Roster JPEG export (`exportRoster.ts`) is **guarded to stay theme-independent** regardless of the viewer's current app theme | The exported image goes to WhatsApp, where it is read by phones in whatever theme they're in — a picture that silently rendered in the exporting manager's dark palette would be a legibility regression for everyone else |
+
+### 1.8 Changes in Version 2.7
+
+| #   | Change                                                                                            | Rationale                                                                                                                     |
+| --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 45  | **Guard-requested shift count** (migration 33, §3.10) — a stepper next to the feasible-shifts estimate lets a guard state a preferred shift count for the week, separate from the manager-configured כמות | A guard's כמות was set entirely by the manager; a guard who wanted fewer shifts a given week, or was willing to take more, had no way to say so except a free-text note the solver never reads (§3.6) |
+| 46  | A request **below** configured wins outright and is **guaranteed** — the guard's own stated ceiling for the week, treated like their own availability (H1), not a manager target | "Take what they selected" was the explicit requirement — a target the solver merely aims for (like כמות itself) was measured to be insufficient: a guard who asked for fewer was still handed extra shifts whenever coverage benefited, identical to pre-feature behaviour (see item 47) |
+| 47  | Fixed: a guard's lower request **wasn't actually a ceiling** at first — `effective_kamut` only ever fed the existing soft floor penalty (P2), never stopped the solver from exceeding it. H4 (§4.1, previously a flat 5-shift constant for every guard) is now a **per-guard `max_shifts` field**, tightened to the guard's own request only when they explicitly asked for fewer than configured | Confirmed against a real production run (roster version 30): stored `effective_kamut` was correctly 1, actual assignment was 2 — the guard's request had no effect on the outcome at all. The "ask for more" path is untouched by this fix and still only ever feeds a soft bonus (item 48), so the two directions stay fully independent |
+| 48  | A request **above** configured is a **soft, non-guaranteed bonus** (`WEIGHTS.stretch`, mirrors עדיפות's P4b pattern, §4.2) — granted only if the solver can do it at no cost to coverage or rest, capped at whatever is actually feasible from the guard's own marked slots | Per Ben's explicit design: the manager's configured כמות stays the "hard" (soft-penalized) target; the extra requested shift is a bonus given only when possible, never forced |
+| 49  | A guard already configured at **exactly 5** (the ordinary ceiling) may request a **6th shift** — same soft, non-guaranteed treatment as item 48, exclusive to that one case (§3.10) | Ben's explicit follow-up requirement, deliberately phased separately from item 48 so the general mechanism could be measured against live data first |
+| 50  | Fixed: the feasible-shifts estimate (§3.9) had its **own hardcoded 5-shift cap**, left over from before this feature existed, which silently defeated the item 49 allowance at the UI layer even after the solver-side ceiling was correctly raised to 6 | `maxFeasibleShifts()` is meant to be a physical fact about the marked slots (7 nights in a row rests fine, so it can legitimately answer 7) — baking a policy ceiling into a "fact" function silently misreported it for the one guard that ceiling doesn't apply to. Now uncapped; callers needing a selectable maximum combine it with the policy ceiling themselves |
+| 51  | The requested-shifts stepper **auto-follows** `min(configured, feasible)` live as a guard checks/unchecks boxes, until manually touched at least once | A guard who never interacts with the stepper at all previously kept whatever it was initialised to, only ever clamped downward — never recovering upward if they later marked more days. Easy to just not notice, since nothing about the stepper demands attention the way checking a box does |
+| 52  | Manager visibility: `TeamTable.tsx` shows a `מבוקש · N` badge per guard alongside the existing עדיפות badge; the manager-editor (item 39) can view **and edit** a guard's requested count on their behalf | Same visibility/edit treatment already established for every other per-guard submission detail (§1.7 item 39) |
 
 ---
 
@@ -215,13 +239,22 @@ Exactly **four** penalised transitions remain, all of them 8-hour rests:
 
 ### 2.7 Weekly Volume Limits
 
-- **Hard ceiling:** no guard exceeds **5 shifts per week**.
+- **Hard ceiling:** no guard exceeds **5 shifts per week** — ordinarily. Since v2.7 (§3.10) this is a
+  **per-guard** value (`max_shifts`), not a module-wide constant: it is tightened below 5 for a guard
+  who explicitly requested fewer shifts than configured, and raised to 6 for a guard already
+  configured at exactly 5 who explicitly requested a 6th. Every other guard's ceiling stays exactly 5.
 - **Soft minimum:** each guard should reach their `effective_kamut` (weight 100 per missing shift).
+- **Soft bonus (v2.7):** a shift beyond `effective_kamut`, up to the guard's own `stretch_target`,
+  is rewarded but never required (§3.10, §4.2 P2b) — the requested-shift-count analogue of the
+  עדיפות bonus (P4b, §3.8).
 - **Automatic כמות override (pre-flight):**
   ```
   effective_kamut = min(configured_kamut, distinct_available_days, 5)
   ```
-  A guard whose כמות is 4 but who marked only 2 available days is automatically lowered to 2. This is computed before the solver runs and is displayed to the manager as an override notice.
+  A guard whose כמות is 4 but who marked only 2 available days is automatically lowered to 2. This is computed before the solver runs and is displayed to the manager as an override notice. Since
+  v2.7, a guard's own explicit requested-shift-count (below configured) can lower this further —
+  `requested_shifts` is folded into the same `effective_kamut` calculation, not a separate number
+  (§3.10).
 - **Per-guard default (migration 19):** `configured_kamut` is a per-WEEK value
   (`weekly_guard_targets`), but it is a per-GUARD steady state — the same 5, 5, 4, 5, 5, 3, 2, 2 the
   manager was re-entering by hand every week. `profiles.default_kamut` holds that baseline.
@@ -387,17 +420,133 @@ its place would have overstated what a submission can produce: marking Sunday `n
 `morning` is two marked days but zero legal combinations (0h rest, the same H5/⛔ rule as
 generation itself) — so a naive count would read as a promise the roster can't keep.
 
-`maxFeasibleShifts` (`WeeklyPreferenceForm.tsx`) computes the actual best case instead: a small
-day-by-day DP where the score ending in "worked shift S on day d" is `1 + ` the best score from day
-`d−1` that isn't blocked by resting into S (or the best "day off" score, always compatible),
-reusing `classifyRest` — the same rest classification §2.6/generation itself uses. Capped at
-`MAX_SHIFTS_PER_WEEK` (5). Verified against a hand-worked example before shipping (alternating
+`maxFeasibleShifts` (`src/lib/shifts.ts`, shared with the manager's `GuardPreferenceEditor`)
+computes the actual best case instead: a small day-by-day DP where the score ending in "worked
+shift S on day d" is `1 + ` the best score from day `d−1` that isn't blocked by resting into S (or
+the best "day off" score, always compatible), reusing `classifyRest` — the same rest classification
+§2.6/generation itself uses. Verified against a hand-worked example before shipping (alternating
 night/morning across four days collapses to 2 feasible, not 4 — confirmed both by hand and by the
 implementation before it shipped). Deliberately does not model 12h (day12/night12) opt-ins
 separately — this is a guidance number for the guard reading their own submission, not solver
 input, and the added complexity wasn't judged worth it for that purpose. A caption appears under
 the number only when it's actually lower than the plain day count, so the guard sees an explanation
 exactly when the number would otherwise look unexplained.
+
+> **v2.7 change:** this function is **not** capped at `MAX_SHIFTS_PER_WEEK` (5) any more — it
+> returns the true DP result uncapped (see §3.10 item 50 / §1.8 item 50 for why the cap was removed
+> and what it broke while it was there). It is purely a physical fact about the marked slots (a
+> guard who marked every night of the week can legitimately be told 7); any policy ceiling on what a
+> guard may actually *select* is applied separately, by the caller, via `maxRequestableShifts()`.
+
+### 3.10 Guard-Requested Shift Count (migration 33, v2.7)
+
+**What it is.** A stepper (`כמות משמרות מבוקשת`) next to the feasible-shifts estimate (§3.9), on
+both the guard-facing form and the manager's edit-on-behalf-of window (§12.7), lets a guard state a
+preferred shift count for the week — independent of, and layered on top of, the manager-configured
+כמות. Stored as `weekly_submissions.requested_shifts` (nullable `SMALLINT`, `CHECK (BETWEEN 0 AND
+6)`), threaded through `save_week_preferences` / `manager_save_week_preferences` as a trailing
+`p_requested_shifts` parameter, the same shape `notes` (§3.6) already used. Equal-to-configured
+normalises to `NULL` on save — absence of a real request should leave a clean absence of data, the
+same convention `notes` and empty availability already get (§3.4, §3.6).
+
+**The four rules, as specified by Ben (verbatim intent):**
+
+| Requested vs. configured | Outcome |
+| --- | --- |
+| **Below** | Wins outright — `min(configured, requested)` becomes the new `effective_kamut`, and (v2.7) is *guaranteed*: the guard's own hard weekly ceiling is tightened to match, so it is never exceeded regardless of coverage benefit |
+| **Equal** | No-op — normalises to `NULL`, identical to not requesting at all |
+| **Above, guard configured below 5** | Soft, non-guaranteed bonus — granted only if the solver can fit it at no cost to coverage or rest, capped at `MAX_SHIFTS_PER_WEEK` (5) |
+| **Above, guard configured at exactly 5** | Same soft treatment, but the ceiling itself may rise to 6 — "only if possible and necessary, not a hard constraint" |
+
+**Two new derived numbers feed the solver** (`src/lib/shifts.ts`), computed client-side exactly like
+`effective_kamut` always was — both engines only ever see pre-derived numbers, never the raw
+`requested_shifts` or `configured_kamut` (the same "solver stays dumb about business rules"
+principle §2.7's auto-override already established):
+
+- **`effective_kamut`** (extended) — `floorTarget = requested < configured ? requested :
+  configured`, then clamped by `min(distinct_available_days, MAX_SHIFTS_PER_WEEK)` exactly as
+  before. A request at or above configured leaves this unchanged from pre-v2.7 behaviour.
+- **`stretch_target`** — the rewarded (never penalised) ceiling for a request above configured:
+  `max(effective_kamut, min(requested, distinct_available_days, maxRequestableShifts(configured)))`.
+  Feeds a new soft objective term, P2b (§4.2), mirroring how P4b (§3.8) sits on top of the flat
+  preference term.
+- **`max_shifts`** — this guard's actual hard weekly ceiling (replacing the flat H4 constant, §4.1):
+  `effective_kamut` when the guard requested fewer than configured (a genuine, guaranteed tightening);
+  otherwise `MAX_SHIFTS_PER_WEEK`, or `ABSOLUTE_MAX_SHIFTS_PER_WEEK` (6) when the guard is configured
+  at exactly 5 **and** explicitly requested more.
+- **`maxRequestableShifts(configuredKamut)`** — the small helper centralising "who is eligible for a
+  6th shift": returns 6 only when `configuredKamut === MAX_SHIFTS_PER_WEEK`, else 5. Both
+  `guardShiftCeiling()` and `stretchTarget()` consume it, and both stepper UIs use it directly to
+  size the stepper's own max — so a guard only ever sees "6" as an option when it could actually
+  apply to them.
+
+**Bug found and fixed in production: the lower-request "guarantee" wasn't one at first (item 47).**
+The first shipped version computed the lowered `effective_kamut` correctly but only ever used it as
+the existing soft floor penalty (P2) — nothing stopped the solver from exceeding it. A real guard
+requested 1 shift (configured 2) and was still assigned 2, identical to pre-feature behaviour;
+confirmed directly against the production run that surfaced it (roster version 30, week
+`2026-08-09`): stored `effective_kamut` was correctly `1`, actual assignment was `2`. Root cause: a
+"target" in this codebase is structurally a floor (penalised if missed) unless something *also*
+enforces it as a ceiling — conflating the two is an easy mistake because `effective_kamut` LOOKS
+like it should cap the guard. Fixed by generalising H4 (§4.1) from a flat module-wide constant into
+the per-guard `max_shifts` field above, mirrored in both engines and both referees. Re-verified
+directly against the same production data: the guard is now correctly capped at exactly 1.
+
+**Bug found and fixed at the UI layer: the 6th shift was unreachable even after the fix above (item
+50).** `maxFeasibleShifts()` (§3.9) had its own hardcoded cap at `MAX_SHIFTS_PER_WEEK`, left over
+from before this feature existed. Both steppers compute their selectable max as
+`min(maxFeasibleShifts(...), maxRequestableShifts(...))` — since the first argument could never
+exceed 5, that `min()` could never reach 6 no matter what the second argument said. Fixed by
+removing the internal cap (§3.9); `maxFeasibleShifts()` now returns the true, uncapped physical
+result, and the two callers already combined it with the policy ceiling themselves.
+
+**CP-SAT modelling note (P2b, the stretch bonus).** A term that is *minimised* (like the existing
+kamut-gap penalty, P2) is safe with a bare one-sided `>=` against a possibly-negative RHS — CP-SAT
+drives it to its own domain floor (0) harmlessly whenever a guard falls short. A term that is
+*maximised* (the stretch bonus) is **not** safe with the naive mirror-image `<=`: the RHS
+(`worked - effective_kamut`) goes negative the moment a guard falls short of `effective_kamut` (an
+ordinary, expected condition handled separately by P2 itself), and `0 <= negative` is
+unsatisfiable — genuine `INFEASIBLE` for input that has every right to solve. First caught by the
+golden-fixture suite (fixture 05, clopen-trap, went `INFEASIBLE`). Fixed with an explicit
+`AddMaxEquality(overflow, [diff, 0])` floor-at-zero step before the ordinary `sb <= overflow`
+cap — both directions now degrade to `sb = 0` instead of failing. The same class of bug resurfaced
+when `max_shifts` could reach 6: the `diff`/`overflow` `IntVar` domain bounds were sized off the
+flat `MAX_SHIFTS_PER_WEEK` constant, which would have made `diff == worked - effective_kamut`
+unsatisfiable the moment a guard's own (now possibly 6) `max_shifts` let `worked` exceed 5 — fixed
+by sizing those bounds off each guard's own `max_shifts` instead of the constant.
+
+**Weight (v2.7 P2b `stretch`), measured against live data before shipping**, per this project's
+established habit (§9.4, §3.8): tested on the real demo week (`2026-08-09`) by raising specific
+guards' `stretch_target` on a frozen snapshot and comparing before/after. Result: **zero effect** on
+that particular week — every candidate guard's slack was already rest-blocked (unchanged
+`target_gaps` count across all trials), so the mechanism had nothing to grant there. Shipped at the
+starting hypothesis of **1** (lowest weight in the model, same tier as `pref`) since the isolated
+fixture (11-stretch-bonus.json) independently proves the grant side works when slack genuinely
+exists; the live measurement's contribution was confirming **zero harm** on real data, not
+confirming a grant.
+
+**Auto-follow stepper (item 51).** Until a guard manually touches the stepper at least once, its
+value auto-follows `min(configuredKamut, feasible)` live as boxes are checked and unchecked —
+bidirectional, not just a downward clamp, so marking more days later raises the default back up
+too. The first manual nudge marks it "touched," and from then on the guard's own choice is
+respected, only ever pulled down if it becomes infeasible. A guard editing an existing submission
+that already has a stored request is treated as already touched, so a prior explicit choice is
+never silently overridden by the auto-default.
+
+**Manager visibility and editing (item 52).** `TeamTable.tsx` shows a `מבוקש · N` badge per guard
+next to the existing עדיפות badge. `GuardPreferenceEditor` (§12.7) exposes the identical stepper,
+bounded live against whatever the manager currently has toggled in that same editing session, not
+the guard's original submission.
+
+### 3.11 Submission Confirmation (v2.6)
+
+Before a preference submission actually sends — from the guard-facing form, and from the manager's
+edit-on-behalf-of window (§12.7) — a modal appears summarising exactly what is about to be sent (the
+marked slots, day by day; the requested-shifts count when it differs from configured, §3.10; the
+notes text, §3.6) and requires an explicit confirm. Nothing is written until that confirmation.
+Added because tapping "שלח" previously sent immediately with no chance to review — a guard (or a
+manager entering something on a guard's behalf, further from the source data) had no checkpoint
+between "I think I'm done" and the write actually landing.
 
 ---
 
@@ -412,7 +561,7 @@ The solver maximises a single weighted score. All coverage and volume goals are 
 | H1  | Availability — guard assignable only to slots they marked              |
 | H2  | 12h eligibility — `day12`/`night12` require the matching opt-in        |
 | H3  | At most **one** shift per guard per calendar day                       |
-| H4  | At most **5** shifts per guard per week                                |
+| H4  | At most `max_shifts` shifts per guard per week — a **per-guard** ceiling (v2.7, §3.10), ordinarily **5**, tightened for an explicit lower request or raised to **6** for a guard configured at 5 who explicitly requested a 6th |
 | H5  | Minimum **8 hours** rest between consecutive shifts (⛔ cells in §2.6) |
 | H6  | Segment coverage never **exceeds** its target ceiling                  |
 | H7  | Carry-in rest from the previous Saturday                               |
@@ -427,9 +576,10 @@ The solver maximises a single weighted score. All coverage and volume goals are 
 | **P-rest** | Each 8-hour-rest occurrence (⚠️ cells in §2.6)                  | **−5**    |
 | **P4**     | Each assignment matching a declared preference (availability is hard, so this is every assignment) | **+1**    |
 | **P4b**    | Each assignment matching a slot marked **עדיפות** (strength 2, §3.8) | **+2**, additive on top of P4 |
+| **P2b**    | Each shift beyond `effective_kamut`, up to a guard's own `stretch_target` (v2.7, §3.10) — the requested-shift-count analogue of P4b | **+1**, starting hypothesis, measured zero-harm on live data (§3.10) |
 
 ```
-maximise   Σ pref_weight·x  +  preferred_weight·Σ preferred_x
+maximise   Σ pref_weight·x  +  preferred_weight·Σ preferred_x  +  stretch_weight·Σ stretch_bonus
          − 1000·Σ segmentWeight(seg)·floor_gap
          −  100·Σ kamut_gap
          −   10·Σ segmentWeight(seg)·target_gap
@@ -523,11 +673,18 @@ CREATE TABLE roster_weeks (
 -- 4. One row per guard per week: proves submission occurred + holds the 12h opt-ins.
 --    Opt-ins live here (not per-slot) so they cannot self-contradict.
 CREATE TABLE weekly_submissions (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  guard_id     UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  week_start   DATE NOT NULL REFERENCES roster_weeks(week_start) ON DELETE CASCADE,
-  submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  guard_id         UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  week_start       DATE NOT NULL REFERENCES roster_weeks(week_start) ON DELETE CASCADE,
+  submitted_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- v2.0 §3.6, migration 17: free-text context, never read by the solver.
+  notes            TEXT CHECK (char_length(notes) <= 500),
+  -- v2.7 §3.10, migration 33: nullable, NULL means "defer entirely to
+  -- configured" -- normalised there the same way an all-whitespace note is.
+  -- Allows up to 6 (not just 5) so the CHECK doesn't need widening for the
+  -- 6th-shift case (§3.10 item 49); nothing writes 6 unless that case applies.
+  requested_shifts SMALLINT CHECK (requested_shifts BETWEEN 0 AND 6),
   UNIQUE (guard_id, week_start)
 );
 -- v2.1: the 12h flags moved OFF this row onto weekly_wish_preferences, so the
@@ -630,8 +787,10 @@ the snippets here are illustrative and can drift):
 | `opens_for_week(d)`                      | Saturday 20:00, `week_start − 8`                                                           |
 | `ensure_roster_weeks()`                  | Idempotent lifecycle: creates and opens/locks the current week and the next (§12.1)        |
 | `set_week_status(d, s, h)`               | Manager override; extends or clears the deadline and stamps `status_overridden_at` (§12.3) |
-| `save_week_preferences(d, jsonb)`        | Atomic replace of one guard's week; `SECURITY INVOKER`, so RLS still applies               |
-| `delete_week_submission(d)`              | Cancels the caller's own submission outright — back to "not submitted," not an edit to empty (§3.7) |
+| `save_week_preferences(d, jsonb, notes, requested_shifts)` | Atomic replace of the **caller's own** week (`auth.uid()`); `SECURITY INVOKER`, so RLS still applies. Trailing `p_notes`/`p_requested_shifts` are optional (§3.6, §3.10) |
+| `manager_save_week_preferences(guard_id, d, jsonb, notes, requested_shifts)` | The manager-authority twin (migration 32, §12.7) — identical shape but keyed on an explicit `p_guard_id`, gated on `is_manager()` only (not `is_week_open()`) |
+| `delete_week_submission(d)`              | Cancels the **caller's own** submission outright — back to "not submitted," not an edit to empty (§3.7) |
+| `manager_delete_week_submission(guard_id, d)` | The manager-authority twin (§12.7), keyed on an explicit `p_guard_id`                       |
 | `carry_in_shifts(d)`                     | Previous Saturday's published shifts, for cross-week rest (§2.8)                           |
 | `next_run_version(d)`                    | Next draft version number for a week                                                       |
 | `claim_rate_ok` / `record_claim_attempt` | Badge-claim throttling (§8)                                                                |
@@ -811,6 +970,8 @@ rather than saved.
   "morning_target_slots": 2,
   "guards": [
     { "id": "uuid", "effective_kamut": 3,
+      "stretch_target": 3,   // v2.7 §3.10: rewarded (never penalised) ceiling above effective_kamut, default 0
+      "max_shifts": 5,       // v2.7 §3.10: this guard's actual hard weekly ceiling (H4), default 5
       "availability": { "0": ["morning"], "1": ["morning","night"] },  // day index → base shifts
       "preferred":    { "1": ["night"] },   // day index → base shifts marked עדיפות (strength 2, §3.8)
       "twelve_hour_day":   [1, 2],   // day indices where day12 is allowed
@@ -818,7 +979,7 @@ rather than saved.
     }
   ],
   "carry_in": { "uuid": "night" },   // previous Saturday's shift, or null
-  "weights": { "floor": 1000, "kamut": 100, "target": 10, "rest8": 5, "pref": 1, "preferred": 2 }
+  "weights": { "floor": 1000, "kamut": 100, "target": 10, "rest8": 5, "pref": 1, "preferred": 2, "stretch": 1 }
 }
 
 // SolverOutput
@@ -964,7 +1125,12 @@ def generate_schedule(inp):
 > `solver/scheduler.py` is the source of truth. As of v2.4 it additionally: scales `floor_gaps` and
 > `target_gaps` by `segment_weight(seg)` before summing (§4.2a) rather than summing the bare
 > `IntVar`s shown above, and adds a `w.preferred * sum(preferred_terms)` term to `model.Maximize`
-> (§3.8, P4b) alongside the `w.pref` term.
+> (§3.8, P4b) alongside the `w.pref` term. As of v2.7 (§3.10): H4 (`m.Add(sum(...) <= 5)` above) is
+> per-guard (`<= g.max_shifts`), and a P2b stretch-bonus term is added to `model.Maximize` — modelled
+> with an explicit `AddMaxEquality(overflow, [diff, 0])` floor-at-zero step before the bonus
+> variable's own `<=` cap (both `diff`'s and `overflow`'s domain sized off each guard's own
+> `max_shifts`, not the flat constant), not the naive mirror of the kamut-gap idiom — see §3.10 for
+> why the naive version goes `INFEASIBLE`.
 
 ### 9.4 Mock versus CP-SAT — measured, not assumed
 
@@ -1077,6 +1243,33 @@ PNG's lossless edges. The preview sits behind a **תצוגה מקדימה** butt
 than rendering inline: `RosterExport` always sits directly under the on-screen `RosterGrid` it is a
 picture of, so an inline preview would put the same grid on screen twice at once, and shrunk to card
 width the names are too small to actually check anyway.
+
+### 10.3 Dark Mode (v2.6)
+
+`ThemeContext` (`src/contexts/ThemeContext.tsx`) is **tri-state**, not a light/dark toggle: `'system'
+| 'light' | 'dark'`. `'system'` (the default, nothing stored) tracks `prefers-color-scheme` live via
+a `matchMedia` listener; picking `'light'` or `'dark'` explicitly stores it (`localStorage`
+`wo.theme`) and stops tracking the OS until the user picks `'system'` again. The **resolved** theme
+(always concretely `light` or `dark`) is written onto `document.documentElement` as a `.dark` class
+— Tailwind v4's `@custom-variant dark (&:where(.dark, .dark *))` keys off that class rather than the
+media query directly, specifically so a manual override can win over `prefers-color-scheme`; reading
+the class straight off the OS query would make the override impossible to express.
+
+Shift/status colours are CSS custom properties in `index.css` with `.dark` overrides, not a second
+Tailwind colour palette — the same single set of class names (`bg-shift-morning`, etc.) resolves to
+different actual colours per theme, so no component needs to know which theme is active. The first
+dark-mode pass read as **over-saturated** once actually used against a dark background; softened
+(less saturated, not desaturated — a deliberate distinction, since desaturating toward grey would
+have made the colours harder to tell apart, not just gentler) one colour family at a time: red/green
+first, then orange/light-blue/purple, each verified by feel rather than a formula.
+
+**The roster JPEG export (§10.2) is guarded to stay theme-independent** regardless of the exporting
+manager's current app theme — the image is read by phones in whatever theme *they* are in, on
+WhatsApp, with no in-app theme context to follow. `exportRoster.ts` temporarily strips the `.dark`
+class off `<html>` before reading the CSS custom properties with `getComputedStyle` (so they resolve
+to the one canonical light palette regardless of which theme the manager was actually looking at)
+and restores it immediately after — the export must never silently vary by which theme the exporting
+manager happened to be in.
 
 ---
 
@@ -1340,6 +1533,30 @@ exactly the kind of row this bug could resurrect.
 Verified with a regression test (Gate A local, "seed.sql does not revive a deleted employee"):
 delete a seeded code through `delete_employee()`, rerun `seed.sql` verbatim, assert it is still gone.
 
+### 12.7 Manager Preference Detail View and Edit-on-Behalf-of Window (v2.6)
+
+`TeamTable` only ever showed aggregate badge counts per guard (12h opt-ins, עדיפות marks, and now
+מבוקש, §3.10) — never the actual slots behind them. `GuardPreferenceDetail.tsx` renders a guard's
+full submitted availability, day by day, with the same עדיפות/12h/מבוקש/notes detail the guard
+themselves sees, reached by clicking a row on `ManagerPreferences.tsx`.
+
+From that same detail view, a manager can edit the guard's submission directly —
+`GuardPreferenceEditor.tsx`, a **minimal click-to-toggle grid**: tap a shift cube to mark or unmark
+it, the same 12h/עדיפות toggles as the guard-facing form, the requested-shifts stepper (§3.10), and
+one save button. This went through one full rebuild: the first version reused
+`WeeklyPreferenceForm` itself, and was rejected as over-complex for what a manager actually needs —
+"just by clicking the shift cubes and a small button for saving... simple, intuitive for edits as an
+admin," not the guard-facing form's deadline countdown, feasible-shifts summary, or
+submit-confirmation flow (which the editor still gets, §3.11, just without the rest of that
+chrome). Saving goes through `manager_save_week_preferences` (migration 32), the manager-authority
+twin of `save_week_preferences` (§7.1) — same atomic-replace shape, keyed on an explicit
+`p_guard_id` rather than `auth.uid()` (neither `save_week_preferences` nor `delete_week_submission`
+could be reused for this: both are hardcoded to act only on the caller's own row). Gated on
+`is_manager()` only, deliberately **not** `is_week_open()` — a manager's edit on a guard's behalf
+isn't bound by that guard's own submission deadline, the same way a manager can already edit a
+published roster. A parallel `manager_delete_week_submission(p_guard_id, p_week_start)` mirrors
+`delete_week_submission` (§3.7) the same way.
+
 ---
 
 ## 13. OPEN ITEMS
@@ -1355,6 +1572,7 @@ delete a seeded code through `delete_employee()`, rerun `seed.sql` verbatim, ass
 | 7   | Posts (סריקה / בוטקה / בקרה / שמירה)                          | **Dropped at Ben's request.** The column itself was later dropped too (migration 23) — nothing had read or written it since the feature was cut                                                                                    |
 | 8   | `pg_cron` for the week sweep                                  | Not configured; the sweep runs on app load (§12.1)                                                                                                                                                                                 |
 | 9   | Tiered כמות penalty — discount a flex-tier guard's (כמות 3–4) *last* missing shift so the solver favours closing target-coverage gaps over it | **Investigated (8 August), rejected — structurally a no-op.** Implemented across both engines and both referees, then tested against a hand-built adversarial scenario and the real live dataset: identical objective, identical assignments, flex-tier or not. Cause: H6 (§4.1, never over-staff a segment) already guarantees every legal placement either closes a real coverage gap or is blocked outright — there is no such thing as a placement that only satisfies כמות with zero coverage value for this discount to ever usefully trade away. Reverted in full; not worth re-investigating unless the hard-constraint set changes. |
+| 10  | Guard-requested shift count (§3.10) — let a guard state a preferred count for the week, separate from מנהל-configured כמות | **Implemented, v2.7** (migration 33) — §3.10. Below-configured guaranteed via a per-guard H4 ceiling; above-configured a measured, zero-harm soft bonus; the 5→6 exception for guards already at the ordinary ceiling shipped as an explicit phased follow-up, per Ben's request |
 
 ---
 
@@ -1377,13 +1595,20 @@ delete a seeded code through `delete_employee()`, rerun `seed.sql` verbatim, ass
 | **K**     | Deployed to Vercel (§11.2); admin week cursor + orphaned-week sweep fix (§12.1); guard can cancel a submission outright (§3.7); mobile layout fixes (SPA rewrite, viewport overflow, `AppShell` flex-shell restructure); guard-facing copy/UI polish | ✅ complete                      |
 | **L**     | Two-level preference strength (§3.8, migration 31); coverage gaps weighted by segment length, not a flat per-slot count (§4.2a) — built on separate branches, merged, deployed to Render together | ✅ complete                      |
 | **M**     | Guard preference-form polish: עדיפות chip only shown with 2+ marked shifts and capped at N−1 preferred (§3.8); manager-configured כמות dropped from the guard-facing summary in favour of a rest-rule-aware feasible-shifts estimate (§3.9) | ✅ complete                      |
+| **N**     | Manager preference detail view + edit-on-behalf-of window (§12.7); submission confirmation modal (§3.11); dark mode, system-synced with a manual override, colours softened in two follow-up passes (§10.3) | ✅ complete                      |
+| **O**     | Guard-requested shift count, phased in two parts: general below/above-configured mechanism, then the 5→6 exception (§3.10, migration 33); two production bugs found and fixed along the way (the lower-request guarantee, and the feasible-shifts UI cap) | ✅ complete                      |
 
 ### 14.2 Verification
 
 Eleven suites, all green. Every gate runs against the live project except the PGlite one. (Gate E
-engines now run 10 golden fixtures, not 8 — two added in v2.4: a segment-weight tie-break and a
+engines now run 13 golden fixtures, not 8 — two added in v2.4: a segment-weight tie-break and a
 preference tie-break, both empirically constructed and verified against a hand-patched "flat
-weighting" baseline to confirm the tie they test was real before asserting the fix resolves it.)
+weighting" baseline to confirm the tie they test was real before asserting the fix resolves it.
+Three more added in v2.7 for the guard-requested shift count (§3.10): a stretch-bonus tie-break
+paired with a stretch-vs-rest8 priority check in one fixture, a guard-shift-ceiling fixture proving
+a lower request is never exceeded even when coverage would reward breaking it, and a sixth-shift
+fixture proving both the grant and its exclusivity to guards configured at exactly 5 in one
+scenario.)
 
 | Suite             | Command                                                   | Covers                                                                          |
 | ----------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------- |
@@ -1391,10 +1616,10 @@ weighting" baseline to confirm the tie they test was real before asserting the f
 | Gate A (cloud)    | `node supabase/tests/rls.cloud.test.mjs`                  | RLS through real PostgREST + GoTrue JWTs                                        |
 | Gate B            | `node supabase/tests/auth.cloud.test.mjs`                 | Badge claim, PIN login, rate limiting                                           |
 | Gate B (client)   | `node supabase/tests/client.cloud.test.mjs`               | The `supabase-js` path the browser runs                                         |
-| Gate C            | `node supabase/tests/preferences.cloud.test.mjs`          | Persistence, atomicity, deadline, isolation, notes (§3.6), cancelling a submission outright (§3.7) |
+| Gate C            | `node supabase/tests/preferences.cloud.test.mjs`          | Persistence, atomicity, deadline, isolation, notes (§3.6), cancelling a submission outright (§3.7), guard-requested shift count round-trip and isolation (§3.10) |
 | Gate D            | `node supabase/tests/manager.cloud.test.mjs`              | Week controls, כמות, lock/reopen override                                       |
 | Gate E (cloud)    | `npm run test:generate`                                   | Generate → verify stored rows → publish                                         |
-| Gate E (engines)  | `npm run test:fixtures`, `solver/tests/test_scheduler.py` | 8 golden fixtures, both engines                                                 |
+| Gate E (engines)  | `npm run test:fixtures`, `solver/tests/test_scheduler.py` | 13 golden fixtures, both engines                                                |
 | Gate E (edit)     | `npm run test:edit`                                       | Draft and published-roster editing, deletion                                    |
 | Gate F (realtime) | `npm run test:realtime`                                   | Live push both directions: roster changes to guards, submissions to the manager |
 
@@ -1407,19 +1632,27 @@ CP-SAT never scores below the mock.
 Nothing blocking. Live in production at `work-organizer-iota.vercel.app`, GitHub auto-deploy
 connected, all suites green. Open item 9 (§13, tiered כמות penalty) was investigated and rejected —
 not something to revisit unless the hard-constraint set changes. Open item 1 (2-level preference
-strength) shipped in v2.4 (§3.8). Everything else in §13 is either decided or a deliberately
-deferred design choice, not a build gap.
+strength) shipped in v2.4 (§3.8). Open item 10 (guard-requested shift count) shipped in v2.7
+(§3.10), both the general mechanism and the 5→6 exception. Everything else in §13 is either decided
+or a deliberately deferred design choice, not a build gap.
 
-Two threads explicitly deferred by Ben during v2.4 testing, not build gaps either:
+One thread from v2.4 is now effectively resolved rather than deferred, and one demo-data note still
+stands:
 
 - Whether `configured_kamut` should act as a soft *ceiling* (discouraging a guard from working past
-  it, not just failing to reward it) — surfaced once during testing but the segment-weighting fix
-  alone was independently sufficient in the case that raised it. Not pursued unless a real case
-  turns up where segment-weighting alone doesn't resolve it.
+  it, not just failing to reward it) for **every** guard was left open in v2.4 — the
+  segment-weighting fix alone was independently sufficient in the case that raised it, so it was
+  never pursued as a general policy. v2.7 (§3.10) answers a narrower, related question instead: a
+  guard's own *explicit* request for fewer shifts now is a real, guaranteed ceiling (the per-guard
+  `max_shifts` mechanism, §4.1 H4) — proven safe and tested. Extending that same mechanism to
+  `configured_kamut` itself, for every guard, unconditionally, remains a separate, still-undecided
+  policy question if it ever comes up again.
 - The live demo week (`2026-08-09`) currently carries hand-set עדיפות marks across the whole active
   roster (night preferred over afternoon, afternoon over morning, wherever a guard has both marked
   the same day) — a deliberate sanity-test dataset, not real guard input. Worth knowing before
-  reading too much into that week's generated rosters as a preference-satisfaction demo.
+  reading too much into that week's generated rosters as a preference-satisfaction demo. The same
+  caveat applies to any `requested_shifts` values on that week from v2.7 testing (§3.10) — verified
+  via a frozen snapshot comparison, not live guard requests.
 
 ### 14.4 Local development
 
@@ -1438,4 +1671,4 @@ password — both appear in the development transcript.
 
 ---
 
-_Specification v2.2 — revised 8 August 2026._
+_Specification v2.7 — revised 11 August 2026._

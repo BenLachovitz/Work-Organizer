@@ -1,12 +1,12 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.5** — §14 there is the
-build status and roadmap, §1.6 is the changelog for everything since v2.3. This file deliberately
-doesn't re-tell what's already shipped and documented there — it's what's still worth knowing on
-top of the spec, not a second copy of the build log.
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.7** — §14 there is the
+build status and roadmap, §1.7–§1.8 is the changelog for everything since v2.5. This file
+deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
+knowing on top of the spec, not a second copy of the build log.
 
-*Last updated: 10 August 2026*
+*Last updated: 11 August 2026*
 
 ---
 
@@ -39,31 +39,43 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–M complete, live and in daily use
+## State: build steps A–O complete, live and in daily use
 
-Full list in spec §14.1; changelog for every step is spec §1.1–§1.6. Steps L and M (9–10 August —
-two-level עדיפות preference, segment-length-weighted coverage, and the guard-form polish on top of
-both) are all shipped, merged to `main`, and deployed — nothing mid-flight, no open branches.
+Full list in spec §14.1; changelog for every step is spec §1.1–§1.8. Steps N and O (10–11 August —
+manager preference detail/edit window, submission confirmation modal, dark mode; then the
+guard-requested shift count in two phases plus two production bug fixes) are all shipped, merged to
+`main`, and deployed — nothing mid-flight, no open branches.
 
 **Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
 different underlying mechanism.
 
 **Eleven test suites, all green** (`npm run test:cloud` + `test:fixtures` + `test_scheduler.py` +
-`test:compare` — spec §14.2). Gate E's engine fixtures grew from 8 to 10 in step L.
+`test:compare` — spec §14.2). Gate E's engine fixtures grew from 8 to 10 in step L, then to 13 in
+step O.
+
+**A real production bug was found and fixed in step O** (spec §3.10, §1.8 item 47) — worth knowing
+if anything about guard-requested shift counts looks off: a guard's request for *fewer* shifts than
+configured was, for one deploy, silently ignored whenever coverage benefited from scheduling them
+more anyway (identical to pre-feature behaviour). Root cause and fix are in the spec; re-verified
+directly against the production run that surfaced it.
 
 ---
 
 ## What is left
 
 Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
-deliberately deferred design choice, not a build gap. Two things Ben deferred deliberately, still
-open, not build gaps:
+deliberately deferred design choice, not a build gap. Two things still open, not build gaps:
 
-- Whether `configured_kamut` should act as a soft *ceiling* (not just a floor) — surfaced once but
-  the segment-weighting fix alone independently resolved the case that raised it. Not pursuing
-  unless a real case turns up where segment-weighting alone doesn't.
+- Whether `configured_kamut` itself should act as a soft *ceiling* for **every** guard (not just a
+  floor) — surfaced once in v2.4 testing but the segment-weighting fix alone independently resolved
+  the case that raised it, so never pursued as a general policy. A related, narrower question is now
+  answered (v2.7, spec §3.10): a guard's own *explicit* request for fewer shifts is a real,
+  guaranteed ceiling. Extending that to `configured_kamut` for everyone, unconditionally, is still a
+  separate, undecided policy question if it comes up again.
 - The demo week `2026-08-09` carries hand-set עדיפות marks across the whole active roster (see
-  demo data note below) — a deliberate sanity-test dataset, not real guard input.
+  demo data note below) — a deliberate sanity-test dataset, not real guard input. Any
+  `requested_shifts` values on that week from v2.7 testing are the same: a controlled snapshot
+  comparison, not live guard requests.
 
 ---
 
@@ -80,7 +92,9 @@ looks wrong, check `solver_status`: `MOCK` means the fallback ran.
 real WhatsApp-sourced availability from the team, so testing against that week reflects genuine
 scheduling tension rather than synthetic data. `npm run preview:cpsat` (after dumping the week via
 `preview-week.mjs --dump`) is the fastest way to see a fresh CP-SAT result without writing to the
-live database.
+live database. Since v2.7, `preview-week.mjs` also takes `--request <guard_id>:<n>` (repeatable) to
+try a hypothetical `requested_shifts` value for a specific guard against real data — in-memory only,
+nothing written — which is how the step O weight measurement (spec §3.10) was done.
 
 **On top of that base availability**, every active guard's multi-option days (any day they marked
 more than one shift) also carry a hand-set עדיפות mark, applied by a consistent priority — night
@@ -103,12 +117,13 @@ part of a genuine weekly submission, and leaving it in was distorting her כמו
 - Edge Functions `claim-code` and `generate-schedule` are deployed
 - Solver live at `https://guard-solver.onrender.com`; `SOLVER_URL` and `SOLVER_SECRET` are set as
   Supabase Edge Function secrets
-- 31 migrations applied, tracked in a `schema_migrations` ledger
+- 33 migrations applied, tracked in a `schema_migrations` ledger
 
 ### Current database contents
 
 - Weeks `2026-08-02` (locked, archive), `2026-08-09` (generated — many draft versions accumulated
-  during step L/M testing against the demo data above; none published), `2026-08-16` (open for
+  during step L/M/O testing against the demo data above, including roster version 30, the run that
+  surfaced the step O production bug (spec §3.10); none published), `2026-08-16` (open for
   submissions)
 - 9 profiles: Ben, the 7 mock guards (`{שם} - דמה`), and one real team member (עידן) who has already
   claimed their real badge code
@@ -135,7 +150,7 @@ npm run test:cloud       # all eight cloud suites against the live project
 
 ---
 
-## Four habits worth keeping
+## Five habits worth keeping
 
 **Nothing is trusted on the solver's word.** Both engines hand their assignments to an independent
 referee (`src/lib/validate.ts` and its Python twin `solver/verify.py`) which re-derives the coverage
@@ -163,6 +178,15 @@ confirmed real by temporarily patching the weighting back to flat and watching t
 the worse option in most trials, before trusting that the fix's determinism was actually the fix
 working and not a coincidence. A weight change that "should" help is a hypothesis, not a result —
 solve real data before and after, and look at what specifically moved.
+
+**A "target" is not a ceiling unless something enforces it as one.** Step O's production bug (spec
+§3.10, §1.8 item 47): a guard's lowered `effective_kamut` was correctly computed but only ever fed
+into the existing soft floor penalty (P2, weight 100 for falling *short*) — nothing penalised
+*exceeding* it, so a guard's explicit "give me fewer shifts" request had no actual effect on the
+outcome. Easy to miss because `effective_kamut` reads like it should cap the guard. Any future
+change meant to make an outcome "guaranteed" or "never exceeded" needs the real hard-constraint
+treatment (a `<=` in CP-SAT, a rejected move in the mock, checked in both referees) — a lowered
+target alone only ever changes what gets penalised, never what's actually allowed.
 
 ---
 
