@@ -78,17 +78,41 @@ def is_weekend_day(day_index: int) -> bool:
     return day_index in WEEKEND_DAYS
 
 
-def morning_target_for_day(week_setting: int, day_index: int) -> int:
-    """The raised target (3) applies Mon-Fri only; the weekend always runs 2."""
-    return 2 if is_weekend_day(day_index) else week_setting
+def morning_target_for_day(
+    week_setting: int, day_index: int, overrides: dict[str, int] | None = None
+) -> int:
+    """The raised target (3) applies Mon-Fri only; the weekend always runs 2.
+
+    `overrides` is a sparse day_index (as a string, matching the wire format)
+    -> target map for THIS week only, e.g. a holiday week needing Mon-Wed at
+    2 but Thu-Fri at 3. A day with no entry just follows week_setting. Never
+    consulted for the weekend -- see morningTargetForDay() in
+    src/lib/shifts.ts, this is its mirror.
+    """
+    if is_weekend_day(day_index):
+        return 2
+    if overrides:
+        override = overrides.get(str(day_index))
+        if override is not None:
+            return override
+    return week_setting
 
 
-def segment_targets(week_setting: int, day_index: int) -> dict[Segment, int]:
-    return {"S1": morning_target_for_day(week_setting, day_index), "S2": 2, "S3": 2, "S4": 2}
+def segment_targets(
+    week_setting: int, day_index: int, overrides: dict[str, int] | None = None
+) -> dict[Segment, int]:
+    return {
+        "S1": morning_target_for_day(week_setting, day_index, overrides),
+        "S2": 2,
+        "S3": 2,
+        "S4": 2,
+    }
 
 
-def segment_floors(week_setting: int, day_index: int) -> dict[Segment, int]:
-    morning = morning_target_for_day(week_setting, day_index)
+def segment_floors(
+    week_setting: int, day_index: int, overrides: dict[str, int] | None = None
+) -> dict[Segment, int]:
+    morning = morning_target_for_day(week_setting, day_index, overrides)
     return {"S1": 2 if morning == 3 else 1, "S2": 1, "S3": 1, "S4": 1}
 
 
@@ -102,6 +126,17 @@ def segment_weight(segment: Segment) -> int:
     shortest segment (4h). Mirrors segmentWeight() in src/lib/shifts.ts --
     see that docstring for why this exists."""
     return SEGMENT_HOURS[segment] // 4
+
+
+def segment_penalty_weight(segment: Segment, morning_priority_bonus: int) -> int:
+    """segment_weight() plus a flat morning-specific priority bonus, for the
+    floor/target penalty terms ONLY -- never the coverage numbers themselves
+    (segment_targets/segment_floors, unaffected). ADDITIVE, not a multiplier,
+    like every other weight -- CP-SAT's coefficients must be integers.
+    Mirrors segmentPenaltyWeight() in src/lib/shifts.ts -- see that docstring
+    for the full rationale."""
+    base = segment_weight(segment)
+    return base + morning_priority_bonus if segment == "S1" else base
 
 
 class SolverWeights(BaseModel):
@@ -119,6 +154,15 @@ class SolverWeights(BaseModel):
     # Starting value only, not yet measured against live data (see the
     # comment on WEIGHTS.stretch in src/lib/shifts.ts).
     stretch: int = 1
+    # Flat bonus ADDED to segment_weight('S1') in the floor/target penalty
+    # terms only -- see segment_penalty_weight() above. Defaults to 0
+    # (neutral), NOT the shipped production value (WEIGHTS.morning_priority
+    # = 1 in src/lib/shifts.ts) -- see the matching comment on
+    # morning_priority in src/lib/solverContract.ts for why: this adds to a
+    # term present in almost every fixture, including ones predating this
+    # field whose expected behaviour assumes segments are otherwise
+    # symmetric.
+    morning_priority: int = 0
 
 
 class SolverGuard(BaseModel):
@@ -153,6 +197,9 @@ class SolverGuard(BaseModel):
 class SolverInput(BaseModel):
     week_start: str
     morning_target_slots: Literal[2, 3] = 2
+    # Sparse day_index (as a string) -> target override for THIS week only.
+    # See morning_target_for_day() above.
+    morning_target_overrides: dict[str, Literal[2, 3]] = Field(default_factory=dict)
     guards: list[SolverGuard] = Field(default_factory=list)
     # guard_id -> shift worked last Saturday, for cross-week rest.
     carry_in: dict[str, ShiftType | None] = Field(default_factory=dict)

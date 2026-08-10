@@ -11,6 +11,7 @@ import {
   segmentFloors,
   segmentTargets,
   type MorningTarget,
+  type MorningTargetOverrides,
   type Segment,
 } from '@/lib/shifts';
 import type { Profile, ScheduleAssignment } from '@/types/database';
@@ -86,6 +87,8 @@ const GAP_INK = '#fb7185';
 export interface RosterImageInput {
   weekStart: DateKey;
   morningTarget: MorningTarget;
+  /** Per-day exceptions to morningTarget for this week (§1). */
+  morningTargetOverrides?: MorningTargetOverrides;
   assignments: ScheduleAssignment[];
   guards: Profile[];
   /** Printed under the title. Defaults to the week range. */
@@ -254,7 +257,7 @@ const LEGEND = [
 export async function renderRosterImage(input: RosterImageInput): Promise<Blob> {
   await document.fonts?.ready;
 
-  const { weekStart, morningTarget, assignments, guards } = input;
+  const { weekStart, morningTarget, morningTargetOverrides, assignments, guards } = input;
   const dates = weekDates(weekStart);
   const colors = shiftColors();
   const nameOf = (id: string) => guards.find((g) => g.id === id)?.display_name ?? '—';
@@ -274,7 +277,7 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
   // cell anywhere in the table, so the columns line up and nothing truncates.
   const grid = dates.map((date, di) => {
     const day = onDay(date);
-    const targets = segmentTargets(morningTarget, di);
+    const targets = segmentTargets(morningTarget, di, morningTargetOverrides);
     return BLOCKS.map((b) =>
       rowsFor(
         b.key,
@@ -398,8 +401,8 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
       // amber below target, green otherwise.
       const covers = (seg: Segment) =>
         day.filter((a) => SHIFTS[a.shift].covers.includes(seg)).length;
-      const floors = segmentFloors(morningTarget, di);
-      const targets = segmentTargets(morningTarget, di);
+      const floors = segmentFloors(morningTarget, di, morningTargetOverrides);
+      const targets = segmentTargets(morningTarget, di, morningTargetOverrides);
       const below = block.segs.some((s) => covers(s) < floors[s]);
       const short = !below && block.segs.some((s) => covers(s) < targets[s]);
       const tone = below ? TONES.below : short ? TONES.short : TONES.ok;

@@ -3,8 +3,8 @@ import {
   SHIFT_TYPES,
   classifyRest,
   segmentFloors,
+  segmentPenaltyWeight,
   segmentTargets,
-  segmentWeight,
   type Segment,
   type ShiftType,
 } from '@/lib/shifts';
@@ -25,9 +25,12 @@ import { addDays } from '@/lib/dates';
  * safe to fall back to when the solver service is unreachable.
  */
 export function mockSolve(input: SolverInput): SolverOutput {
-  // Per day, because the raised morning target applies Mon-Fri only.
-  const targetsOn = (day: number) => segmentTargets(input.morning_target_slots, day);
-  const floorsOn = (day: number) => segmentFloors(input.morning_target_slots, day);
+  // Per day, because the raised morning target applies Mon-Fri only, and a
+  // per-day override (§1) beats the week setting for a day that has one.
+  const targetsOn = (day: number) =>
+    segmentTargets(input.morning_target_slots, day, input.morning_target_overrides);
+  const floorsOn = (day: number) =>
+    segmentFloors(input.morning_target_slots, day, input.morning_target_overrides);
   const w = input.weights;
 
   const assignments: Assignment[] = [];
@@ -88,11 +91,12 @@ export function mockSolve(input: SolverInput): SolverOutput {
       const c = covOf(day, seg);
       // Below the floor is also below the target, so both penalties shrink --
       // which is exactly why floor-filling dominates everything else. Scaled
-      // by segmentWeight() so closing an 8h segment's gap (S1/S4) is worth
-      // more than closing a 4h segment's gap (S2/S3) -- otherwise the solver
-      // can't tell an 8-guard-hour hole from a 4-guard-hour one.
-      if (c < floorsOn(day)[seg]) score += w.floor * segmentWeight(seg);
-      if (c < targetsOn(day)[seg]) score += w.target * segmentWeight(seg);
+      // by segmentPenaltyWeight() so closing an 8h segment's gap (S1/S4) is
+      // worth more than closing a 4h segment's gap (S2/S3) -- otherwise the
+      // solver can't tell an 8-guard-hour hole from a 4-guard-hour one -- and,
+      // for S1 specifically, the flat morning-priority bonus on top (§1.2).
+      if (c < floorsOn(day)[seg]) score += w.floor * segmentPenaltyWeight(seg, w.morning_priority);
+      if (c < targetsOn(day)[seg]) score += w.target * segmentPenaltyWeight(seg, w.morning_priority);
     }
 
     if (workedOf(guardId) < g.effective_kamut) score += w.kamut;

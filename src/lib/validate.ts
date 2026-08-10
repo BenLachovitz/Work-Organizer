@@ -5,8 +5,8 @@ import {
   classifyRest,
   restHours,
   segmentFloors,
+  segmentPenaltyWeight,
   segmentTargets,
-  segmentWeight,
   type Segment,
   type ShiftType,
 } from '@/lib/shifts';
@@ -197,9 +197,11 @@ export function verifySchedule(input: SolverInput, output: SolverOutput): Verify
 
   for (let d = 0; d < 7; d++) {
     // Recomputed per day: the raised morning target applies Mon-Fri only, so
-    // Saturday and Sunday run 2 whatever the week is set to.
-    const targets = segmentTargets(input.morning_target_slots, d);
-    const floors = segmentFloors(input.morning_target_slots, d);
+    // Saturday and Sunday run 2 whatever the week is set to. Per-day
+    // overrides (§1, weekly_morning_target_overrides) beat the week setting
+    // for a day that has one.
+    const targets = segmentTargets(input.morning_target_slots, d, input.morning_target_overrides);
+    const floors = segmentFloors(input.morning_target_slots, d, input.morning_target_overrides);
 
     for (const seg of SEGMENTS as readonly Segment[]) {
       const assigned = cov.get(`${d}|${seg}`) ?? 0;
@@ -259,16 +261,16 @@ export function scoreSchedule(
 ): number {
   const w = input.weights;
   const guards = new Map(input.guards.map((g) => [g.id, g]));
-  // segmentWeight() scales each gap by the segment's length (S1/S4 = 2,
-  // S2/S3 = 1) -- a missing guard on an 8h segment is twice the uncovered
-  // guard-hours of one on a 4h segment, and the flat count couldn't tell
-  // them apart.
+  // segmentPenaltyWeight() weighs each gap by the segment's length (S1/S4 = 2,
+  // S2/S3 = 1 -- a missing guard on an 8h segment is twice the uncovered
+  // guard-hours of one on a 4h segment) plus, for S1 only, a flat
+  // morning-priority bonus on top (§1.2 -- see that function's docstring).
   const floorGap = report.floor_breaches.reduce(
-    (s, b) => s + segmentWeight(b.segment) * (b.required - b.assigned),
+    (s, b) => s + segmentPenaltyWeight(b.segment, w.morning_priority) * (b.required - b.assigned),
     0,
   );
   const targetGap = report.target_gaps.reduce(
-    (s, b) => s + segmentWeight(b.segment) * (b.target - b.assigned),
+    (s, b) => s + segmentPenaltyWeight(b.segment, w.morning_priority) * (b.target - b.assigned),
     0,
   );
   const kamutGap = report.unmet_kamut.reduce((s, b) => s + (b.effective_kamut - b.assigned), 0);

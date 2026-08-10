@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { cn } from '@/components/ui';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme, type Theme } from '@/contexts/ThemeContext';
+import { useViewMode } from '@/contexts/ViewModeContext';
 
 // ---------------------------------------------------------------------------
 
@@ -54,8 +55,33 @@ function ThemeToggle() {
   );
 }
 
+/** Admin-only: switches which employees the manager dashboard's lists show
+ *  (src/lib/viewMode.ts) -- real employees, or the seeded demo guards. Ben
+ *  always shows in both, so this never affects his own visibility. */
+function ViewModeToggle() {
+  const { viewMode, setViewMode } = useViewMode();
+  const isTest = viewMode === 'test';
+
+  return (
+    <button
+      type="button"
+      onClick={() => setViewMode(isTest ? 'real' : 'test')}
+      className={cn(
+        'rounded-lg px-2.5 py-1.5 text-xs font-bold transition-colors',
+        isTest
+          ? 'bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:hover:bg-amber-950'
+          : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200',
+      )}
+      aria-label={isTest ? 'תצוגה: דמה - לחץ למעבר לתצוגה אמיתית' : 'תצוגה: אמיתי - לחץ למעבר לתצוגת דמה'}
+      title={isTest ? 'תצוגה: דמה' : 'תצוגה: אמיתי'}
+    >
+      {isTest ? 'דמה' : 'אמיתי'}
+    </button>
+  );
+}
+
 function Header({ title, subtitle }: { title: string; subtitle?: string }) {
-  const { profile, signOut } = useAuth();
+  const { profile, isManager, signOut } = useAuth();
 
   return (
     <header className="shrink-0 border-b border-slate-200 bg-white/85 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/85">
@@ -70,6 +96,7 @@ function Header({ title, subtitle }: { title: string; subtitle?: string }) {
         </div>
 
         <div className="flex items-center gap-2">
+          {isManager && <ViewModeToggle />}
           <ThemeToggle />
 
           {profile && (

@@ -40,6 +40,23 @@ export const solverWeightsSchema = z.object({
    *  `preferred`. Defaulted, like the Python twin, so a fixture or caller
    *  written before this existed still parses. */
   stretch: z.number().int().nonnegative().default(1),
+  /** Flat bonus ADDED to segmentWeight('S1') in the floor/target penalty
+   *  terms only -- see segmentPenaltyWeight() in src/lib/shifts.ts. An
+   *  integer like every other weight here (CP-SAT's coefficients must be
+   *  integers; a float multiplier would need a rounding step in scheduler.py
+   *  the TS mock/referee wouldn't share).
+   *
+   *  Defaults to 0 (neutral -- no priority beyond S1's existing length-based
+   *  weight), NOT the shipped production value (WEIGHTS.morning_priority in
+   *  src/lib/shifts.ts, 1): unlike `preferred`/`stretch`, this adds to a term
+   *  (the S1 floor/target gap) present in almost every fixture, including
+   *  ones written before this field existed whose expected behaviour assumes
+   *  segments are otherwise symmetric (e.g. fixture 10's preference
+   *  tie-break). A non-zero default would silently change what they test.
+   *  Real generation always sends the full WEIGHTS object explicitly, so
+   *  this default is only ever reached by an old fixture/caller that omits
+   *  the field. */
+  morning_priority: z.number().int().nonnegative().default(0),
 });
 
 export const solverGuardSchema = z.object({
@@ -84,6 +101,11 @@ export const solverGuardSchema = z.object({
 export const solverInputSchema = z.object({
   week_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   morning_target_slots: z.union([z.literal(2), z.literal(3)]),
+  /** Sparse day_index (as a string) -> target override for THIS week only --
+   *  see morningTargetForDay() in src/lib/shifts.ts. */
+  morning_target_overrides: z
+    .record(z.string(), z.union([z.literal(2), z.literal(3)]))
+    .default({}),
   guards: z.array(solverGuardSchema),
   /** guard_id -> the shift they worked LAST Saturday, for cross-week rest. */
   carry_in: z.record(z.string(), shiftTypeSchema.nullable()).default({}),

@@ -27,12 +27,16 @@ import {
   buildCoverage,
   buildGuardRows,
   useManagerWeek,
+  useMorningTargetOverrides,
   useRosterCodeStatus,
   useSetGuardTarget,
+  useUpdateMorningTargetOverride,
   useUpdateWeek,
 } from '@/hooks/useManager';
 import { formatWeekRange, weekDates } from '@/lib/dates';
 import type { MorningTarget } from '@/lib/shifts';
+import { useViewMode } from '@/contexts/ViewModeContext';
+import { visibleToViewMode } from '@/lib/viewMode';
 
 export function ManagerDashboard() {
   const { data: weeks, live, archive, nextStart, isLoading: weeksLoading } = useSplitWeeks();
@@ -50,6 +54,9 @@ export function ManagerDashboard() {
 
   const { data, isLoading, error } = useManagerWeek(selected);
   const { data: codes } = useRosterCodeStatus();
+  const { data: morningTargetOverridesRaw } = useMorningTargetOverrides(selected);
+  const morningTargetOverrides = morningTargetOverridesRaw ?? {};
+  const updateDayOverride = useUpdateMorningTargetOverride();
   const updateWeek = useUpdateWeek();
   const setTarget = useSetGuardTarget();
   const generate = useGenerateSchedule();
@@ -63,7 +70,7 @@ export function ManagerDashboard() {
   const { data: carryIn } = useCarryIn(selected);
   // Not for the manager's own edits -- the mutation already invalidates those --
   // but so a second device, or the phone in their pocket, stays truthful.
-  useRosterRealtime(selected || null);
+  useRosterRealtime(selected ? [selected] : []);
   // A guard submitting availability, or writing a note (§3.6), previously sat
   // invisible until the manager reloaded the page.
   useManagerSubmissionsRealtime(selected || null);
@@ -76,12 +83,24 @@ export function ManagerDashboard() {
   const latestRun =
     runsData.runs.find((r) => r.id === selectedRunId) ?? defaultRun;
 
+  const { viewMode } = useViewMode();
   const week = weeks?.find((w) => w.week_start === selected) ?? null;
   const dates = useMemo(() => (selected ? weekDates(selected) : []), [selected]);
-  const rows = useMemo(() => (data ? buildGuardRows(data) : []), [data]);
+  // Filtered for DISPLAY only -- generation, RosterGrid and export below all
+  // keep reading `data.guards` unfiltered, since the view-mode toggle changes
+  // what the manager sees in these lists, never who gets scheduled.
+  const rows = useMemo(
+    () =>
+      data
+        ? buildGuardRows(data).filter((r) => visibleToViewMode(r.guard, viewMode))
+        : [],
+    [data, viewMode],
+  );
   const coverage = useMemo(() => (data ? buildCoverage(data, dates) : []), [data, dates]);
 
-  const unregistered = (codes ?? []).filter((c) => !c.is_claimed);
+  const unregistered = (codes ?? [])
+    .filter((c) => !c.is_claimed)
+    .filter((c) => visibleToViewMode(c, viewMode));
 
   if (weeksLoading) {
     return (
@@ -120,6 +139,17 @@ export function ManagerDashboard() {
           saving={updateWeek.isPending}
           onSetMorningTarget={(t: MorningTarget) =>
             updateWeek.mutate({ weekStart: selected, morningTarget: t })
+          }
+          morningTargetOverrides={morningTargetOverrides}
+          onSetDayOverride={(dayIndex, t) =>
+            updateDayOverride.mutate({
+              weekStart: selected,
+              dayIndex,
+              // Equal-to-baseline normalises to "no override row" (§1) --
+              // clicking the value that already matches the week setting is
+              // how a manager clears an exception for that day.
+              target: t === ((week?.morning_target_slots ?? 2) as MorningTarget) ? null : t,
+            })
           }
           onSetStatus={(s) => updateWeek.mutate({ weekStart: selected, status: s })}
         />
@@ -167,6 +197,7 @@ export function ManagerDashboard() {
               cells={coverage}
               dates={dates}
               morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
+              morningTargetOverrides={morningTargetOverrides}
             />
 
             <TeamTable
@@ -236,6 +267,7 @@ export function ManagerDashboard() {
                     weekStart: selected,
                     morningTarget: (week?.morning_target_slots ?? 2) as MorningTarget,
                     data,
+                    morningTargetOverrides,
                   })
                 }
               >
@@ -255,6 +287,7 @@ export function ManagerDashboard() {
                   <RosterEditor
                     weekStart={selected}
                     morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
+                    morningTargetOverrides={morningTargetOverrides}
                     assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
                     guards={data.guards}
                     // The referee must judge an edit against exactly what the solver
@@ -266,6 +299,7 @@ export function ManagerDashboard() {
                       (week?.morning_target_slots ?? 2) as MorningTarget,
                       data,
                       carryIn ?? {},
+                      morningTargetOverrides,
                     )}
                     saving={saveEdits.isPending}
                     onCancel={() => setEditing(false)}
@@ -288,6 +322,7 @@ export function ManagerDashboard() {
                   <RosterGrid
                     weekStart={selected}
                     morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
+                    morningTargetOverrides={morningTargetOverrides}
                     assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
                     guards={data?.guards ?? []}
                   />
@@ -300,6 +335,7 @@ export function ManagerDashboard() {
                   <RosterExport
                     weekStart={selected}
                     morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
+                    morningTargetOverrides={morningTargetOverrides}
                     assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
                     guards={data?.guards ?? []}
                   />

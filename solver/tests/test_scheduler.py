@@ -267,6 +267,40 @@ def main() -> int:
             else:
                 bad("sixth shift exclusivity", f"expected exactly 1 S4 floor breach across days 0-5, got {len(s4_breaches)}")
 
+        if name.startswith("14-"):
+            # 3 guards, all morning-available Mon-Fri, kamut 5 each (maximum
+            # pressure to work every marked day). Baseline target is 2;
+            # Thu/Fri (days 4,5) are overridden to 3. Mon-Wed must never
+            # exceed 2 (H6 -- the override must not leak outside its days),
+            # and Thu/Fri must actually reach 3 (the override must apply).
+            def s1_count(d: int) -> int:
+                return len([a for a in out.assignments if a.day == d and a.shift == "morning"])
+
+            over_cap = [d for d in (1, 2, 3) if s1_count(d) > 2]
+            if not over_cap:
+                ok("non-overridden weekdays (Mon-Wed) stay capped at the week's baseline target of 2")
+            else:
+                bad("per-day override leak", f"days {over_cap} exceeded 2 despite no override")
+
+            raised = [d for d in (4, 5) if s1_count(d) == 3]
+            if len(raised) == 2:
+                ok("both overridden days (Thu, Fri) actually reach the raised target of 3")
+            else:
+                bad("per-day override", f"only days {raised} of [4, 5] reached 3")
+
+        if name.startswith("15-"):
+            # anchor_s1/anchor_s4 each guarantee one segment's floor; flexible
+            # could close either segment's remaining target gap, and both
+            # segments are otherwise perfectly symmetric (same length weight,
+            # same kamut contribution, no rest neighbours) -- only the
+            # morning_priority bonus (set to 1 in this fixture's weights)
+            # should break the tie toward morning.
+            flexible = next((a.shift for a in out.assignments if a.guard_id == "flexible"), None)
+            if flexible == "morning":
+                ok("morning_priority bonus wins an otherwise perfect S1-vs-S4 coverage tie")
+            else:
+                bad("morning-priority tie-break", f"flexible assigned {flexible!r}, expected 'morning'")
+
         print()
 
     # CP-SAT is optimal; the greedy mock is not. Recording the scores lets

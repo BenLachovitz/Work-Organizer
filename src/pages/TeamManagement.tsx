@@ -6,6 +6,8 @@ import { EMPLOYEE_CODE_LENGTH, isValidEmployeeCode } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRosterCodeStatus, type RosterCodeStatus } from '@/hooks/useManager';
 import { useAddEmployee, useDeleteEmployee, useUpdateDefaultKamut } from '@/hooks/useTeam';
+import { useViewMode } from '@/contexts/ViewModeContext';
+import { visibleToViewMode } from '@/lib/viewMode';
 
 /**
  * Manager control over who is on the team, as opposed to ManagerDashboard's
@@ -28,10 +30,14 @@ import { useAddEmployee, useDeleteEmployee, useUpdateDefaultKamut } from '@/hook
  */
 export function TeamManagement() {
   const { data, isLoading, error } = useRosterCodeStatus();
+  const { viewMode } = useViewMode();
 
   const rows = data ?? [];
-  const active = rows.filter((r) => r.is_claimed);
-  const pending = rows.filter((r) => !r.is_claimed);
+  // existingCodes (below) deliberately stays unfiltered -- a demo code hidden
+  // by the current view mode must still block re-registering the same code.
+  const visibleRows = rows.filter((r) => visibleToViewMode(r, viewMode));
+  const active = visibleRows.filter((r) => r.is_claimed);
+  const pending = visibleRows.filter((r) => !r.is_claimed);
 
   return (
     <AppShell title="ניהול צוות" subtitle="הוספה, מחיקה ועדכון ברירות מחדל">

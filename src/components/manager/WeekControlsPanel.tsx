@@ -1,8 +1,17 @@
 import { useState } from 'react';
 import { Badge, Button, Card, cn } from '@/components/ui';
-import { formatDeadline, formatWeekRange, timeUntil } from '@/lib/dates';
-import { segmentFloors, type MorningTarget } from '@/lib/shifts';
+import { HEBREW_DAYS, formatDeadline, formatWeekRange, timeUntil } from '@/lib/dates';
+import {
+  morningTargetForDay,
+  segmentFloors,
+  type MorningTarget,
+  type MorningTargetOverrides,
+} from '@/lib/shifts';
 import type { RosterWeek } from '@/types/database';
+
+/** Mon-Fri only -- the weekend always runs 2 in the morning regardless of
+ *  the week setting or any override (§1). */
+const OVERRIDABLE_DAYS = [1, 2, 3, 4, 5] as const;
 
 export function WeekControlsPanel({
   weeks,
@@ -11,6 +20,8 @@ export function WeekControlsPanel({
   onSelect,
   week,
   onSetMorningTarget,
+  morningTargetOverrides,
+  onSetDayOverride,
   onSetStatus,
   saving,
 }: {
@@ -22,10 +33,15 @@ export function WeekControlsPanel({
   onSelect: (weekStart: string) => void;
   week: RosterWeek | null;
   onSetMorningTarget: (t: MorningTarget) => void;
+  /** Per-day exceptions to the week's own morning target, for THIS week only
+   *  (§1) -- e.g. a holiday week needing Mon-Wed at 2 but Thu-Fri at 3. */
+  morningTargetOverrides: MorningTargetOverrides;
+  onSetDayOverride: (dayIndex: number, target: MorningTarget) => void;
   onSetStatus: (s: RosterWeek['status']) => void;
   saving: boolean;
 }) {
   const [showArchive, setShowArchive] = useState(false);
+  const [showPerDay, setShowPerDay] = useState(false);
   const deadline = week ? new Date(week.submission_deadline) : null;
   const left = deadline ? timeUntil(deadline) : null;
   const target = (week?.morning_target_slots ?? 2) as MorningTarget;
@@ -151,6 +167,78 @@ export function WeekControlsPanel({
             <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
               שבת וראשון הם ימי מנוחה - יעד הבוקר בהם תמיד 2, גם כשנבחר 3.
             </p>
+          </div>
+
+          {/* ---------------- per-day override ---------------- */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowPerDay((v) => !v)}
+              className="flex w-full items-center justify-between text-start"
+            >
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                החרגה ליום ספציפי
+                {Object.keys(morningTargetOverrides).length > 0 && (
+                  <span className="ms-1.5 font-normal text-brand-600 dark:text-brand-400">
+                    ({Object.keys(morningTargetOverrides).length} ימים הוחרגו)
+                  </span>
+                )}
+              </span>
+              <span
+                className={cn(
+                  'text-slate-400 transition-transform dark:text-slate-500',
+                  showPerDay && 'rotate-180',
+                )}
+              >
+                ▾
+              </span>
+            </button>
+
+            {showPerDay && (
+              <div className="mt-2 space-y-1.5">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  לשבוע חריג (למשל חג) אפשר לקבוע יעד שונה מהיעד הרגיל של השבוע ליום ספציפי. יום
+                  שלא הוחרג ימשיך אחרי היעד הרגיל למעלה, גם אם הוא ישתנה בהמשך.
+                </p>
+                {OVERRIDABLE_DAYS.map((dayIndex) => {
+                  const effective = morningTargetForDay(target, dayIndex, morningTargetOverrides);
+                  const isOverridden = morningTargetOverrides[String(dayIndex)] != null;
+                  return (
+                    <div
+                      key={dayIndex}
+                      className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 dark:bg-slate-800"
+                    >
+                      <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                        יום {HEBREW_DAYS[dayIndex]}
+                        {isOverridden && (
+                          <span className="ms-1.5 text-[10px] font-bold text-brand-600 dark:text-brand-400">
+                            הוחרג
+                          </span>
+                        )}
+                      </span>
+                      <div className="flex gap-1.5">
+                        {([2, 3] as MorningTarget[]).map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            disabled={saving}
+                            onClick={() => onSetDayOverride(dayIndex, t)}
+                            className={cn(
+                              'rounded-lg border-2 px-2.5 py-1 text-sm font-bold transition-all disabled:opacity-50',
+                              effective === t
+                                ? 'border-brand-600 bg-brand-50 text-brand-800 dark:bg-brand-950/50 dark:text-brand-300'
+                                : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-600',
+                            )}
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* ---------------- lock control ---------------- */}

@@ -24,8 +24,8 @@ from models import (
     SolverOutput,
     rest_hours,
     segment_floors,
+    segment_penalty_weight,
     segment_targets,
-    segment_weight,
 )
 from verify import add_days, verify
 
@@ -98,17 +98,21 @@ def solve(inp: SolverInput, time_limit_s: float = 20.0, workers: int = 8) -> Sol
                     rest_penalties.append(x[gi, 0, n])
 
     # --- H6 ceiling + P1/P3 soft coverage --------------------------------------
-    # Gap terms are scaled by segment_weight() (S1/S4 = 2, S2/S3 = 1) so a
-    # missing guard on an 8h segment costs twice what it does on a 4h segment
-    # -- otherwise the objective can't tell an 8-guard-hour hole from a
-    # 4-guard-hour one, and the solver picks between them arbitrarily.
+    # Gap terms are weighed by segment_penalty_weight() (S1/S4 = 2, S2/S3 = 1
+    # from segment length, plus a flat bonus on S1 alone, §1.2) so a missing
+    # guard on an 8h segment costs more than one on a 4h segment -- otherwise
+    # the objective can't tell an 8-guard-hour hole from a 4-guard-hour one --
+    # and closing a morning gap is prioritised over an equally-sized one
+    # elsewhere when a trade-off is otherwise unavoidable.
     floor_gap_terms: list[cp_model.LinearExprT] = []
     target_gap_terms: list[cp_model.LinearExprT] = []
     for d in range(DAYS):
         # Per day: the raised morning target applies Mon-Fri only, so Saturday
         # and Sunday cap at 2 in the morning even when the week is set to 3.
-        targets = segment_targets(inp.morning_target_slots, d)
-        floors = segment_floors(inp.morning_target_slots, d)
+        # A per-day override (weekly_morning_target_overrides, §1) beats the
+        # week setting for a day that has one.
+        targets = segment_targets(inp.morning_target_slots, d, inp.morning_target_overrides)
+        floors = segment_floors(inp.morning_target_slots, d, inp.morning_target_overrides)
 
         for seg in SEGMENTS:
             covering = [
@@ -124,11 +128,11 @@ def solve(inp: SolverInput, time_limit_s: float = 20.0, workers: int = 8) -> Sol
 
             fg = model.NewIntVar(0, floors[seg], f"fg_{d}_{seg}")
             model.Add(fg >= floors[seg] - cov)
-            floor_gap_terms.append(segment_weight(seg) * fg)
+            floor_gap_terms.append(segment_penalty_weight(seg, w.morning_priority) * fg)
 
             tg = model.NewIntVar(0, targets[seg], f"tg_{d}_{seg}")
             model.Add(tg >= targets[seg] - cov)
-            target_gap_terms.append(segment_weight(seg) * tg)
+            target_gap_terms.append(segment_penalty_weight(seg, w.morning_priority) * tg)
 
     # --- P2: כמות shortfall -----------------------------------------------------
     kamut_gaps: list[cp_model.IntVar] = []

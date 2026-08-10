@@ -20,8 +20,12 @@ import type { DateKey } from '@/lib/dates';
  * an edit (schedule_assignments), publish/unpublish (schedule_runs), and a
  * published run being deleted — which shows up as a roster_weeks status change,
  * the only one of the three guaranteed to reach a guard.
+ *
+ * Takes a LIST of weeks, not one -- RosterView now shows every published week
+ * at once (current + next), and a change to either one needs to be caught, not
+ * just the week that happened to be selected first.
  */
-export function useRosterRealtime(weekStart: DateKey | null) {
+export function useRosterRealtime(weekStarts: readonly DateKey[]) {
   const qc = useQueryClient();
   const { profile } = useAuth();
   const [lastChangeAt, setLastChangeAt] = useState<Date | null>(null);
@@ -39,33 +43,51 @@ export function useRosterRealtime(weekStart: DateKey | null) {
     void qc.invalidateQueries({ queryKey: ['roster_weeks'] });
   };
 
+  // Stable across renders unless the actual set of weeks changes -- an array
+  // literal built fresh every render would otherwise re-subscribe constantly.
+  const key = weekStarts.join(',');
+
   useEffect(() => {
-    if (!supabase || !weekStart || !profile) return;
+    const client = supabase;
+    if (!client || !profile) return;
 
     const fire = () => invalidate.current();
+    const channels: ReturnType<typeof client.channel>[] = [];
 
-    const channel = supabase
-      .channel(`roster-${weekStart}`)
-      // schedule_assignments has no week_start column, so it cannot be filtered
-      // server-side. With a team this size the extra events are trivial, and
-      // every one of them ends in the same cheap refetch.
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_assignments' }, fire)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'schedule_runs', filter: `week_start=eq.${weekStart}` },
-        fire,
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'roster_weeks', filter: `week_start=eq.${weekStart}` },
-        fire,
-      )
-      .subscribe();
+    // schedule_assignments has no week_start column, so it cannot be filtered
+    // server-side and is watched once, unfiltered, regardless of how many
+    // weeks are visible. With a team this size the extra events are trivial,
+    // and every one of them ends in the same cheap refetch.
+    channels.push(
+      client
+        .channel('roster-assignments')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_assignments' }, fire)
+        .subscribe(),
+    );
+
+    for (const weekStart of weekStarts) {
+      channels.push(
+        client
+          .channel(`roster-${weekStart}`)
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'schedule_runs', filter: `week_start=eq.${weekStart}` },
+            fire,
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'roster_weeks', filter: `week_start=eq.${weekStart}` },
+            fire,
+          )
+          .subscribe(),
+      );
+    }
 
     return () => {
-      void supabase?.removeChannel(channel);
+      for (const channel of channels) void client.removeChannel(channel);
     };
-  }, [weekStart, profile?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, profile?.id]);
 
   return { lastChangeAt };
 }

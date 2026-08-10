@@ -26,8 +26,8 @@ from models import (
     UnmetKamut,
     rest_hours,
     segment_floors,
+    segment_penalty_weight,
     segment_targets,
-    segment_weight,
 )
 
 
@@ -126,9 +126,11 @@ def verify(inp: SolverInput, assignments: list[Assignment]) -> tuple[list[str], 
     floor_breaches: list[FloorBreach] = []
     target_gaps: list[TargetGap] = []
     for d in range(7):
-        # Recomputed per day: the raised morning target applies Mon-Fri only.
-        targets = segment_targets(inp.morning_target_slots, d)
-        floors = segment_floors(inp.morning_target_slots, d)
+        # Recomputed per day: the raised morning target applies Mon-Fri only,
+        # and a per-day override (weekly_morning_target_overrides) beats the
+        # week setting for a day that has one.
+        targets = segment_targets(inp.morning_target_slots, d, inp.morning_target_overrides)
+        floors = segment_floors(inp.morning_target_slots, d, inp.morning_target_overrides)
         for seg in SEGMENTS:
             assigned = cov.get((d, seg), 0)
             if assigned > targets[seg]:
@@ -163,10 +165,17 @@ def score(inp: SolverInput, assignments: list[Assignment], report: CoverageRepor
     """The weighted objective from spec 4.2, recomputed independently."""
     w = inp.weights
     guards = {g.id: g for g in inp.guards}
-    # segment_weight() scales each gap by the segment's length (S1/S4 = 2,
-    # S2/S3 = 1) -- see the docstring on that function in models.py.
-    floor_gap = sum(segment_weight(b.segment) * (b.required - b.assigned) for b in report.floor_breaches)
-    target_gap = sum(segment_weight(b.segment) * (b.target - b.assigned) for b in report.target_gaps)
+    # segment_penalty_weight() weighs each gap by the segment's length (S1/S4
+    # = 2, S2/S3 = 1) plus, for S1 only, a flat morning-priority bonus on top
+    # -- see the docstring on that function in models.py.
+    floor_gap = sum(
+        segment_penalty_weight(b.segment, w.morning_priority) * (b.required - b.assigned)
+        for b in report.floor_breaches
+    )
+    target_gap = sum(
+        segment_penalty_weight(b.segment, w.morning_priority) * (b.target - b.assigned)
+        for b in report.target_gaps
+    )
     kamut_gap = sum(b.effective_kamut - b.assigned for b in report.unmet_kamut)
 
     # Each assignment scores the flat pref weight, plus the preferred bonus if

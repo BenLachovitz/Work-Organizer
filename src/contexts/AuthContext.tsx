@@ -98,6 +98,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       is_active: true,
       created_at: new Date().toISOString(),
       default_kamut: 0,
+      // This offline-preview roster is 1:1 with the real seeded mock guards
+      // (every code but Ben's), so the flag can just mirror that split.
+      is_demo: code !== '005396',
     };
   }, []);
 

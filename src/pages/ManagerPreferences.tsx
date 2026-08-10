@@ -12,6 +12,8 @@ import {
 } from '@/hooks/useManager';
 import { formatWeekRange } from '@/lib/dates';
 import type { WishPreference } from '@/types/database';
+import { useViewMode } from '@/contexts/ViewModeContext';
+import { visibleToViewMode } from '@/lib/viewMode';
 
 const STATE_BADGE = {
   filled: { tone: 'green' as const, label: 'הגיש' },
@@ -52,6 +54,7 @@ export function ManagerPreferences() {
   }, [live, selected, nextStart]);
 
   const { data, isLoading, error } = useManagerWeek(selected);
+  const { viewMode } = useViewMode();
   const save = useManagerSavePreferences();
   const del = useManagerDeleteSubmission();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -147,7 +150,9 @@ export function ManagerPreferences() {
           </Alert>
         ) : (
           <div className="space-y-3">
-            {(data?.guards ?? []).map((guard) => {
+            {(data?.guards ?? [])
+              .filter((guard) => visibleToViewMode(guard, viewMode))
+              .map((guard) => {
               const prefs = prefsByGuard.get(guard.id) ?? [];
               const sub = subByGuard.get(guard.id);
               const configuredKamut = targetByGuard.get(guard.id)?.configured_kamut ?? 0;

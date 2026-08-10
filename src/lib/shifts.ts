@@ -158,17 +158,68 @@ export function segmentWeight(segment: Segment): number {
   return SEGMENT_DEFS[segment].hours / 4;
 }
 
+/**
+ * segmentWeight() plus a flat morning-specific priority bonus, for use ONLY
+ * in the floor/target penalty terms of the objective (P1/P3) -- never for the
+ * coverage NUMBERS themselves (segmentTargets/segmentFloors, unaffected). Per
+ * Ben: the manager's actual preference is a fully-staffed morning over a
+ * balanced morning/night when a trade-off is unavoidable -- e.g. one guard
+ * alone at night rather than splitting a flexible guard's availability
+ * evenly. Making an unfilled S1 slot cost strictly more than an unfilled S4
+ * slot (both already 2x S2/S3 from length alone, see segmentWeight above)
+ * achieves exactly that: the solver naturally routes a guard marked for both
+ * morning and another shift toward morning whenever morning coverage
+ * actually needs it, and leaves them free for the other shift once it
+ * doesn't -- without touching a guard's own עדיפות mark, which lives in the
+ * much smaller P4b tier and only ever breaks a tie the coverage tiers (P1
+ * ×1000, P3 ×10) have already left open.
+ *
+ * ADDITIVE, not a multiplier -- like every other weight in this system
+ * (floor/kamut/target/rest8/pref/preferred/stretch are all plain integers).
+ * CP-SAT's coefficients must be integers; a float multiplier would need a
+ * rounding step in scheduler.py that the TS mock/referee wouldn't share,
+ * which is exactly the kind of engine divergence this project's fixture
+ * discipline exists to catch. `morningPriorityBonus` is passed in rather than
+ * read from WEIGHTS directly so every caller flows it through input.weights
+ * like every other weight -- consistent with how w.pref/w.floor/etc. already
+ * work, and what lets preview:cpsat try a different value against live data
+ * without editing code.
+ */
+export function segmentPenaltyWeight(segment: Segment, morningPriorityBonus: number): number {
+  return segment === 'S1' ? segmentWeight(segment) + morningPriorityBonus : segmentWeight(segment);
+}
+
 export type MorningTarget = 2 | 3;
+
+/**
+ * A week-specific exception to the week's own morningTarget, for individual
+ * weekdays (day index 1-5, Mon-Fri) -- e.g. a holiday week needing Mon-Wed at
+ * 2 guards but Thu-Fri at 3. Sparse: a day with no entry just follows the
+ * week's own setting. Keyed by day index AS A STRING because this travels
+ * over JSON (weekly_morning_target_overrides rows, the solver contract) where
+ * object keys are always strings; morningTargetForDay() below does the
+ * lookup so callers never have to think about the key type themselves.
+ */
+export type MorningTargetOverrides = Partial<Record<string, MorningTarget>>;
 
 /**
  * The morning target actually in force on a given day.
  *
  * The raised target (3) applies only to working days, Monday to Friday.
  * Saturday and Sunday are days off at the school and always run 2 in the
- * morning no matter what the week is set to.
+ * morning no matter what the week is set to -- an override never applies to
+ * them, even if one somehow existed for that index.
+ *
+ * `overrides` beats `weekSetting` for a day that has one -- see
+ * MorningTargetOverrides for why this is sparse rather than a full 5-day map.
  */
-export function morningTargetForDay(weekSetting: MorningTarget, dayIndex: number): number {
-  return isWorkingDay(dayIndex) ? weekSetting : 2;
+export function morningTargetForDay(
+  weekSetting: MorningTarget,
+  dayIndex: number,
+  overrides?: MorningTargetOverrides,
+): number {
+  if (!isWorkingDay(dayIndex)) return 2;
+  return overrides?.[String(dayIndex)] ?? weekSetting;
 }
 
 /**
@@ -181,16 +232,18 @@ export function morningTargetForDay(weekSetting: MorningTarget, dayIndex: number
 export function segmentTargets(
   weekSetting: MorningTarget,
   dayIndex: number,
+  overrides?: MorningTargetOverrides,
 ): Record<Segment, number> {
-  return { S1: morningTargetForDay(weekSetting, dayIndex), S2: 2, S3: 2, S4: 2 };
+  return { S1: morningTargetForDay(weekSetting, dayIndex, overrides), S2: 2, S3: 2, S4: 2 };
 }
 
 /** Critical floor per segment (spec 2.4). Soft, but penalised at weight 1000. */
 export function segmentFloors(
   weekSetting: MorningTarget,
   dayIndex: number,
+  overrides?: MorningTargetOverrides,
 ): Record<Segment, number> {
-  const morning = morningTargetForDay(weekSetting, dayIndex);
+  const morning = morningTargetForDay(weekSetting, dayIndex, overrides);
   return { S1: morning === 3 ? 2 : 1, S2: 1, S3: 1, S4: 1 };
 }
 
@@ -467,4 +520,21 @@ export const WEIGHTS = {
    *  guard requests extra shifts and confirm it only ever wins a trade
    *  nothing else cares about). */
   stretch: 1,
+  /** Flat bonus ADDED to segmentWeight('S1') ONLY, in the floor/target
+   *  penalty terms (P1/P3) -- see segmentPenaltyWeight() above for the
+   *  mechanism and full rationale. 0 would mean "no priority beyond S1's
+   *  existing length-based weight of 2" (identical to S4's); 1 makes an
+   *  unfilled S1 slot cost 3 (floor) / 3 (target) where S4 still costs 2.
+   *  Named snake_case, unlike the rest of this file, because this object's
+   *  keys are the wire format itself (solverWeightsSchema/SolverWeights
+   *  parse it directly via `.default(WEIGHTS)`) -- not idiomatic TS naming.
+   *
+   *  Starting hypothesis, not yet measured against live data -- ship this the
+   *  same way WEIGHTS.stretch shipped (see that comment): solve a real week
+   *  before/after with `npm run preview:cpsat`, on a case where a guard is
+   *  genuinely flexible between morning and another shift, and confirm
+   *  morning wins the trade-off without costing an extra floor breach or 8h
+   *  rest occurrence elsewhere. Raise or lower from 1 only after that
+   *  comparison, the same discipline §3.8/§4.2a's weight stories used. */
+  morning_priority: 1,
 } as const;

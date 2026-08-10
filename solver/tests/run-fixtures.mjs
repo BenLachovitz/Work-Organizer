@@ -281,6 +281,35 @@ for (const file of files) {
       : bad('sixth shift exclusivity', `expected exactly 1 S4 floor breach across days 0-5, got ${s4Breaches.length}`);
   }
 
+  if (file.startsWith('14-')) {
+    // 3 guards, all morning-available Mon-Fri, kamut 5 each (maximum pressure
+    // to work every marked day). Baseline target is 2; Thu/Fri (days 4,5) are
+    // overridden to 3. Mon-Wed must never exceed 2 (H6 -- the override must
+    // not leak outside its days), and Thu/Fri must actually reach 3.
+    const s1Count = (d) => output.assignments.filter((a) => a.day === d && a.shift === 'morning').length;
+
+    const overCap = [1, 2, 3].filter((d) => s1Count(d) > 2);
+    overCap.length === 0
+      ? ok("non-overridden weekdays (Mon-Wed) stay capped at the week's baseline target of 2")
+      : bad('per-day override leak', `days ${overCap.join(', ')} exceeded 2 despite no override`);
+
+    const raised = [4, 5].filter((d) => s1Count(d) === 3);
+    raised.length === 2
+      ? ok('both overridden days (Thu, Fri) actually reach the raised target of 3')
+      : bad('per-day override', `only days ${JSON.stringify(raised)} of [4, 5] reached 3`);
+  }
+
+  if (file.startsWith('15-')) {
+    // anchor_s1/anchor_s4 each guarantee one segment's floor; flexible could
+    // close either segment's remaining target gap, and both segments are
+    // otherwise perfectly symmetric -- only the morning_priority bonus (set
+    // to 1 in this fixture's weights) should break the tie toward morning.
+    const flexible = output.assignments.find((a) => a.guard_id === 'flexible')?.shift;
+    flexible === 'morning'
+      ? ok('morning_priority bonus wins an otherwise perfect S1-vs-S4 coverage tie')
+      : bad('morning-priority tie-break', `flexible assigned ${JSON.stringify(flexible)}, expected 'morning'`);
+  }
+
   console.log(`    ${summarise(verdict.report).join(' · ')}\n`);
 }
 
