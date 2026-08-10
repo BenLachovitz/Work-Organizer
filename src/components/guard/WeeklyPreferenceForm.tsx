@@ -120,6 +120,15 @@ export function WeeklyPreferenceForm({
     const base = initial?.requestedShifts ?? configuredKamut;
     return Math.max(0, Math.min(base, feasible, maxRequestableShifts(configuredKamut)));
   });
+  // Whether the guard has ever touched the stepper directly. A guard who
+  // never opens it at all should not silently end up requesting fewer
+  // shifts than they marked simply because they didn't know the control
+  // existed -- so until touched, the value auto-follows min(configuredKamut,
+  // feasible) as boxes are checked (below), the same "default that tracks
+  // your work until you override it" pattern as a quantity field. An
+  // existing stored request counts as an earlier, explicit touch: it must
+  // never be silently overridden by auto-tracking on a later edit.
+  const [requestedTouched, setRequestedTouched] = useState(() => initial?.requestedShifts != null);
   const [confirmSubmit, setConfirmSubmit] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -230,8 +239,16 @@ export function WeeklyPreferenceForm({
   // down rather than leaving a now-infeasible value sitting in the field.
   const requestedMax = Math.min(maxFeasibleShifts, maxRequestableShifts(configuredKamut));
   useEffect(() => {
-    setRequestedShifts((prev) => Math.min(prev, requestedMax));
-  }, [requestedMax]);
+    setRequestedShifts((prev) =>
+      // Untouched: keep auto-following the manager's configured target as
+      // boxes are checked/unchecked, capped by what's actually feasible --
+      // bidirectional, not just a downward clamp, since marking MORE days
+      // should raise the default back up too, not just refuse to lower it.
+      // Touched: respect whatever the guard picked, only pulling it down if
+      // it's since become infeasible.
+      requestedTouched ? Math.min(prev, requestedMax) : Math.min(configuredKamut, requestedMax),
+    );
+  }, [requestedMax, requestedTouched, configuredKamut]);
 
   const effective = effectiveKamut(configuredKamut, availableDays);
   const isEmpty = slots.size === 0;
@@ -526,7 +543,10 @@ export function WeeklyPreferenceForm({
           <span className="text-slate-500 dark:text-slate-400">כמות משמרות מבוקשת</span>
           <Stepper
             value={requestedShifts}
-            onChange={setRequestedShifts}
+            onChange={(v) => {
+              setRequestedTouched(true);
+              setRequestedShifts(v);
+            }}
             disabled={locked}
             min={0}
             max={requestedMax}
