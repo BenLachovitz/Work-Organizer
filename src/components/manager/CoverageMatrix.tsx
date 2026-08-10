@@ -7,6 +7,7 @@ import {
   segmentFloors,
   segmentTargets,
   type MorningTarget,
+  type MorningTargetOverrides,
 } from '@/lib/shifts';
 import type { CoverageCell } from '@/hooks/useManager';
 
@@ -22,17 +23,21 @@ export function CoverageMatrix({
   cells,
   dates,
   morningTarget,
+  morningTargetOverrides,
 }: {
   cells: CoverageCell[];
   dates: DateKey[];
   morningTarget: MorningTarget;
+  /** Per-day exceptions to morningTarget for this week (§1). */
+  morningTargetOverrides?: MorningTargetOverrides;
 }) {
   // Per day: the raised morning target applies Mon-Fri only, so Saturday and
-  // Sunday show a requirement of 2 even when the week is set to 3.
+  // Sunday show a requirement of 2 even when the week is set to 3. A per-day
+  // override (§1) beats the week setting for a day that has one.
   // The 8h shifts map onto segments: morning->S1, afternoon->S2/S3, night->S4.
   const needOn = (dayIndex: number) => {
-    const floors = segmentFloors(morningTarget, dayIndex);
-    const targets = segmentTargets(morningTarget, dayIndex);
+    const floors = segmentFloors(morningTarget, dayIndex, morningTargetOverrides);
+    const targets = segmentTargets(morningTarget, dayIndex, morningTargetOverrides);
     return {
       morning: { floor: floors.S1, target: targets.S1 },
       afternoon: { floor: floors.S2, target: targets.S2 },

@@ -34,7 +34,7 @@ export function GuardHome() {
   const { data: active, isLoading: weekLoading } = useActiveWeek();
   const { data: guardWeek, isLoading: dataLoading } = useGuardWeek(active.weekStart);
   const { data: rosters, isLoading: rostersLoading } = useVisibleRosters();
-  const { lastChangeAt } = useRosterRealtime(weekStartOf(todayInIsrael()));
+  const { lastChangeAt } = useRosterRealtime((rosters?.weeks ?? []).map((w) => w.weekStart));
 
   if (weekLoading || dataLoading) {
     return (

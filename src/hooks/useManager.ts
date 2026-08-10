@@ -14,12 +14,81 @@ import {
   effectiveKamut,
   type BaseShift,
   type MorningTarget,
+  type MorningTargetOverrides,
 } from '@/lib/shifts';
 
 export const managerKeys = {
   week: (weekStart: DateKey) => ['managerWeek', weekStart] as const,
   codes: ['rosterCodeStatus'] as const,
+  morningTargetOverrides: (weekStart: DateKey) => ['morningTargetOverrides', weekStart] as const,
 };
+
+/**
+ * Per-day exceptions to a week's morning target (§1), e.g. a holiday week
+ * needing Mon-Wed at 2 but Thu-Fri at 3 -- sparse, a day with no row here
+ * just follows roster_weeks.morning_target_slots (see morningTargetForDay()
+ * in src/lib/shifts.ts).
+ */
+export function useMorningTargetOverrides(weekStart: DateKey) {
+  return useQuery({
+    queryKey: managerKeys.morningTargetOverrides(weekStart),
+    enabled: Boolean(weekStart),
+    queryFn: async (): Promise<MorningTargetOverrides> => {
+      const { data, error } = await requireSupabase()
+        .from('weekly_morning_target_overrides')
+        .select('day_index, morning_target_slots')
+        .eq('week_start', weekStart);
+      if (error) throw new Error(error.message);
+
+      const overrides: MorningTargetOverrides = {};
+      for (const row of (data ?? []) as { day_index: number; morning_target_slots: MorningTarget }[]) {
+        overrides[String(row.day_index)] = row.morning_target_slots;
+      }
+      return overrides;
+    },
+  });
+}
+
+/**
+ * Sets or clears one day's override. `target: null` clears it -- the caller
+ * (WeekControlsPanel via ManagerDashboard) passes null when the chosen value
+ * equals the week's own baseline, so a day is never left holding a row that
+ * says nothing different from just following the week setting (the same
+ * normalize-to-absence convention requested_shifts and notes already use).
+ */
+export function useUpdateMorningTargetOverride() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      weekStart: DateKey;
+      dayIndex: number;
+      target: MorningTarget | null;
+    }) => {
+      const db = requireSupabase();
+      if (input.target === null) {
+        const { error } = await db
+          .from('weekly_morning_target_overrides')
+          .delete()
+          .eq('week_start', input.weekStart)
+          .eq('day_index', input.dayIndex);
+        if (error) throw new Error(error.message);
+        return;
+      }
+      const { error } = await db.from('weekly_morning_target_overrides').upsert(
+        {
+          week_start: input.weekStart,
+          day_index: input.dayIndex,
+          morning_target_slots: input.target,
+        },
+        { onConflict: 'week_start,day_index' },
+      );
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: (_d, input) => {
+      void qc.invalidateQueries({ queryKey: managerKeys.morningTargetOverrides(input.weekStart) });
+    },
+  });
+}
 
 export interface ManagerWeekData {
   guards: Profile[];
@@ -70,6 +139,9 @@ export interface RosterCodeStatus {
   /** Baseline weekly כמות -- from roster_codes before claiming, from
    *  profiles (the live, editable value) after. */
   default_kamut: number;
+  /** Same real/demo flag as Profile.is_demo, from whichever of roster_codes
+   *  / profiles currently holds the truth for this row. */
+  is_demo: boolean;
 }
 
 /** Registration status per badge code, for chasing guards who never signed up

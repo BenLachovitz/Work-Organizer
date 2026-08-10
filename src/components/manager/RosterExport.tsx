@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card } from '@/components/ui';
 import { downloadBlob, renderRosterImage, rosterFileName } from '@/lib/exportRoster';
 import type { DateKey } from '@/lib/dates';
-import type { MorningTarget } from '@/lib/shifts';
+import type { MorningTarget, MorningTargetOverrides } from '@/lib/shifts';
 import type { Profile, ScheduleAssignment } from '@/types/database';
 
 /**
@@ -24,11 +24,14 @@ import type { Profile, ScheduleAssignment } from '@/types/database';
 export function RosterExport({
   weekStart,
   morningTarget,
+  morningTargetOverrides,
   assignments,
   guards,
 }: {
   weekStart: DateKey;
   morningTarget: MorningTarget;
+  /** Per-day exceptions to morningTarget for this week (§1). */
+  morningTargetOverrides?: MorningTargetOverrides;
   assignments: ScheduleAssignment[];
   guards: Profile[];
 }) {
@@ -46,10 +49,11 @@ export function RosterExport({
       [
         weekStart,
         morningTarget,
+        JSON.stringify(morningTargetOverrides ?? {}),
         guards.length,
         ...assignments.map((a) => `${a.target_date}|${a.shift}|${a.guard_id}`).sort(),
       ].join(','),
-    [weekStart, morningTarget, assignments, guards],
+    [weekStart, morningTarget, morningTargetOverrides, assignments, guards],
   );
 
   useEffect(() => {
@@ -70,7 +74,13 @@ export function RosterExport({
 
   const ensureImage = async () => {
     if (image) return image;
-    const blob = await renderRosterImage({ weekStart, morningTarget, assignments, guards });
+    const blob = await renderRosterImage({
+      weekStart,
+      morningTarget,
+      morningTargetOverrides,
+      assignments,
+      guards,
+    });
     const built = { url: URL.createObjectURL(blob), blob };
     setImage(built);
     return built;

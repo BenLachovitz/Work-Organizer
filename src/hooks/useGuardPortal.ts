@@ -9,7 +9,7 @@ import type {
   WishPreference,
 } from '@/types/database';
 import type { DateKey } from '@/lib/dates';
-import type { BaseShift } from '@/lib/shifts';
+import type { BaseShift, MorningTargetOverrides } from '@/lib/shifts';
 
 export const guardKeys = {
   week: (guardId: string, weekStart: DateKey) => ['guardWeek', guardId, weekStart] as const,
@@ -161,6 +161,9 @@ export interface WeekRoster {
   runId: string;
   /** Needed to render coverage shortfalls; guards may read roster_weeks. */
   morningTarget: 2 | 3;
+  /** Per-day exceptions to morningTarget for this week (§1) -- see
+   *  morningTargetForDay() in src/lib/shifts.ts. */
+  morningTargetOverrides: MorningTargetOverrides;
   assignments: ScheduleAssignment[];
 }
 
@@ -197,7 +200,7 @@ export function useVisibleRosters() {
       const list = (runs ?? []) as { id: string; week_start: string }[];
       if (!list.length) return { weeks: [], guards: [] };
 
-      const [assignRes, guardRes, weekRes] = await Promise.all([
+      const [assignRes, guardRes, weekRes, overrideRes] = await Promise.all([
         db
           .from('schedule_assignments')
           .select('*')
@@ -208,13 +211,23 @@ export function useVisibleRosters() {
           .from('roster_weeks')
           .select('week_start, morning_target_slots')
           .in('week_start', list.map((r) => r.week_start)),
+        db
+          .from('weekly_morning_target_overrides')
+          .select('week_start, day_index, morning_target_slots')
+          .in('week_start', list.map((r) => r.week_start)),
       ]);
       if (assignRes.error) throw new Error(assignRes.error.message);
       if (guardRes.error) throw new Error(guardRes.error.message);
       if (weekRes.error) throw new Error(weekRes.error.message);
+      if (overrideRes.error) throw new Error(overrideRes.error.message);
 
       const assignments = (assignRes.data as ScheduleAssignment[]) ?? [];
       const targets = (weekRes.data ?? []) as { week_start: string; morning_target_slots: 2 | 3 }[];
+      const overrideRows = (overrideRes.data ?? []) as {
+        week_start: string;
+        day_index: number;
+        morning_target_slots: 2 | 3;
+      }[];
 
       return {
         weeks: list.map((r) => ({
@@ -222,6 +235,11 @@ export function useVisibleRosters() {
           runId: r.id,
           morningTarget:
             targets.find((w) => w.week_start === r.week_start)?.morning_target_slots ?? 2,
+          morningTargetOverrides: Object.fromEntries(
+            overrideRows
+              .filter((o) => o.week_start === r.week_start)
+              .map((o) => [String(o.day_index), o.morning_target_slots]),
+          ),
           assignments: assignments.filter((a) => a.run_id === r.id),
         })),
         guards: (guardRes.data as Profile[]) ?? [],

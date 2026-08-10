@@ -18,6 +18,9 @@ export interface Profile {
   created_at: string;
   /** Baseline weekly כמות. Seeds weekly_guard_targets for a week that has no row yet. */
   default_kamut: number;
+  /** True for a seeded mock guard used to sanity-test the scheduler. Source
+   *  of truth for the admin real/test view-mode toggle (src/lib/viewMode.ts). */
+  is_demo: boolean;
 }
 
 export interface RosterWeek {

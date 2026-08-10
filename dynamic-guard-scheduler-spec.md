@@ -1,6 +1,6 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.7 (build steps A–O complete; live and in daily use; deployed to production)
+**Version:** 2.8 (build steps A–P complete; live and in daily use; deployed to production)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 11 August 2026
@@ -107,6 +107,16 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | 51  | The requested-shifts stepper **auto-follows** `min(configured, feasible)` live as a guard checks/unchecks boxes, until manually touched at least once | A guard who never interacts with the stepper at all previously kept whatever it was initialised to, only ever clamped downward — never recovering upward if they later marked more days. Easy to just not notice, since nothing about the stepper demands attention the way checking a box does |
 | 52  | Manager visibility: `TeamTable.tsx` shows a `מבוקש · N` badge per guard alongside the existing עדיפות badge; the manager-editor (item 39) can view **and edit** a guard's requested count on their behalf | Same visibility/edit treatment already established for every other per-guard submission detail (§1.7 item 39) |
 
+### 1.9 Changes in Version 2.8
+
+| #   | Change                                                                                            | Rationale                                                                                                                     |
+| --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 53  | **Per-day morning target override** (`weekly_morning_target_overrides`, migration 35, §2.4b) — a manager can raise or lower the Mon-Fri morning target for individual days within one specific week, on top of that week's own uniform 2/3 setting | A holiday week needs a shape the week-level setting alone can't express — e.g. Mon-Wed at 2, Thu-Fri at 3 — without changing the week's baseline for days that aren't exceptional |
+| 54  | **Morning-priority coverage weight** (`WEIGHTS.morning_priority`, §4.2b) — an unfilled morning (S1) slot now costs a flat bonus more than an equally-sized unfilled slot elsewhere, in the floor/target penalty terms only | Per Ben: the manager's actual preference is a fully-staffed morning over a balanced morning/night when a trade-off is unavoidable — one guard alone at night rather than splitting a flexible guard's availability evenly. Deliberately additive, not a multiplier, like every other weight in the model, and deliberately does not touch a guard's own עדיפות mark (P4b), which only ever breaks a tie the coverage tiers have already left open |
+| 55  | **Roster view stacks every published week** instead of showing one at a time via a selector (§10.1) — for both guards and the manager | So a guard (or the manager) sees both the current and next week's roster at once, once both are published, instead of having to flip a selector |
+| 56  | **Admin real/test view-mode toggle** (`is_demo`, migration 34, §12.8) — a header control, manager/admin-only, filters the manager dashboard's employee lists between real employees and the seeded demo guards | The 7 mock guards (§1.4 item 25's rename) are permanent test fixtures now that real registration is under way; the manager needed a way to see just the real team without the demo noise, without deleting the fixtures he's still using |
+| 57  | Fixed: `ensure_roster_weeks()`'s "keep every untouched week's deadline live" step (migration 27) was an **unconditional** `UPDATE`, causing a live realtime feedback loop (migration 36, §12.1) | A same-value `UPDATE` still performs a physical row write, which Realtime broadcasts as a genuine change regardless of whether any column's value actually differs. `useRosterRealtime`'s subscription reacted to that broadcast by invalidating `roster_weeks`, whose query re-calls `ensure_roster_weeks()` — which repeated the same no-op write, forever. Caught live: opening `/manage` fired the RPC roughly every 100ms for as long as the dashboard stayed open |
+
 ---
 
 ## 2. OPERATIONAL SCHEDULING RULES
@@ -191,6 +201,35 @@ offsets or times preserves this shape as long as `open` stays configured to land
 `ensure_roster_weeks()` is idempotent and runs on every app load. It creates the current week and
 the next one, opens or locks them against their windows, and **never touches a week whose status a
 manager has set by hand** (§12.3).
+
+### 2.4b Per-Day Morning Target Override (migration 35, v2.8)
+
+`roster_weeks.morning_target_slots` is a single value for the whole week (§2.4) — Mon-Fri all get
+the same target, 2 or 3. That's too coarse for an exceptional week: a holiday needing Mon-Wed at 2
+guards but Thu-Fri at 3 can't be expressed by the week-level setting alone. `weekly_morning_target_overrides`
+adds a **per-day exception**, for Mon-Fri only (`day_index BETWEEN 1 AND 5` — Sat/Sun stay hard-locked
+at 2 regardless, unchanged from §2.4) and scoped to one specific week.
+
+**Sparse by design**, the same convention `requested_shifts` and `notes` already use (§3.4/§3.10): a
+day's row exists only when it **differs** from the week's own baseline. Saving a value equal to the
+current baseline deletes the row instead of storing a redundant one — `morningTargetForDay()`
+(`src/lib/shifts.ts`) checks the override map first, falling back to the week setting when a day has
+no entry. This means raising or lowering the week-level 2-vs-3 toggle later automatically re-applies
+to every day that was never explicitly overridden, exactly the "temporary exception" shape a holiday
+week needs — the override doesn't have to be re-entered or cleared when the underlying baseline
+changes.
+
+`morningTargetForDay()`, `segmentTargets()` and `segmentFloors()` all take the override map as an
+optional third argument, threaded through everywhere they're already called: both solver engines
+(§9.3), both referees (`validate.ts` / `verify.py`), `CoverageMatrix`, `RosterGrid`, `RosterEditor`,
+and the JPEG export (`exportRoster.ts`, which mirrors `RosterGrid` rule for rule, §10.2). The solver
+contract (§9.2) carries it as `morning_target_overrides`, a sparse `{day_index: target}` map, default
+empty so every fixture and caller written before this existed still parses unchanged.
+
+**Manager UI**: a collapsed-by-default "החרגה ליום ספציפי" section on `WeekControlsPanel`
+(`ManagerDashboard.tsx`), one row per weekday, each a 2/3 toggle identical in style to the existing
+week-level one, pre-filled with the *effective* value (override or baseline) and badged "הוחרג" when
+an explicit override is active for that day.
 
 ### 2.5 Capacity Analysis (why floors must be soft)
 
@@ -570,9 +609,9 @@ The solver maximises a single weighted score. All coverage and volume goals are 
 
 | Priority   | Term                                                          | Weight    |
 | ---------- | -------------------------------------------------------------- | --------- |
-| **P1**     | Each guard-slot below a segment's **critical floor**            | **−1000** × `segmentWeight(seg)` |
+| **P1**     | Each guard-slot below a segment's **critical floor**            | **−1000** × `segmentPenaltyWeight(seg)` |
 | **P2**     | Each shift a guard falls short of `effective_kamut`             | **−100**  |
-| **P3**     | Each unfilled **target** slot above the floor                   | **−10** × `segmentWeight(seg)`   |
+| **P3**     | Each unfilled **target** slot above the floor                   | **−10** × `segmentPenaltyWeight(seg)`   |
 | **P-rest** | Each 8-hour-rest occurrence (⚠️ cells in §2.6)                  | **−5**    |
 | **P4**     | Each assignment matching a declared preference (availability is hard, so this is every assignment) | **+1**    |
 | **P4b**    | Each assignment matching a slot marked **עדיפות** (strength 2, §3.8) | **+2**, additive on top of P4 |
@@ -580,11 +619,15 @@ The solver maximises a single weighted score. All coverage and volume goals are 
 
 ```
 maximise   Σ pref_weight·x  +  preferred_weight·Σ preferred_x  +  stretch_weight·Σ stretch_bonus
-         − 1000·Σ segmentWeight(seg)·floor_gap
+         − 1000·Σ segmentPenaltyWeight(seg)·floor_gap
          −  100·Σ kamut_gap
-         −   10·Σ segmentWeight(seg)·target_gap
+         −   10·Σ segmentPenaltyWeight(seg)·target_gap
          −    5·Σ rest_violation
 ```
+
+`segmentPenaltyWeight(seg)` (§4.2b, v2.8) is `segmentWeight(seg)` (§4.2a below) plus a flat bonus
+added for S1 only. Everywhere the P1/P3 tiers appear, this is the function actually used — see §4.2b
+for what it adds on top of the plain length-based `segmentWeight()`.
 
 ### 4.2a Segment-Length Weighting (v2.4)
 
@@ -604,6 +647,35 @@ after, they consistently pick the cheaper (4h) one when the trade-off is otherwi
 > willing guards. P4b (§3.8) adds real discriminating power on top of that for a guard's specific
 > עדיפות-marked slots, at a weight (2) measured against live data rather than assumed — see §3.8 for
 > the trade-off that ruled out a larger value.
+
+### 4.2b Morning-Priority Weighting (`WEIGHTS.morning_priority`, v2.8)
+
+Per Ben, the manager's actual preference when a coverage trade-off is unavoidable is a fully-staffed
+**morning** over a *balanced* morning/night — e.g. one guard alone at night rather than splitting a
+guard who is flexible between the two evenly across both. §4.2a's `segmentWeight()` already makes S1
+and S4 both cost 2× an S2/S3 gap from length alone, but that leaves S1 and S4 tied with each other —
+nothing in the objective preferred one over the other.
+
+`segmentPenaltyWeight(seg, morningPriorityBonus)` (`src/lib/shifts.ts`, mirrored as
+`segment_penalty_weight()` in `solver/models.py`) adds a flat bonus to `segmentWeight('S1')` only,
+used in place of the bare `segmentWeight()` in every P1/P3 term (§4.2, both engines and both
+referees). **Additive, not a multiplier** — unlike a ratio, an integer bonus needs no rounding step
+to stay CP-SAT-safe (CP-SAT's coefficients must be integers), and it matches how every other weight
+in this model already works. `WEIGHTS.morning_priority` is the bonus value: shipped at **1** (S1's
+floor/target gap costs 3 where S4 still costs 2), a starting hypothesis not yet measured against live
+data at the time of writing — see the weight-tuning discipline in §3.8/§4.2a before raising it.
+
+Because this lives entirely inside the P1 (×1000) / P3 (×10) tiers, it structurally outranks P4/P4b
+(±1/±2) by construction: a guard's own עדיפות mark can only ever break a tie *after* the coverage
+tiers have already decided, so it is never overridden by this weighting, without needing any explicit
+conditional logic to enforce that.
+
+The solver contract's `weights.morning_priority` (§9.2) defaults to **0** (neutral — identical to
+pre-v2.8 behaviour), *not* the shipped production value: this adds to a term present in almost every
+fixture, including ones predating this field whose expected behaviour assumes segments are otherwise
+symmetric (e.g. fixture 10's preference tie-break, §14.2). A non-zero default would silently change
+what they test. Real generation always sends the full `WEIGHTS` object explicitly, so the zero
+default is only ever reached by an old fixture or caller that omits the field.
 
 ---
 
@@ -645,7 +717,11 @@ CREATE TABLE roster_codes (
   initial_role  user_role NOT NULL DEFAULT 'guard',
   claim_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   is_claimed    BOOLEAN NOT NULL DEFAULT FALSE,
-  claimed_at    TIMESTAMPTZ
+  claimed_at    TIMESTAMPTZ,
+  -- v2.8 migration 34: true for a seeded mock/demo guard. Source of truth for
+  -- the admin real/test view-mode toggle (§12.8) -- not inferred from
+  -- display_name's "- דמה" suffix (§1.4 item 25).
+  is_demo       BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- 2. Guard / manager profiles
@@ -655,7 +731,10 @@ CREATE TABLE profiles (
   display_name  TEXT NOT NULL,
   role          user_role NOT NULL DEFAULT 'guard',
   is_active     BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- v2.8 migration 34: same flag as roster_codes.is_demo, carried across
+  -- claiming by trg_profiles_is_demo the same way default_kamut already is.
+  is_demo       BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- 3. Per-week manager controls
@@ -715,6 +794,17 @@ CREATE TABLE weekly_guard_targets (
   configured_kamut INT NOT NULL DEFAULT 0 CHECK (configured_kamut BETWEEN 0 AND 5),
   effective_kamut  INT CHECK (effective_kamut BETWEEN 0 AND 5), -- computed at generation
   UNIQUE (week_start, guard_id)
+);
+
+-- 6b. Per-day exceptions to a week's own morning_target_slots (§2.4b, v2.8
+--     migration 35). Sparse: a day with no row here just follows the week's
+--     baseline. Weekdays only -- Sat/Sun stay hard-locked at 2 (§2.4).
+CREATE TABLE weekly_morning_target_overrides (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  week_start            DATE NOT NULL REFERENCES roster_weeks(week_start) ON DELETE CASCADE,
+  day_index             SMALLINT NOT NULL CHECK (day_index BETWEEN 1 AND 5),
+  morning_target_slots  SMALLINT NOT NULL CHECK (morning_target_slots IN (2, 3)),
+  UNIQUE (week_start, day_index)
 );
 
 -- 7. One row per solver execution; holds the coverage report and publication state
@@ -968,6 +1058,7 @@ rather than saved.
 {
   "week_start": "2026-08-09",
   "morning_target_slots": 2,
+  "morning_target_overrides": { "4": 3, "5": 3 },  // v2.8 §2.4b: sparse day_index -> target for THIS week only, default {}
   "guards": [
     { "id": "uuid", "effective_kamut": 3,
       "stretch_target": 3,   // v2.7 §3.10: rewarded (never penalised) ceiling above effective_kamut, default 0
@@ -979,7 +1070,8 @@ rather than saved.
     }
   ],
   "carry_in": { "uuid": "night" },   // previous Saturday's shift, or null
-  "weights": { "floor": 1000, "kamut": 100, "target": 10, "rest8": 5, "pref": 1, "preferred": 2, "stretch": 1 }
+  "weights": { "floor": 1000, "kamut": 100, "target": 10, "rest8": 5, "pref": 1, "preferred": 2, "stretch": 1,
+                "morning_priority": 0 }  // v2.8 §4.2b: flat S1-only bonus, default 0 (neutral) -- shipped WEIGHTS sends 1
 }
 
 // SolverOutput
@@ -1178,6 +1270,26 @@ at the 5-shift ceiling. No solver can fix that — only more people, a higher ca
 > `VITE_SOLVER_MODE` selects the engine: `mock` runs in the browser, `remote` calls the Edge
 > Function. Server-only values — `SUPABASE_ACCESS_TOKEN`, `SOLVER_SECRET`, `SOLVER_URL` — must never
 > carry a `VITE_` prefix, which would publish them in the browser bundle.
+
+### 10.0a Dual-Week Roster View (v2.8)
+
+`RosterView.tsx` ("סידור שבועי") used to show one week at a time behind a pill selector, defaulting
+to whichever week was current. `useVisibleRosters()` (`src/hooks/useGuardPortal.ts`) already fetched
+*every* published week the caller's RLS allows — in practice the current week plus the next, once
+both are published — so showing only one at a time was a rendering choice, not a fetching limit.
+
+**Now every published week renders stacked**, oldest first, each in its own `RosterGrid` card with
+its own "המשמרות שלי" (my shifts) section underneath — a guard can have shifts in both weeks at
+once, so the summary is per week, not combined. If only one week is published, this degrades to
+exactly what showed before; no separate code path needed. Applies identically to guards and the
+manager — RLS (`runs_read`, §7.2) already allows a guard to see any published week at or after their
+visibility floor, current or future, so no policy change was needed.
+
+`useRosterRealtime` (§10, migration 15) took a single `weekStart` before; it now takes a **list**,
+opening one filtered channel per week plus a single shared unfiltered `schedule_assignments` channel
+(that table has no `week_start` column to filter on, so it was always watched unfiltered regardless
+of how many weeks are on screen). `GuardHome.tsx`'s "הסידור שלי" cards were already rendering one per
+published week before this change; only its realtime subscription needed the same generalisation.
 
 ### 10.1 Roster Grid Layout
 
@@ -1407,6 +1519,20 @@ once at creation and never rewritten (§12.5) — too strict for a week nobody h
 anything about, so within the same bound `ensure_roster_weeks()` also keeps such a week's deadline
 live against the current `scheduler_settings`, not just its open/locked status.
 
+> **Fixed in v2.8 (migration 36): that deadline-refresh step was itself an unconditional
+> `UPDATE`.** It rewrote `submission_deadline` for every in-window, non-overridden, non-terminal
+> week on every call — even when the computed value was identical to what was already stored.
+> Postgres still performs a physical row write for a same-value `SET`, and Realtime broadcasts that
+> as a genuine `UPDATE` regardless of whether any column's value actually changed. `useRosterRealtime`
+> (§10) subscribes to `roster_weeks` updates for whichever week is on screen and reacts by
+> invalidating the `roster_weeks` query — whose `queryFn` calls `ensure_roster_weeks()` again, which
+> repeats the same no-op write, broadcasts again, and invalidates again. Caught live testing the
+> per-day override feature above: opening `/manage` against the production project fired
+> `ensure_roster_weeks()` roughly every 100ms, indefinitely, for as long as the dashboard stayed
+> open — hammering the database for zero user action. Fixed with the same value-guard the two
+> status-reconciliation `UPDATE`s right below it already use (`WHERE` the value would actually
+> change) — `IS DISTINCT FROM` on the computed deadline.
+
 ### 12.2 Archive
 
 Past weeks remain stored and are **manager-only**, enforced in RLS rather than by hiding a route: a
@@ -1557,6 +1683,35 @@ isn't bound by that guard's own submission deadline, the same way a manager can 
 published roster. A parallel `manager_delete_week_submission(p_guard_id, p_week_start)` mirrors
 `delete_week_submission` (§3.7) the same way.
 
+### 12.8 Admin Real/Test View-Mode Toggle (`is_demo`, migration 34, v2.8)
+
+The 7 mock guards (`{שם} - דמה`, §1.4 item 25) are permanent test fixtures — Ben keeps using them for
+sanity-testing even as real registration proceeds alongside them (§1.4). `TeamTable`, `TeamManagement`
+and `ManagerPreferences` (`GuardHome`'s "manager preferences" list) all showed every active
+guard mixed together, real and demo, with no way to see just one group.
+
+**The flag, not the naming convention.** `is_demo` (a real boolean column, on both `profiles` and
+`roster_codes` — a row can live in either depending on claimed state, the same reason
+`default_kamut` lives on both, §12.4) is the source of truth, not string-matching the `- דמה`
+display-name suffix: a name-based check would break if a demo guard were ever renamed, and can't
+distinguish a real employee whose name happens to contain the substring. Backfilled by known
+employee_code (`100001`–`100007`) in the same migration, not by matching the suffix.
+
+**The toggle itself**: `ViewModeContext` (`src/contexts/ViewModeContext.tsx`, same shape as
+`ThemeContext`, §10.3) is binary — `'real' | 'test'`, persisted to `localStorage`, defaulting to
+`'real'`. A control in `AppShell`'s header, visible only when `isManager` (the same role check
+`BottomNav` already uses), switches it. `visibleToViewMode()` (`src/lib/viewMode.ts`) is the shared
+filter: `mode === 'test' ? guard.is_demo : !guard.is_demo` — **except** Ben (`005396`), who is
+always visible in both modes regardless of the flag, since he was never seeded with a separate demo
+account to begin with.
+
+**Display-only, deliberately.** The toggle changes what the manager dashboard's *lists* show —
+`TeamTable`, `TeamManagement`, `ManagerPreferences` — never who gets scheduled. Generation,
+`CoverageMatrix` and `RosterGrid` all keep reading the full, unfiltered guard set exactly as before;
+`is_active` alone still governs solver inclusion (§2.1). Filtering `TeamTable`'s rows happens after
+`buildGuardRows()`, on the derived rows, specifically so `data.guards` itself — what generation and
+the roster grid actually consume — is never touched by the toggle.
+
 ---
 
 ## 13. OPEN ITEMS
@@ -1597,18 +1752,28 @@ published roster. A parallel `manager_delete_week_submission(p_guard_id, p_week_
 | **M**     | Guard preference-form polish: עדיפות chip only shown with 2+ marked shifts and capped at N−1 preferred (§3.8); manager-configured כמות dropped from the guard-facing summary in favour of a rest-rule-aware feasible-shifts estimate (§3.9) | ✅ complete                      |
 | **N**     | Manager preference detail view + edit-on-behalf-of window (§12.7); submission confirmation modal (§3.11); dark mode, system-synced with a manual override, colours softened in two follow-up passes (§10.3) | ✅ complete                      |
 | **O**     | Guard-requested shift count, phased in two parts: general below/above-configured mechanism, then the 5→6 exception (§3.10, migration 33); two production bugs found and fixed along the way (the lower-request guarantee, and the feasible-shifts UI cap) | ✅ complete                      |
+| **P**     | Per-day morning target override (§2.4b, migration 35); morning-priority coverage weight (§4.2b); roster view stacks every published week instead of a selector (§10.0a); admin real/test view-mode toggle (§12.8, migration 34); fixed a live `ensure_roster_weeks()` realtime feedback loop found while testing this batch (migration 36) | ✅ complete                      |
 
 ### 14.2 Verification
 
 Eleven suites, all green. Every gate runs against the live project except the PGlite one. (Gate E
-engines now run 13 golden fixtures, not 8 — two added in v2.4: a segment-weight tie-break and a
+engines now run 15 golden fixtures, not 8 — two added in v2.4: a segment-weight tie-break and a
 preference tie-break, both empirically constructed and verified against a hand-patched "flat
 weighting" baseline to confirm the tie they test was real before asserting the fix resolves it.
 Three more added in v2.7 for the guard-requested shift count (§3.10): a stretch-bonus tie-break
 paired with a stretch-vs-rest8 priority check in one fixture, a guard-shift-ceiling fixture proving
 a lower request is never exceeded even when coverage would reward breaking it, and a sixth-shift
 fixture proving both the grant and its exclusivity to guards configured at exactly 5 in one
-scenario.)
+scenario. Two more added in v2.8 (§2.4b/§4.2b): a per-day override fixture proving the raised target
+actually applies on its overridden days and never leaks onto the days around it, and a
+morning-priority tie-break fixture mirroring fixture 9's construction — an otherwise perfectly
+symmetric S1-vs-S4 coverage tie, broken only by `WEIGHTS.morning_priority`.)
+
+Gate D (`manager.cloud.test.mjs`) has a known, pre-existing, date-driven flake unrelated to any
+of the above: its dedicated test week (`2026-09-06`) sits exactly on `ensure_roster_weeks()`'s
+sweep-window boundary (`current_week_start() + 28`) as of August 2026, so real production traffic
+calling `ensure_roster_weeks()` mid-test-run can sweep the test's own fixture row. Self-resolving
+once the calendar moves the boundary past mid-September 2026; not a regression if seen before then.
 
 | Suite             | Command                                                   | Covers                                                                          |
 | ----------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------- |
@@ -1619,7 +1784,7 @@ scenario.)
 | Gate C            | `node supabase/tests/preferences.cloud.test.mjs`          | Persistence, atomicity, deadline, isolation, notes (§3.6), cancelling a submission outright (§3.7), guard-requested shift count round-trip and isolation (§3.10) |
 | Gate D            | `node supabase/tests/manager.cloud.test.mjs`              | Week controls, כמות, lock/reopen override                                       |
 | Gate E (cloud)    | `npm run test:generate`                                   | Generate → verify stored rows → publish                                         |
-| Gate E (engines)  | `npm run test:fixtures`, `solver/tests/test_scheduler.py` | 13 golden fixtures, both engines                                                |
+| Gate E (engines)  | `npm run test:fixtures`, `solver/tests/test_scheduler.py` | 15 golden fixtures, both engines                                                |
 | Gate E (edit)     | `npm run test:edit`                                       | Draft and published-roster editing, deletion                                    |
 | Gate F (realtime) | `npm run test:realtime`                                   | Live push both directions: roster changes to guards, submissions to the manager |
 
@@ -1630,11 +1795,12 @@ CP-SAT never scores below the mock.
 ### 14.3 What is left
 
 Nothing blocking. Live in production at `work-organizer-iota.vercel.app`, GitHub auto-deploy
-connected, all suites green. Open item 9 (§13, tiered כמות penalty) was investigated and rejected —
-not something to revisit unless the hard-constraint set changes. Open item 1 (2-level preference
-strength) shipped in v2.4 (§3.8). Open item 10 (guard-requested shift count) shipped in v2.7
-(§3.10), both the general mechanism and the 5→6 exception. Everything else in §13 is either decided
-or a deliberately deferred design choice, not a build gap.
+connected, all suites green except Gate D's known pre-existing date collision (§14.2). Open item 9
+(§13, tiered כמות penalty) was investigated and rejected — not something to revisit unless the
+hard-constraint set changes. Open item 1 (2-level preference strength) shipped in v2.4 (§3.8). Open
+item 10 (guard-requested shift count) shipped in v2.7 (§3.10), both the general mechanism and the
+5→6 exception. Everything else in §13 is either decided or a deliberately deferred design choice,
+not a build gap. v2.8's four features (§1.9) were a single requested batch, all shipped together.
 
 One thread from v2.4 is now effectively resolved rather than deferred, and one demo-data note still
 stands:

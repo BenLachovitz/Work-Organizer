@@ -17,6 +17,7 @@ import {
   segmentFloors,
   segmentTargets,
   type MorningTarget,
+  type MorningTargetOverrides,
   type Segment,
   type ShiftType,
 } from '@/lib/shifts';
@@ -63,6 +64,7 @@ const newKey = () => `n${seq++}`;
 export function RosterEditor({
   weekStart,
   morningTarget,
+  morningTargetOverrides,
   assignments,
   guards,
   solverInput,
@@ -72,6 +74,8 @@ export function RosterEditor({
 }: {
   weekStart: DateKey;
   morningTarget: MorningTarget;
+  /** Per-day exceptions to morningTarget for this week (§1). */
+  morningTargetOverrides?: MorningTargetOverrides;
   assignments: ScheduleAssignment[];
   guards: Profile[];
   /** The same input the solver saw, so the referee judges identically. */
@@ -158,8 +162,8 @@ export function RosterEditor({
   const onDate = (date: DateKey) => draft.filter((d) => d.date === date);
 
   const cellTone = (date: DateKey, dayIndex: number, segs: Segment[]) => {
-    const floors = segmentFloors(morningTarget, dayIndex);
-    const targets = segmentTargets(morningTarget, dayIndex);
+    const floors = segmentFloors(morningTarget, dayIndex, morningTargetOverrides);
+    const targets = segmentTargets(morningTarget, dayIndex, morningTargetOverrides);
     const cov = (s: Segment) =>
       onDate(date).filter((d) => SHIFTS[d.shift].covers.includes(s)).length;
     if (segs.some((s) => cov(s) < floors[s]))
