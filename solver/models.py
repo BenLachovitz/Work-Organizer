@@ -109,6 +109,11 @@ class SolverWeights(BaseModel):
     # rest8/target so it can only break ties, never outweigh a real rule
     # (measured trade-off: see the comment on WEIGHTS in src/lib/shifts.ts).
     preferred: int = 2
+    # Bonus for a shift beyond a guard's effective_kamut, up to their own
+    # stretch_target -- the requested-shift-count analogue of `preferred`.
+    # Starting value only, not yet measured against live data (see the
+    # comment on WEIGHTS.stretch in src/lib/shifts.ts).
+    stretch: int = 1
 
 
 class SolverGuard(BaseModel):
@@ -116,6 +121,12 @@ class SolverGuard(BaseModel):
     display_name: str | None = None
     # Already lowered by min(configured, available_days, 5) upstream.
     effective_kamut: int = Field(ge=0, le=5)
+    # The rewarded (never penalized) ceiling for this guard -- always intended
+    # to be >= effective_kamut when both are meaningfully set. Already derived
+    # upstream (stretchTarget() in src/lib/shifts.ts) from the guard's own
+    # requested shift count; this solver never sees the raw request or
+    # configured_kamut, only these two pre-derived numbers.
+    stretch_target: int = Field(ge=0, le=6, default=0)
     # Day index "0".."6" (Sunday first) -> the base shifts they marked.
     availability: dict[str, list[BaseShift]] = Field(default_factory=dict)
     # Day index -> the base shifts marked עדיפות (strength 2) that day. Always

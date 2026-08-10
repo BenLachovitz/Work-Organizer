@@ -33,8 +33,20 @@ register(
 const { mockSolve } = await import('@/lib/mockSolver.ts');
 const { verifySchedule, summarise } = await import('@/lib/validate.ts');
 const { solverInputSchema } = await import('@/lib/solverContract.ts');
-const { effectiveKamut } = await import('@/lib/shifts.ts');
+const { effectiveKamut, stretchTarget } = await import('@/lib/shifts.ts');
 const { dayIndexInWeek } = await import('@/lib/dates.ts');
+
+// --request <guard_id>:<n> overrides that guard's requested shift count for
+// THIS preview only -- read-only, nothing is written to weekly_submissions.
+// Repeatable. Lets a stretch-bonus scenario be tried against real data
+// without mutating it, the same "measured, not assumed" check `preferred`'s
+// weight got before shipping (see the comment on WEIGHTS in shifts.ts).
+const requestOverrides = new Map();
+for (let i = 0; i < process.argv.length; i++) {
+  if (process.argv[i] !== '--request') continue;
+  const [id, n] = (process.argv[i + 1] ?? '').split(':');
+  if (id && n) requestOverrides.set(id, Number(n));
+}
 
 const env = {};
 for (const line of (await readFile(join(ROOT, '.env.local'), 'utf8')).split('\n')) {
@@ -64,6 +76,7 @@ const week = (await sql(`SELECT morning_target_slots t FROM roster_weeks WHERE w
 const guards = await sql(`SELECT id, display_name FROM profiles WHERE is_active ORDER BY employee_code`);
 const prefs = await sql(`SELECT guard_id, target_date::text, shift::text, allows_12h, strength FROM weekly_wish_preferences WHERE week_start='${WEEK}'`);
 const targets = await sql(`SELECT guard_id, configured_kamut FROM weekly_guard_targets WHERE week_start='${WEEK}'`);
+const subs = await sql(`SELECT guard_id, requested_shifts FROM weekly_submissions WHERE week_start='${WEEK}'`);
 
 const input = solverInputSchema.parse({
   week_start: WEEK,
@@ -83,10 +96,14 @@ const input = solverInputSchema.parse({
     }
     const configured = targets.find((t) => t.guard_id === g.id)?.configured_kamut ?? 0;
     const days = new Set(mine.map((p) => p.target_date)).size;
+    const requested = requestOverrides.has(g.id)
+      ? requestOverrides.get(g.id)
+      : (subs.find((s) => s.guard_id === g.id)?.requested_shifts ?? null);
     return {
       id: g.id,
       display_name: g.display_name,
-      effective_kamut: effectiveKamut(configured, days),
+      effective_kamut: effectiveKamut(configured, days, requested),
+      stretch_target: stretchTarget(configured, days, requested),
       availability,
       preferred,
       twelve_hour_day: d12,
@@ -139,7 +156,8 @@ for (const a of out.assignments) worked.set(a.guard_id, (worked.get(a.guard_id) 
 for (const g of input.guards) {
   const n = worked.get(g.id) ?? 0;
   const mark = n < g.effective_kamut ? `  <- short of ${g.effective_kamut}` : '';
-  console.log(`  ${(g.display_name ?? '?').padEnd(10)} ${n} / ${g.effective_kamut}${mark}`);
+  const stretch = g.stretch_target > g.effective_kamut ? `  (stretch target ${g.stretch_target})` : '';
+  console.log(`  ${(g.display_name ?? '?').padEnd(10)} [${g.id}] ${n} / ${g.effective_kamut}${stretch}${mark}`);
 }
 
 console.log(`\nassignments: ${out.assignments.length}   objective: ${v.objective}   hard-rule violations: ${v.violations.length}`);

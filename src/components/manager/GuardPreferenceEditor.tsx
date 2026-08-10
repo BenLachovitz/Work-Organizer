@@ -1,7 +1,14 @@
-import { useState } from 'react';
-import { Button, cn } from '@/components/ui';
+import { useEffect, useMemo, useState } from 'react';
+import { Button, Stepper, cn } from '@/components/ui';
 import { HEBREW_DAYS, formatDayMonth, weekDates, type DateKey } from '@/lib/dates';
-import { BASE_SHIFTS, SHIFTS, isWeekendDay, type BaseShift } from '@/lib/shifts';
+import {
+  BASE_SHIFTS,
+  MAX_SHIFTS_PER_WEEK,
+  SHIFTS,
+  isWeekendDay,
+  maxFeasibleShifts,
+  type BaseShift,
+} from '@/lib/shifts';
 import {
   rowsToSelection,
   selectionToSlots,
@@ -26,18 +33,46 @@ const canExtend = (shift: BaseShift) => shift === 'morning' || shift === 'night'
 export function GuardPreferenceEditor({
   weekStart,
   initialPreferences,
+  configuredKamut,
+  initialRequestedShifts,
   saving,
   onSave,
   onCancel,
 }: {
   weekStart: DateKey;
   initialPreferences: WishPreference[];
+  /** The manager-configured כמות -- needed only to bound and normalise the
+   *  requested-shifts stepper below, same rules the guard-facing form uses. */
+  configuredKamut: number;
+  initialRequestedShifts: number | null;
   saving: boolean;
-  onSave: (slots: ReturnType<typeof selectionToSlots>) => void;
+  onSave: (
+    slots: ReturnType<typeof selectionToSlots>,
+    requestedShifts: number | null,
+  ) => void;
   onCancel: () => void;
 }) {
   const [slots, setSlots] = useState<Selection>(() => rowsToSelection(initialPreferences));
   const dates = weekDates(weekStart);
+
+  const [requestedShifts, setRequestedShifts] = useState(
+    initialRequestedShifts ?? configuredKamut,
+  );
+  // Bounds recomputed LIVE from whatever the manager currently has toggled --
+  // not the guard's original submission -- so the ceiling tracks edits made
+  // in this same session, same rule (requested <= feasible) the guard-facing
+  // form enforces.
+  const requestedMax = useMemo(
+    () =>
+      Math.min(
+        maxFeasibleShifts(dates, (date, shift) => slots.has(slotKey(date, shift))),
+        MAX_SHIFTS_PER_WEEK,
+      ),
+    [slots, dates],
+  );
+  useEffect(() => {
+    setRequestedShifts((prev) => Math.min(prev, requestedMax));
+  }, [requestedMax]);
 
   const toggleSlot = (date: DateKey, shift: BaseShift) => {
     setSlots((prev) => {
@@ -186,8 +221,26 @@ export function GuardPreferenceEditor({
         })}
       </div>
 
+      <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5 dark:bg-slate-800">
+        <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
+          כמות משמרות מבוקשת
+        </span>
+        <Stepper value={requestedShifts} onChange={setRequestedShifts} min={0} max={requestedMax} />
+      </div>
+
       <div className="flex gap-2">
-        <Button fullWidth loading={saving} onClick={() => onSave(selectionToSlots(slots))}>
+        <Button
+          fullWidth
+          loading={saving}
+          onClick={() =>
+            onSave(
+              selectionToSlots(slots),
+              // Equal-to-configured normalises to null, same rule the
+              // guard-facing form applies on submit.
+              requestedShifts === configuredKamut ? null : requestedShifts,
+            )
+          }
+        >
           שמירה
         </Button>
         <Button variant="ghost" onClick={onCancel}>

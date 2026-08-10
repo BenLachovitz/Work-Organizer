@@ -17,10 +17,12 @@ export function GuardPreferenceDetail({
   weekStart,
   preferences,
   notes,
+  requestedShifts,
 }: {
   weekStart: DateKey;
   preferences: WishPreference[];
   notes: string | null;
+  requestedShifts?: number | null;
 }) {
   const dates = weekDates(weekStart);
   const byDateShift = new Map(preferences.map((p) => [`${p.target_date}|${p.shift}`, p]));
@@ -69,6 +71,12 @@ export function GuardPreferenceDetail({
           );
         })}
       </div>
+
+      {requestedShifts != null && (
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          כמות משמרות מבוקשת: <strong>{requestedShifts}</strong>
+        </p>
+      )}
 
       {notes && (
         <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-300">

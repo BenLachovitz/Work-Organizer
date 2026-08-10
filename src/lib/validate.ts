@@ -280,8 +280,20 @@ export function scoreSchedule(
     return s + w.pref + (preferred ? w.preferred : 0);
   }, 0);
 
+  // Stretch bonus: shifts a guard worked beyond their effective_kamut, up to
+  // their own stretch_target -- count-based like kamutGap, not per-assignment
+  // like prefScore, since it's inherently about total volume rather than
+  // which specific slot was matched.
+  const totals = new Map<string, number>();
+  for (const a of assignments) totals.set(a.guard_id, (totals.get(a.guard_id) ?? 0) + 1);
+  const stretchBonus = input.guards.reduce((s, g) => {
+    const worked = totals.get(g.id) ?? 0;
+    return s + Math.max(0, Math.min(worked, g.stretch_target) - g.effective_kamut);
+  }, 0);
+
   return (
-    prefScore -
+    prefScore +
+    w.stretch * stretchBonus -
     w.floor * floorGap -
     w.kamut * kamutGap -
     w.target * targetGap -

@@ -36,6 +36,9 @@ export interface WeeklySubmission {
   updated_at: string;
   /** Free-text context from the guard, e.g. "prefers night shifts". Never read by the solver. */
   notes: string | null;
+  /** Guard-stated preferred shift count for the week, NULL = no explicit
+   *  request. See effectiveKamut()/stretchTarget() in src/lib/shifts.ts. */
+  requested_shifts: number | null;
 }
 
 export interface WishPreference {

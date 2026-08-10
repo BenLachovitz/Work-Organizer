@@ -28,6 +28,11 @@ export const solverWeightsSchema = z.object({
    *  src/lib/shifts.ts). Defaulted, like the Python twin, so a fixture or
    *  caller written before this existed still parses. */
   preferred: z.number().int().nonnegative().default(2),
+  /** Bonus for a shift beyond a guard's effective_kamut, up to their own
+   *  stretch_target -- the guard-requested-shift-count analogue of
+   *  `preferred`. Defaulted, like the Python twin, so a fixture or caller
+   *  written before this existed still parses. */
+  stretch: z.number().int().nonnegative().default(1),
 });
 
 export const solverGuardSchema = z.object({
@@ -35,6 +40,15 @@ export const solverGuardSchema = z.object({
   display_name: z.string().optional(),
   /** Already lowered by min(configured, available_days, 5) before it gets here. */
   effective_kamut: z.number().int().min(0).max(5),
+  /** The rewarded (never penalized) ceiling for this guard -- intended to
+   *  always be >= effective_kamut when both are set meaningfully. Already
+   *  computed upstream (stretchTarget() in src/lib/shifts.ts) from the
+   *  guard's own requested shift count; the solver only ever sees these two
+   *  pre-derived numbers, never the raw request or configured_kamut.
+   *  Defaults to 0 so a fixture/caller written before this existed still
+   *  parses -- both engines clamp the derived bonus cap at 0 rather than
+   *  going negative if a caller sends effective_kamut > stretch_target. */
+  stretch_target: z.number().int().min(0).max(6).default(0),
   /** Day index "0".."6" (Sunday-first) -> the base shifts they marked. */
   availability: z.record(z.string(), z.array(baseShiftSchema)),
   /** Day index -> the base shifts marked עדיפות (strength 2) that day.

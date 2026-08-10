@@ -138,6 +138,9 @@ export interface ManagerSavePreferencesInput {
   guardId: string;
   slots: { date: DateKey; shift: BaseShift; allows12h: boolean; strength: 1 | 2 }[];
   notes?: string;
+  /** The guard's preferred shift count, editable by the manager on their
+   *  behalf -- null for "no explicit request, defer to configured כמות". */
+  requestedShifts?: number | null;
 }
 
 /**
@@ -156,6 +159,7 @@ export function useManagerSavePreferences() {
         p_week_start: input.weekStart,
         p_slots: input.slots,
         p_notes: input.notes ?? null,
+        p_requested_shifts: input.requestedShifts ?? null,
       });
       if (error) throw new Error(error.message);
     },
@@ -230,6 +234,9 @@ export interface GuardRow {
   lowered: boolean;
   /** Free text from the guard. Context for a human; the solver never sees it. */
   notes: string | null;
+  /** Guard-stated preferred shift count for the week, null = no explicit
+   *  request. See effectiveKamut()/stretchTarget() in src/lib/shifts.ts. */
+  requestedShifts: number | null;
 }
 
 export function buildGuardRows(data: ManagerWeekData): GuardRow[] {
@@ -249,7 +256,8 @@ export function buildGuardRows(data: ManagerWeekData): GuardRow[] {
 
     // Distinct DAYS, not slots: one shift per day makes days the real bound.
     const availableDays = new Set(prefs.map((p) => p.target_date)).size;
-    const effective = effectiveKamut(configured, availableDays);
+    const requested = sub?.requested_shifts ?? null;
+    const effective = effectiveKamut(configured, availableDays, requested);
 
     return {
       guard,
@@ -264,6 +272,7 @@ export function buildGuardRows(data: ManagerWeekData): GuardRow[] {
       effectiveKamut: effective,
       lowered: effective < configured,
       notes: sub?.notes ?? null,
+      requestedShifts: requested,
     };
   });
 }

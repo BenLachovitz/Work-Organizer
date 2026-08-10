@@ -81,6 +81,10 @@ export interface SavePreferencesInput {
   slots: { date: DateKey; shift: BaseShift; allows12h: boolean; strength: 1 | 2 }[];
   /** Free text for the manager, e.g. "עדיפות למשמרות לילה". Never fed to the solver. */
   notes?: string;
+  /** Guard's preferred shift count for the week, or null/omitted for "no
+   *  explicit request, defer to configured כמות" -- see effectiveKamut()/
+   *  stretchTarget() in src/lib/shifts.ts for how it's applied. */
+  requestedShifts?: number | null;
 }
 
 /**
@@ -101,6 +105,7 @@ export function useSavePreferences() {
         p_week_start: input.weekStart,
         p_slots: input.slots,
         p_notes: input.notes ?? null,
+        p_requested_shifts: input.requestedShifts ?? null,
       });
       if (error) {
         // 42501 is the insufficient_privilege we raise when the window shut

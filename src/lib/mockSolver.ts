@@ -97,6 +97,14 @@ export function mockSolve(input: SolverInput): SolverOutput {
     }
 
     if (workedOf(guardId) < g.effective_kamut) score += w.kamut;
+    // Stretch bonus: a shift beyond the (already-satisfied) effective כמות,
+    // up to the guard's own stretch_target -- the requested-shift-count
+    // analogue of the עדיפות bonus below, additive on top of nothing rather
+    // than on top of w.pref, since there is no "flat" term for volume the
+    // way there is for a specific slot.
+    if (workedOf(guardId) >= g.effective_kamut && workedOf(guardId) < g.stretch_target) {
+      score += w.stretch;
+    }
 
     const before = day > 0 ? shiftOn.get(`${guardId}|${day - 1}`) : undefined;
     if (before && classifyRest(before, shift) === 'penalised') score -= w.rest8;

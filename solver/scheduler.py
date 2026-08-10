@@ -137,6 +137,37 @@ def solve(inp: SolverInput, time_limit_s: float = 20.0, workers: int = 8) -> Sol
         model.Add(kg >= g.effective_kamut - worked)
         kamut_gaps.append(kg)
 
+    # --- P2b: stretch bonus ------------------------------------------------------
+    # A shift beyond the (already-satisfied) effective_kamut, up to the guard's
+    # own stretch_target -- the requested-shift-count analogue of P4b, additive
+    # on top of nothing here rather than on top of a flat term, since there is
+    # no per-slot "flat" term for volume the way there is for preference.
+    #
+    # Mirror-image of the kamut-gap idiom above, not a copy: kamut_gaps is
+    # MINIMIZED, so a bare one-sided `kg >= floor - worked` is enough -- CP-SAT
+    # drives it down to its tight lower bound on its own, and a negative RHS
+    # (worked comfortably clears the floor) just leaves kg resting at its own
+    # domain minimum, 0 -- harmless. This term is MAXIMIZED, so naively mirroring
+    # that with a bare `sb <= worked - effective_kamut` breaks the moment a guard
+    # falls SHORT of effective_kamut (an ordinary, expected soft-shortfall
+    # elsewhere in this same model): the RHS goes negative while sb's domain
+    # floor is 0, and `0 <= negative` is unsatisfiable -- INFEASIBLE for input
+    # that has every right to solve. Explicitly floor the overflow at 0 first
+    # via AddMaxEquality, THEN let sb's own domain cap it at `cap` through the
+    # ordinary `<=` -- both directions now degrade to sb=0 instead of failing.
+    stretch_bonus: list[cp_model.IntVar] = []
+    for gi, g in enumerate(guards):
+        worked = sum(x[gi, d, s] for d in range(DAYS) for s in SHIFT_TYPES)
+        diff = model.NewIntVar(-MAX_SHIFTS_PER_WEEK, MAX_SHIFTS_PER_WEEK, f"sdiff_{gi}")
+        model.Add(diff == worked - g.effective_kamut)
+        overflow = model.NewIntVar(0, MAX_SHIFTS_PER_WEEK, f"sover_{gi}")
+        model.AddMaxEquality(overflow, [diff, model.NewConstant(0)])
+
+        cap = max(0, g.stretch_target - g.effective_kamut)
+        sb = model.NewIntVar(0, cap, f"sb_{gi}")
+        model.Add(sb <= overflow)
+        stretch_bonus.append(sb)
+
     # --- P4: preference weight --------------------------------------------------
     # Availability is hard, so every assignment matches a preference; this term
     # is a mild tie-breaker toward using willing guards.
@@ -158,6 +189,7 @@ def solve(inp: SolverInput, time_limit_s: float = 20.0, workers: int = 8) -> Sol
     model.Maximize(
         w.pref * sum(pref_terms)
         + w.preferred * sum(preferred_terms)
+        + w.stretch * sum(stretch_bonus)
         - w.floor * sum(floor_gap_terms)
         - w.kamut * sum(kamut_gaps)
         - w.target * sum(target_gap_terms)

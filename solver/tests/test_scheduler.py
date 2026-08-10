@@ -183,6 +183,40 @@ def main() -> int:
             else:
                 bad("preference tie-break", f"solo assigned {solo!r}, expected 'night'")
 
+        if name.startswith("11-"):
+            assigned_ids = {a.guard_id for a in out.assignments}
+
+            # Day 1: decoy_s1_day1 always fills the floor (guaranteed, not the
+            # thing under test) -- the CONTESTED slot is the remaining
+            # target-2 spot between wants_more and at_kamut, same coverage
+            # value either way, only the stretch bonus differs.
+            if "wants_more" in assigned_ids and "at_kamut" not in assigned_ids:
+                ok("stretch bonus wins a genuine tie for the extra slot (wants_more over at_kamut)")
+            else:
+                bad(
+                    "stretch tie-break",
+                    f"wants_more assigned={'wants_more' in assigned_ids}, "
+                    f"at_kamut assigned={'at_kamut' in assigned_ids}",
+                )
+
+            # Day 4: would_cost_rest could extend from 1 to 2 shifts, but only
+            # via an 8h-penalised afternoon(day3)->morning(day4) transition;
+            # decoy_no_rest contests the same last slot for free. stretch(1)
+            # must not outweigh rest8(5).
+            worked = [a for a in out.assignments if a.guard_id == "would_cost_rest"]
+            if len(worked) == 1 and worked[0].day == 3:
+                ok("stretch bonus does not outweigh an 8h-rest penalty (would_cost_rest stays at 1 shift)")
+            else:
+                bad(
+                    "stretch vs rest8",
+                    f"would_cost_rest has {len(worked)} shift(s) on day(s) {[a.day for a in worked]}",
+                )
+
+            if "decoy_no_rest" in assigned_ids:
+                ok("the rest-free alternative fills the slot instead")
+            else:
+                bad("stretch vs rest8 alternative", "decoy_no_rest was not assigned")
+
         print()
 
     # CP-SAT is optimal; the greedy mock is not. Recording the scores lets

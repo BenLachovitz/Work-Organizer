@@ -276,9 +276,93 @@ export const MAX_SHIFTS_PER_WEEK = 5;
  * Pre-flight כמות override. A guard who marked only 2 days can never reach a
  * כמות of 4, so we lower the target instead of handing the solver a constraint
  * it cannot satisfy. This is what prevents unexplainable INFEASIBLE results.
+ *
+ * `requestedShifts` is the guard's own stated preference for the week
+ * (`weekly_submissions.requested_shifts`, nullable). It only ever LOWERS the
+ * penalized floor, never raises it: a request below configured wins outright
+ * (`min(configured, requested)`), a request at or above configured leaves
+ * configured as the floor unchanged -- a higher request only ever earns a
+ * soft, non-penalized bonus via `stretchTarget()` below, it never becomes
+ * something the solver is penalized for missing.
  */
-export function effectiveKamut(configuredKamut: number, distinctAvailableDays: number): number {
-  return Math.max(0, Math.min(configuredKamut, distinctAvailableDays, MAX_SHIFTS_PER_WEEK));
+export function effectiveKamut(
+  configuredKamut: number,
+  distinctAvailableDays: number,
+  requestedShifts?: number | null,
+): number {
+  const floorTarget =
+    requestedShifts != null && requestedShifts < configuredKamut ? requestedShifts : configuredKamut;
+  return Math.max(0, Math.min(floorTarget, distinctAvailableDays, MAX_SHIFTS_PER_WEEK));
+}
+
+/**
+ * The rewarded (never penalized) ceiling for a guard who asked for MORE than
+ * their configured כמות -- always >= effectiveKamut(). Feeds the solver's
+ * soft "stretch" bonus (WEIGHTS.stretch), which mirrors how the עדיפות bonus
+ * (WEIGHTS.preferred) sits on top of the flat preference term: additive, not
+ * a new priority tier, weighted low enough it can only win a trade the rest
+ * of the objective is already indifferent to.
+ *
+ * `guardMaxShifts` defaults to the ordinary 5-shift ceiling. It exists as a
+ * parameter (not hardcoded to MAX_SHIFTS_PER_WEEK) purely so a future,
+ * deliberately separate change can pass 6 for a guard already configured at
+ * 5 -- that requires relaxing the hard weekly ceiling itself in both solver
+ * engines, which this function does not attempt.
+ */
+export function stretchTarget(
+  configuredKamut: number,
+  distinctAvailableDays: number,
+  requestedShifts: number | null | undefined,
+  guardMaxShifts: number = MAX_SHIFTS_PER_WEEK,
+): number {
+  const eff = effectiveKamut(configuredKamut, distinctAvailableDays, requestedShifts);
+  if (requestedShifts == null || requestedShifts <= configuredKamut) return eff;
+  return Math.max(eff, Math.min(requestedShifts, distinctAvailableDays, guardMaxShifts));
+}
+
+/**
+ * The best shift count actually achievable from a set of marked slots alone,
+ * respecting the same >=8h rest rule the solver enforces (H5) -- marking
+ * Sunday night and Monday morning has NOT bought two shifts, since the two
+ * can never legally combine (0h rest, blocked). Shown to a guard as "משמרות
+ * אפשריות מהסימונים שלך" (WeeklyPreferenceForm.tsx) and reused, live, as the
+ * ceiling on the requested-shifts stepper in both that form and the manager's
+ * GuardPreferenceEditor -- which is why this lives here rather than as a
+ * component-local helper: both need the identical calculation, recomputed
+ * against whatever slots are CURRENTLY toggled, not just an initial snapshot.
+ *
+ * Small DP over the week: for each day, the best count ending in "worked
+ * shift S" is 1 + the best count from the previous day that isn't blocked by
+ * resting into S (or the best "day off" count, always compatible). Extended
+ * (12h) shifts aren't modelled separately -- this is a guidance number, not
+ * solver input.
+ *
+ * `isMarked` is a predicate rather than a `Selection` map so callers with
+ * different underlying data shapes (a Map keyed by "date|shift", or rows
+ * freshly read from the database) can each pass their own lookup without
+ * this file needing to import a UI-layer type.
+ */
+export function maxFeasibleShifts(
+  dates: readonly string[],
+  isMarked: (date: string, shift: BaseShift) => boolean,
+): number {
+  const DAY_OFF = Symbol('off');
+  let prev = new Map<BaseShift | typeof DAY_OFF, number>([[DAY_OFF, 0]]);
+  for (const date of dates) {
+    const options = BASE_SHIFTS.filter((s) => isMarked(date, s));
+    const bestSoFar = Math.max(...prev.values());
+    const next = new Map<BaseShift | typeof DAY_OFF, number>([[DAY_OFF, bestSoFar]]);
+    for (const shift of options) {
+      let best = prev.get(DAY_OFF) ?? 0;
+      for (const [prevShift, count] of prev) {
+        if (prevShift === DAY_OFF) continue;
+        if (classifyRest(prevShift, shift) !== 'blocked') best = Math.max(best, count);
+      }
+      next.set(shift, best + 1);
+    }
+    prev = next;
+  }
+  return Math.min(MAX_SHIFTS_PER_WEEK, Math.max(...prev.values()));
 }
 
 // ---------------------------------------------------------------------------
@@ -303,4 +387,13 @@ export const WEIGHTS = {
    *  got 4 of 5 preferred shifts with zero cost anywhere. Don't raise this
    *  without re-measuring on real data the way that comparison did. */
   preferred: 2,
+  /** Bonus for a shift beyond a guard's effective כמות, up to their own
+   *  stretchTarget() -- the guard-requested-shift-count analogue of
+   *  `preferred`, same additive-not-a-new-tier shape. Starting value only:
+   *  unlike `preferred`, this has not yet been measured against live data
+   *  (see the `preferred` weight-tuning story above for the methodology to
+   *  repeat before treating 1 as final -- solve a real week before/after a
+   *  guard requests extra shifts and confirm it only ever wins a trade
+   *  nothing else cares about). */
+  stretch: 1,
 } as const;

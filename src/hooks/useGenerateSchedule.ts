@@ -5,6 +5,7 @@ import { dayIndexInWeek, type DateKey } from '@/lib/dates';
 import {
   WEIGHTS,
   effectiveKamut,
+  stretchTarget,
   type BaseShift,
   type MorningTarget,
   type ShiftType,
@@ -60,11 +61,14 @@ export function buildSolverInput(
       data.targets.find((t) => t.guard_id === guard.id)?.configured_kamut ?? 0;
     // Distinct DAYS, not slots: one shift per day makes days the real bound.
     const availableDays = new Set(prefs.map((p) => p.target_date)).size;
+    const requested =
+      data.submissions.find((s) => s.guard_id === guard.id)?.requested_shifts ?? null;
 
     return {
       id: guard.id,
       display_name: guard.display_name,
-      effective_kamut: effectiveKamut(configured, availableDays),
+      effective_kamut: effectiveKamut(configured, availableDays, requested),
+      stretch_target: stretchTarget(configured, availableDays, requested),
       availability,
       preferred,
       twelve_hour_day: twelveHourDay,

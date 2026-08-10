@@ -202,6 +202,37 @@ for (const file of files) {
       : bad('preference tie-break', `solo assigned ${JSON.stringify(solo)}, expected 'night'`);
   }
 
+  if (file.startsWith('11-')) {
+    const assignedIds = new Set(output.assignments.map((a) => a.guard_id));
+
+    // Day 1: decoy_s1_day1 always fills the floor (guaranteed, not the thing
+    // under test) -- the CONTESTED slot is the remaining target-2 spot
+    // between wants_more and at_kamut, same coverage value either way, only
+    // the stretch bonus differs.
+    assignedIds.has('wants_more') && !assignedIds.has('at_kamut')
+      ? ok('stretch bonus wins a genuine tie for the extra slot (wants_more over at_kamut)')
+      : bad(
+          'stretch tie-break',
+          `wants_more assigned=${assignedIds.has('wants_more')}, at_kamut assigned=${assignedIds.has('at_kamut')}`,
+        );
+
+    // Day 4: would_cost_rest could extend from 1 to 2 shifts, but only via an
+    // 8h-penalised afternoon(day3)->morning(day4) transition; decoy_no_rest
+    // contests the same last slot for free. stretch(1) must not outweigh
+    // rest8(5).
+    const worked = output.assignments.filter((a) => a.guard_id === 'would_cost_rest');
+    worked.length === 1 && worked[0].day === 3
+      ? ok('stretch bonus does not outweigh an 8h-rest penalty (would_cost_rest stays at 1 shift)')
+      : bad(
+          'stretch vs rest8',
+          `would_cost_rest has ${worked.length} shift(s) on day(s) ${JSON.stringify(worked.map((a) => a.day))}`,
+        );
+
+    assignedIds.has('decoy_no_rest')
+      ? ok('the rest-free alternative fills the slot instead')
+      : bad('stretch vs rest8 alternative', 'decoy_no_rest was not assigned');
+  }
+
   console.log(`    ${summarise(verdict.report).join(' · ')}\n`);
 }
 

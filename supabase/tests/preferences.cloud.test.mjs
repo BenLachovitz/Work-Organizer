@@ -110,12 +110,26 @@ async function signedIn(code) {
   return db;
 }
 
-const savePrefs = (db, week, slots, notes) =>
-  db.rpc('save_week_preferences', { p_week_start: week, p_slots: slots, p_notes: notes ?? null });
+const savePrefs = (db, week, slots, notes, requestedShifts) =>
+  db.rpc('save_week_preferences', {
+    p_week_start: week,
+    p_slots: slots,
+    p_notes: notes ?? null,
+    p_requested_shifts: requestedShifts ?? null,
+  });
 
 const readNotes = async (db, week) => {
   const { data } = await db.from('weekly_submissions').select('notes').eq('week_start', week).maybeSingle();
   return data?.notes ?? null;
+};
+
+const readRequestedShifts = async (db, week) => {
+  const { data } = await db
+    .from('weekly_submissions')
+    .select('requested_shifts')
+    .eq('week_start', week)
+    .maybeSingle();
+  return data?.requested_shifts ?? null;
 };
 
 const readPrefs = async (db, week) => {
@@ -301,7 +315,53 @@ async function run() {
       : bad('note isolation', `mine=${JSON.stringify(mine)} theirs=${JSON.stringify(theirs)}`);
   }
 
-  console.log('\n\x1b[1m9. Cancelling a submission outright (delete_week_submission)\x1b[0m');
+  console.log('\n\x1b[1m9. Guard-requested shift count\x1b[0m');
+  {
+    const { error } = await savePrefs(
+      guard, OPEN_WEEK,
+      [{ date: addDays(OPEN_WEEK, 0), shift: 'morning', allows12h: false }],
+      null,
+      2,
+    );
+    const requested = await readRequestedShifts(guard, OPEN_WEEK);
+    !error && requested === 2
+      ? ok('requested shift count saved and read back verbatim')
+      : bad('requested round-trip', error ? error.message : `got ${JSON.stringify(requested)}`);
+  }
+  {
+    // A value outside 0-6 is rejected by the requested_shifts CHECK, the same
+    // way notes_length backstops the notes column -- the client's own bounds
+    // (the stepper's min/max) are UX only.
+    const { error } = await savePrefs(guard, OPEN_WEEK, [], null, 7);
+    error
+      ? ok('a requested count above 6 is rejected by the database')
+      : bad('requested_shifts CHECK', 'out-of-range value was accepted');
+  }
+  {
+    // Re-saving with requested_shifts omitted (undefined -> null) clears a
+    // previously-saved value rather than leaving it stale -- same "always a
+    // full replace, never a partial patch" contract the RPC already has for
+    // slots and notes.
+    await savePrefs(guard, OPEN_WEEK, [], null, null);
+    const requested = await readRequestedShifts(guard, OPEN_WEEK);
+    requested === null
+      ? ok('omitting the requested count on a later save clears it back to NULL')
+      : bad('requested clear', JSON.stringify(requested));
+  }
+  {
+    // Same isolation guarantee as notes and preference rows: one guard's
+    // requested count is invisible through another guard's client.
+    const neighbour = await signedIn(CODE2);
+    await savePrefs(neighbour, OPEN_WEEK, [], null, 4);
+    await savePrefs(guard, OPEN_WEEK, [], null, 1);
+    const mine = await readRequestedShifts(guard, OPEN_WEEK);
+    const theirs = await readRequestedShifts(neighbour, OPEN_WEEK);
+    mine === 1 && theirs === 4
+      ? ok("a neighbour's requested count lands on their own row, not the caller's")
+      : bad('requested isolation', `mine=${JSON.stringify(mine)} theirs=${JSON.stringify(theirs)}`);
+  }
+
+  console.log('\n\x1b[1m10. Cancelling a submission outright (delete_week_submission)\x1b[0m');
   {
     // Fresh, known state to cancel: a real submission with slots and a note,
     // not the leftover empty-but-submitted state section 8 left behind.

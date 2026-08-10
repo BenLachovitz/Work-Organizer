@@ -177,8 +177,19 @@ def score(inp: SolverInput, assignments: list[Assignment], report: CoverageRepor
         if g and REQUIRES_BASE[a.shift] in g.preferred.get(str(a.day), []):
             pref_score += w.preferred
 
+    # Stretch bonus: shifts worked beyond effective_kamut, up to stretch_target
+    # -- count-based like kamut_gap, not per-assignment like pref_score, since
+    # it's inherently about total volume rather than which slot was matched.
+    totals: dict[str, int] = {}
+    for a in assignments:
+        totals[a.guard_id] = totals.get(a.guard_id, 0) + 1
+    stretch_bonus = sum(
+        max(0, min(totals.get(g.id, 0), g.stretch_target) - g.effective_kamut) for g in inp.guards
+    )
+
     return (
         pref_score
+        + w.stretch * stretch_bonus
         - w.floor * floor_gap
         - w.kamut * kamut_gap
         - w.target * target_gap

@@ -70,6 +70,10 @@ export function ManagerPreferences() {
     () => new Map((data?.submissions ?? []).map((s) => [s.guard_id, s])),
     [data],
   );
+  const targetByGuard = useMemo(
+    () => new Map((data?.targets ?? []).map((t) => [t.guard_id, t])),
+    [data],
+  );
 
   if (weeksLoading) {
     return (
@@ -146,6 +150,7 @@ export function ManagerPreferences() {
             {(data?.guards ?? []).map((guard) => {
               const prefs = prefsByGuard.get(guard.id) ?? [];
               const sub = subByGuard.get(guard.id);
+              const configuredKamut = targetByGuard.get(guard.id)?.configured_kamut ?? 0;
               const state = !sub ? 'none' : prefs.length === 0 ? 'empty' : 'filled';
               const badge = STATE_BADGE[state];
               const isEditing = editingId === guard.id;
@@ -196,14 +201,22 @@ export function ManagerPreferences() {
                       key={`${guard.id}:${selected}:${sub?.updated_at ?? 'new'}`}
                       weekStart={selected}
                       initialPreferences={prefs}
+                      configuredKamut={configuredKamut}
+                      initialRequestedShifts={sub?.requested_shifts ?? null}
                       saving={save.isPending}
-                      onSave={(slots) =>
+                      onSave={(slots, requestedShifts) =>
                         save.mutate(
                           // Notes aren't editable from this quick editor -- pass
                           // the guard's existing note through unchanged, since
                           // the save RPC always overwrites the column (it can't
                           // tell "no change" from "clear it").
-                          { weekStart: selected, guardId: guard.id, slots, notes: sub?.notes ?? '' },
+                          {
+                            weekStart: selected,
+                            guardId: guard.id,
+                            slots,
+                            notes: sub?.notes ?? '',
+                            requestedShifts,
+                          },
                           { onSuccess: () => setEditingId(null) },
                         )
                       }
@@ -214,6 +227,7 @@ export function ManagerPreferences() {
                       weekStart={selected}
                       preferences={prefs}
                       notes={sub?.notes ?? null}
+                      requestedShifts={sub?.requested_shifts ?? null}
                     />
                   )}
                 </Card>

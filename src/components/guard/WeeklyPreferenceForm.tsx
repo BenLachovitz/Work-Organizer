@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Alert, Badge, Button, Card, Modal, cn } from '@/components/ui';
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, Badge, Button, Card, Modal, Stepper, cn } from '@/components/ui';
 import {
   HEBREW_DAYS,
   formatDayMonth,
@@ -12,9 +12,9 @@ import {
   BASE_SHIFTS,
   MAX_SHIFTS_PER_WEEK,
   SHIFTS,
-  classifyRest,
   effectiveKamut,
   isWeekendDay,
+  maxFeasibleShifts as computeMaxFeasibleShifts,
   type BaseShift,
 } from '@/lib/shifts';
 
@@ -71,6 +71,11 @@ export const NOTES_MAX_LENGTH = 500;
 export interface PreferenceFormValue {
   slots: Selection;
   notes: string;
+  /** Guard's preferred shift count for the week, or null for "no explicit
+   *  request, defer to configured כמות" (also what an equal-to-configured
+   *  pick normalises to on submit -- see effectiveKamut()/stretchTarget()
+   *  in src/lib/shifts.ts for how a lower/higher request is applied). */
+  requestedShifts: number | null;
 }
 
 export function WeeklyPreferenceForm({
@@ -103,6 +108,18 @@ export function WeeklyPreferenceForm({
 }) {
   const [slots, setSlots] = useState<Selection>(() => new Map(initial?.slots ?? []));
   const [notes, setNotes] = useState(initial?.notes ?? '');
+  // Defensively re-clamped at mount in case stored availability shrank since
+  // a prior submission (e.g. the guard requested 4, then a later edit removed
+  // enough days that 4 shifts are no longer feasible) -- the reactive clamp
+  // below (tied to maxFeasibleShifts) handles it from here on.
+  const [requestedShifts, setRequestedShifts] = useState(() => {
+    const initialSlots = initial?.slots ?? new Map<string, SlotFlags>();
+    const feasible = computeMaxFeasibleShifts(weekDates(weekStart), (date, shift) =>
+      initialSlots.has(slotKey(date, shift)),
+    );
+    const base = initial?.requestedShifts ?? configuredKamut;
+    return Math.max(0, Math.min(base, feasible, MAX_SHIFTS_PER_WEEK));
+  });
   const [confirmSubmit, setConfirmSubmit] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -193,31 +210,28 @@ export function WeeklyPreferenceForm({
    * guard's business, spec 1.4 item 33) -- this is a fact about the guard's
    * OWN submission, not about what was configured for them.
    *
-   * Small DP over the week: for each day, the best count ending in "worked
-   * shift S" is 1 + the best count from the previous day that isn't blocked
-   * by resting into S (or the best "day off" count, always compatible).
-   * Extended (12h) shifts aren't modelled separately -- this is a guide
-   * number for the guard, not the generation input.
+   * The actual DP (a small forward pass -- for each day, the best count
+   * ending in "worked shift S" is 1 + the best count from the previous day
+   * that isn't blocked by resting into S, or the best "day off" count,
+   * always compatible) now lives in src/lib/shifts.ts as `maxFeasibleShifts`,
+   * shared with the manager's GuardPreferenceEditor, which needs the
+   * identical calculation recomputed live against whatever it's currently
+   * editing. Extended (12h) shifts aren't modelled separately there either --
+   * this is a guide number, not the generation input.
    */
-  const maxFeasibleShifts = useMemo(() => {
-    const DAY_OFF = Symbol('off');
-    let prev = new Map<BaseShift | typeof DAY_OFF, number>([[DAY_OFF, 0]]);
-    for (const date of dates) {
-      const options = BASE_SHIFTS.filter((s) => slots.has(slotKey(date, s)));
-      const bestSoFar = Math.max(...prev.values());
-      const next = new Map<BaseShift | typeof DAY_OFF, number>([[DAY_OFF, bestSoFar]]);
-      for (const shift of options) {
-        let best = prev.get(DAY_OFF) ?? 0;
-        for (const [prevShift, count] of prev) {
-          if (prevShift === DAY_OFF) continue;
-          if (classifyRest(prevShift, shift) !== 'blocked') best = Math.max(best, count);
-        }
-        next.set(shift, best + 1);
-      }
-      prev = next;
-    }
-    return Math.min(MAX_SHIFTS_PER_WEEK, Math.max(...prev.values()));
-  }, [slots, dates]);
+  const maxFeasibleShifts = useMemo(
+    () => computeMaxFeasibleShifts(dates, (date, shift) => slots.has(slotKey(date, shift))),
+    [slots, dates],
+  );
+
+  // The requested-shifts stepper can never exceed what's actually feasible
+  // from the currently marked slots (rule: requested <= feasible) -- if the
+  // guard unmarks days after picking a higher number, this pulls it back
+  // down rather than leaving a now-infeasible value sitting in the field.
+  const requestedMax = Math.min(maxFeasibleShifts, MAX_SHIFTS_PER_WEEK);
+  useEffect(() => {
+    setRequestedShifts((prev) => Math.min(prev, requestedMax));
+  }, [requestedMax]);
 
   const effective = effectiveKamut(configuredKamut, availableDays);
   const isEmpty = slots.size === 0;
@@ -230,7 +244,14 @@ export function WeeklyPreferenceForm({
   const submit = () => setConfirmSubmit(true);
   const confirmAndSubmit = () => {
     setConfirmSubmit(false);
-    onSubmit({ slots, notes });
+    // Equal-to-configured normalises to null: absence of a real request
+    // should leave a clean absence of data, not a stray value equal to the
+    // default (same treatment an empty note already gets).
+    onSubmit({
+      slots,
+      notes,
+      requestedShifts: requestedShifts === configuredKamut ? null : requestedShifts,
+    });
   };
 
   return (
@@ -501,6 +522,16 @@ export function WeeklyPreferenceForm({
           <span className="text-slate-500 dark:text-slate-400">משמרות אפשריות מהסימונים שלך</span>
           <span className="font-bold text-slate-900 dark:text-slate-100">{maxFeasibleShifts}</span>
         </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-slate-500 dark:text-slate-400">כמות משמרות מבוקשת</span>
+          <Stepper
+            value={requestedShifts}
+            onChange={setRequestedShifts}
+            disabled={locked}
+            min={0}
+            max={requestedMax}
+          />
+        </div>
         {!isEmpty && maxFeasibleShifts < availableDays && (
           <p className="text-xs text-slate-400 dark:text-slate-500">
             חלק מהימים שסימנת לא יכולים להצטרף יחד - נדרשות לפחות 8 שעות מנוחה בין משמרות.
@@ -537,6 +568,14 @@ export function WeeklyPreferenceForm({
             ) : (
               <>
                 <p className="text-sm text-slate-500 dark:text-slate-400">אלו הבקשות שיישלחו:</p>
+                {requestedShifts !== configuredKamut && (
+                  <p className="text-sm text-slate-700 dark:text-slate-300">
+                    כמות משמרות מבוקשת: <strong>{requestedShifts}</strong>
+                    {requestedShifts < configuredKamut
+                      ? ` (במקום ${configuredKamut})`
+                      : ' (מעבר לכמות שהוגדרה - ינתן רק אם ניתן)'}
+                  </p>
+                )}
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
                   {dates.map((date, dayIdx) => {
                     const daySlots = BASE_SHIFTS.filter((s) => slots.has(slotKey(date, s)));

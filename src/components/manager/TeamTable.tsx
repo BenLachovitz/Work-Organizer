@@ -59,7 +59,8 @@ export function TeamTable({
                       extended cover is actually available. */}
                   {(row.twelveHourDayCount > 0 ||
                     row.twelveHourNightCount > 0 ||
-                    row.preferredCount > 0) && (
+                    row.preferredCount > 0 ||
+                    row.requestedShifts != null) && (
                     <div className="mt-1.5 flex gap-1.5">
                       {row.twelveHourDayCount > 0 && (
                         <span
@@ -80,6 +81,11 @@ export function TeamTable({
                       {row.preferredCount > 0 && (
                         <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[10px] font-bold text-white">
                           ★ עדיפות · {row.preferredCount}
+                        </span>
+                      )}
+                      {row.requestedShifts != null && (
+                        <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                          מבוקש · {row.requestedShifts}
                         </span>
                       )}
                     </div>
