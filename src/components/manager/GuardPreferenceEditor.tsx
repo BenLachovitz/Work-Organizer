@@ -85,18 +85,23 @@ export function GuardPreferenceEditor({
 
   return (
     <div className="space-y-3">
-      <div className="divide-y divide-slate-100">
+      <div className="divide-y divide-slate-100 dark:divide-slate-800">
         {dates.map((date, dayIdx) => {
           const daySlots = BASE_SHIFTS.filter((s) => slots.has(slotKey(date, s)));
           const extendable = daySlots.filter(canExtend) as ('morning' | 'night')[];
 
           return (
-            <div key={date} className={cn('py-2.5', isWeekendDay(dayIdx) && 'bg-amber-50/40')}>
+            <div
+              key={date}
+              className={cn('py-2.5', isWeekendDay(dayIdx) && 'bg-amber-50/40 dark:bg-amber-950/20')}
+            >
               <div className="mb-1.5 flex items-baseline gap-2">
-                <span className="text-[13px] font-bold text-slate-900">
+                <span className="text-[13px] font-bold text-slate-900 dark:text-slate-100">
                   יום {HEBREW_DAYS[dayIdx]}
                 </span>
-                <span className="text-[11px] text-slate-400">{formatDayMonth(date)}</span>
+                <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                  {formatDayMonth(date)}
+                </span>
               </div>
 
               <div className="grid grid-cols-3 gap-1.5">
@@ -114,7 +119,7 @@ export function GuardPreferenceEditor({
                         'transition-all duration-150',
                         on
                           ? 'border-transparent text-white shadow-sm'
-                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300',
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-600',
                       )}
                       style={on ? { backgroundColor: def.colorVar } : undefined}
                     >
@@ -138,7 +143,7 @@ export function GuardPreferenceEditor({
                           'rounded-lg border px-2 py-1 text-[10px] font-semibold transition-colors',
                           on
                             ? 'border-transparent bg-slate-700 text-white'
-                            : 'border-dashed border-slate-300 text-slate-500 hover:border-slate-400',
+                            : 'border-dashed border-slate-300 text-slate-500 hover:border-slate-400 dark:border-slate-600 dark:text-slate-400 dark:hover:border-slate-500',
                         )}
                       >
                         {on ? '✓' : '+'} 12 שעות {SHIFTS[shift].he}
@@ -166,7 +171,7 @@ export function GuardPreferenceEditor({
                               'disabled:opacity-40',
                               preferred
                                 ? 'border-transparent bg-slate-900 text-white'
-                                : 'border-dashed border-slate-300 text-slate-500 hover:border-slate-400',
+                                : 'border-dashed border-slate-300 text-slate-500 hover:border-slate-400 dark:border-slate-600 dark:text-slate-400 dark:hover:border-slate-500',
                             )}
                           >
                             {preferred ? '★' : '☆'} עדיפות {SHIFTS[shift].he}

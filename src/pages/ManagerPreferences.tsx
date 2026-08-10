@@ -85,7 +85,7 @@ export function ManagerPreferences() {
     return (
       <AppShell title="העדפות הצוות">
         <Card>
-          <p className="font-bold text-slate-900">אין שבועות מוגדרים</p>
+          <p className="font-bold text-slate-900 dark:text-slate-100">אין שבועות מוגדרים</p>
         </Card>
       </AppShell>
     );
@@ -99,7 +99,10 @@ export function ManagerPreferences() {
         </ButtonLink>
 
         <Card className="flex items-center gap-3">
-          <label htmlFor="pref-week-select" className="shrink-0 text-sm font-bold text-slate-700">
+          <label
+            htmlFor="pref-week-select"
+            className="shrink-0 text-sm font-bold text-slate-700 dark:text-slate-300"
+          >
             שבוע
           </label>
           <select
@@ -110,7 +113,7 @@ export function ManagerPreferences() {
               setEditingId(null);
               setConfirmDeleteId(null);
             }}
-            className="w-full min-w-0 rounded-xl border-2 border-slate-200 px-3 py-2 text-sm text-slate-800"
+            className="w-full min-w-0 rounded-xl border-2 border-slate-200 px-3 py-2 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
           >
             {weeks.map((w) => (
               <option key={w.week_start} value={w.week_start}>
@@ -152,7 +155,7 @@ export function ManagerPreferences() {
                 <Card key={guard.id} className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="truncate font-bold text-slate-900">
+                      <span className="truncate font-bold text-slate-900 dark:text-slate-100">
                         {guard.display_name}
                       </span>
                       <Badge tone={badge.tone}>{badge.label}</Badge>
