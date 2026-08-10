@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from 'react';
+import { useEffect, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
 export function cn(...parts: (string | false | null | undefined)[]): string {
@@ -302,6 +302,62 @@ export function Alert({
     <div className={cn('rounded-xl px-4 py-3 text-sm ring-1', tones[tone])} role="status">
       {title && <p className="mb-0.5 font-bold">{title}</p>}
       <div className="leading-relaxed">{children}</div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Generic overlay dialog -- extracted from what was a one-off `PreviewModal`
+ * local to RosterExport.tsx (the roster image preview). Same behavior:
+ * `fixed inset-0` backdrop, centered rounded panel, Escape-to-close,
+ * click-outside-to-close, no portal, no focus trap. RosterExport.tsx keeps
+ * its own copy rather than being rebased onto this -- not worth touching a
+ * working, unrelated feature just to share code with a new caller.
+ */
+export function Modal({
+  title,
+  onClose,
+  children,
+  footer,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+          <p className="font-bold text-slate-900">{title}</p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="סגירה"
+          >
+            <svg className="size-5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M4.3 4.3a1 1 0 0 1 1.4 0L10 8.6l4.3-4.3a1 1 0 1 1 1.4 1.4L11.4 10l4.3 4.3a1 1 0 0 1-1.4 1.4L10 11.4l-4.3 4.3a1 1 0 0 1-1.4-1.4L8.6 10 4.3 5.7a1 1 0 0 1 0-1.4Z" />
+            </svg>
+          </button>
+        </div>
+        <div className="overflow-auto p-4">{children}</div>
+        {footer && <div className="border-t border-slate-200 p-3">{footer}</div>}
+      </div>
     </div>
   );
 }

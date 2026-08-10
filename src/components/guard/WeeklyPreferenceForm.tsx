@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, Badge, Button, Card, cn } from '@/components/ui';
+import { Alert, Badge, Button, Card, Modal, cn } from '@/components/ui';
 import {
   HEBREW_DAYS,
   formatDayMonth,
@@ -103,7 +103,7 @@ export function WeeklyPreferenceForm({
 }) {
   const [slots, setSlots] = useState<Selection>(() => new Map(initial?.slots ?? []));
   const [notes, setNotes] = useState(initial?.notes ?? '');
-  const [confirmEmpty, setConfirmEmpty] = useState(false);
+  const [confirmSubmit, setConfirmSubmit] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const dates = useMemo(() => weekDates(weekStart), [weekStart]);
@@ -120,7 +120,6 @@ export function WeeklyPreferenceForm({
       else next.set(k, { allows12h: false, strength: 1 });
       return next;
     });
-    setConfirmEmpty(false);
   };
 
   const toggle12h = (date: DateKey, shift: BaseShift) => {
@@ -224,11 +223,13 @@ export function WeeklyPreferenceForm({
   const isEmpty = slots.size === 0;
   const wasLowered = effective < configuredKamut;
 
-  const submit = () => {
-    if (isEmpty && !confirmEmpty) {
-      setConfirmEmpty(true);
-      return;
-    }
+  // "שלח בקשות" only opens the confirmation modal below -- the actual
+  // onSubmit call happens from its confirm button, so a guard (or a manager
+  // editing on their behalf) always sees exactly what is about to be sent
+  // before it goes out.
+  const submit = () => setConfirmSubmit(true);
+  const confirmAndSubmit = () => {
+    setConfirmSubmit(false);
     onSubmit({ slots, notes });
   };
 
@@ -502,23 +503,71 @@ export function WeeklyPreferenceForm({
           </Alert>
         )}
 
-        {confirmEmpty && (
-          <Alert tone="warn" title="לאשר הגשה ריקה?">
-            לחיצה נוספת על ״שלח״ תגיש שבוע ריק - לא תשובץ לאף משמרת.
-          </Alert>
-        )}
-
-        <Button
-          fullWidth
-          size="lg"
-          disabled={locked}
-          loading={submitting}
-          onClick={submit}
-          variant={confirmEmpty ? 'danger' : 'primary'}
-        >
-          {confirmEmpty ? 'אשר הגשה ריקה' : 'שלח בקשות'}
+        <Button fullWidth size="lg" disabled={locked} loading={submitting} onClick={submit}>
+          שלח בקשות
         </Button>
       </Card>
+
+      {/* ---------------- confirm before submit ---------------- */}
+      {confirmSubmit && (
+        <Modal title="לאשר שליחה?" onClose={() => setConfirmSubmit(false)}>
+          <div className="space-y-3">
+            {isEmpty ? (
+              <Alert tone="warn" title="הגשה ריקה">
+                לא סימנת אף משמרת. הגשה ריקה מסמנת שאינך זמין השבוע, ולא תשובץ כלל.
+              </Alert>
+            ) : (
+              <>
+                <p className="text-sm text-slate-500">אלו הבקשות שיישלחו:</p>
+                <div className="divide-y divide-slate-100">
+                  {dates.map((date, dayIdx) => {
+                    const daySlots = BASE_SHIFTS.filter((s) => slots.has(slotKey(date, s)));
+                    if (daySlots.length === 0) return null;
+                    return (
+                      <div key={date} className="flex flex-wrap items-center gap-2 py-2">
+                        <span className="w-14 shrink-0 text-xs font-bold text-slate-700">
+                          {HEBREW_DAYS[dayIdx]}
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {daySlots.map((shift) => {
+                            const flags = slots.get(slotKey(date, shift))!;
+                            const def = SHIFTS[shift];
+                            return (
+                              <span
+                                key={shift}
+                                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-white"
+                                style={{ backgroundColor: def.colorVar }}
+                              >
+                                {flags.strength === 2 && <span aria-label="עדיפות">★</span>}
+                                <span>{def.he}</span>
+                                {flags.allows12h && <span className="opacity-80">12ש׳</span>}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <Button
+                fullWidth
+                loading={submitting}
+                onClick={confirmAndSubmit}
+                variant={isEmpty ? 'danger' : 'primary'}
+              >
+                {isEmpty ? 'אשר הגשה ריקה' : 'אישור ושליחה'}
+              </Button>
+              <Button variant="ghost" onClick={() => setConfirmSubmit(false)}>
+                ביטול
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* ---------------- cancel submission ---------------- */}
       {hasSubmitted && !locked && onDelete && (
