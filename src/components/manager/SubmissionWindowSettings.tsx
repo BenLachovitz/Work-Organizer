@@ -28,8 +28,8 @@ export function SubmissionWindowSettings() {
         className="flex w-full items-center justify-between px-4 py-3 text-start"
       >
         <div>
-          <p className="font-bold text-slate-900">חלון הגשת בקשות</p>
-          <p className="mt-0.5 text-sm text-slate-500">
+          <p className="font-bold text-slate-900 dark:text-slate-100">חלון הגשת בקשות</p>
+          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             {isLoading
               ? 'טוען…'
               : data
@@ -37,13 +37,18 @@ export function SubmissionWindowSettings() {
                 : 'שגיאה בטעינה'}
           </p>
         </div>
-        <span className={cn('text-slate-400 transition-transform', expanded && 'rotate-180')}>
+        <span
+          className={cn(
+            'text-slate-400 transition-transform dark:text-slate-500',
+            expanded && 'rotate-180',
+          )}
+        >
           ▾
         </span>
       </button>
 
       {expanded && (
-        <div className="border-t border-slate-200 px-4 py-3">
+        <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">
           {error ? (
             <Alert tone="error">{error instanceof Error ? error.message : 'שגיאה בטעינה.'}</Alert>
           ) : isLoading || !data ? (
@@ -99,7 +104,7 @@ function SettingsForm({
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-slate-500 dark:text-slate-400">
         משפיע על שבועות חדשים מעכשיו והלאה. כדי לשנות את מועד הסגירה של שבוע ספציפי שכבר קיים, יש
         להשתמש בנעילה/פתיחה מחדש למעלה.
       </p>
@@ -148,12 +153,12 @@ function WeekdayTimeRow({
 }) {
   return (
     <div>
-      <p className="mb-1.5 text-sm font-semibold text-slate-700">{label}</p>
+      <p className="mb-1.5 text-sm font-semibold text-slate-700 dark:text-slate-300">{label}</p>
       <div className="flex gap-2">
         <select
           value={weekday}
           onChange={(e) => onWeekday(Number(e.target.value))}
-          className="flex-1 rounded-xl border-2 border-slate-200 bg-white p-2.5 text-sm text-slate-800 focus:border-brand-400 focus:outline-none"
+          className="flex-1 rounded-xl border-2 border-slate-200 bg-white p-2.5 text-sm text-slate-800 focus:border-brand-400 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
         >
           {HEBREW_DAYS.map((d, i) => (
             <option key={d} value={i}>
@@ -165,7 +170,7 @@ function WeekdayTimeRow({
           type="time"
           value={time}
           onChange={(e) => onTime(e.target.value)}
-          className="num w-32 rounded-xl border-2 border-slate-200 bg-white p-2.5 text-sm text-slate-800 focus:border-brand-400 focus:outline-none"
+          className="num w-32 rounded-xl border-2 border-slate-200 bg-white p-2.5 text-sm text-slate-800 focus:border-brand-400 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
         />
       </div>
     </div>

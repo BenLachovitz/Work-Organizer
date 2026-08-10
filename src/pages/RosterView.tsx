@@ -90,7 +90,7 @@ export function RosterView() {
                   'shrink-0 rounded-xl px-3 py-2 text-sm font-semibold transition-colors',
                   w.weekStart === week.weekStart
                     ? 'bg-brand-600 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700',
                 )}
               >
                 {w.weekStart === currentStart ? 'השבוע' : formatWeekRange(w.weekStart)}
@@ -112,38 +112,51 @@ export function RosterView() {
         {/* A grid answers "who is on Tuesday night" but scanning it for your own
             name across 21 cells is work. This does that scan for you. */}
         <Card className="p-0">
-          <div className="border-b border-slate-200 px-4 py-3">
-            <p className="font-bold text-slate-900">המשמרות שלי</p>
-            <p className="mt-0.5 text-sm text-slate-500">
+          <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+            <p className="font-bold text-slate-900 dark:text-slate-100">המשמרות שלי</p>
+            <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
               {mine.length === 0
                 ? 'אין לך משמרות בשבוע זה'
                 : `${mine.length} משמרות · מסומנות במסגרת בטבלה`}
             </p>
           </div>
           {mine.length > 0 && (
-            <div className="divide-y divide-slate-50">
+            <div className="divide-y divide-slate-50 dark:divide-slate-800">
               {mine.map((a) => {
                 const def = SHIFTS[a.shift];
                 const isToday = a.target_date === today;
                 return (
                   <div
                     key={a.id}
-                    className={cn('flex items-center gap-3 px-4 py-2.5', isToday && 'bg-brand-50/70')}
+                    className={cn(
+                      'flex items-center gap-3 px-4 py-2.5',
+                      isToday && 'bg-brand-50/70 dark:bg-brand-950/50',
+                    )}
                   >
                     <span
                       className="w-1.5 self-stretch rounded-full"
                       style={{ backgroundColor: def.colorVar }}
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-bold text-slate-900">
+                      <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
                         יום {HEBREW_DAYS[dayIndex(a.target_date)]}
-                        {isToday && <span className="ms-2 text-xs text-brand-700">היום</span>}
+                        {isToday && (
+                          <span className="ms-2 text-xs text-brand-700 dark:text-brand-400">
+                            היום
+                          </span>
+                        )}
                       </p>
-                      <p className="text-xs text-slate-500">{formatDayMonth(a.target_date)}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {formatDayMonth(a.target_date)}
+                      </p>
                     </div>
                     <div className="text-end">
-                      <p className="text-xs font-bold text-slate-700">{def.he}</p>
-                      <p className="num text-[10px] text-slate-400">{def.label}</p>
+                      <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        {def.he}
+                      </p>
+                      <p className="num text-[10px] text-slate-400 dark:text-slate-500">
+                        {def.label}
+                      </p>
                     </div>
                   </div>
                 );

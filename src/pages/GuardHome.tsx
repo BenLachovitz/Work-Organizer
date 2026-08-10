@@ -143,8 +143,8 @@ export function GuardHome() {
         <Card>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="font-bold text-slate-900">הגשת בקשות</p>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="font-bold text-slate-900 dark:text-slate-100">הגשת בקשות</p>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                 {!active.week
                   ? 'אין כרגע שבוע פתוח להגשה'
                   : left
@@ -152,7 +152,7 @@ export function GuardHome() {
                     : 'ההגשות נסגרו'}
               </p>
               {active.deadline && (
-                <p className="mt-0.5 text-xs text-slate-400">
+                <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
                   מועד אחרון: {formatDeadline(active.deadline)}
                 </p>
               )}

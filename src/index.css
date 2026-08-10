@@ -1,5 +1,10 @@
 @import 'tailwindcss';
 
+/* Class-based dark mode: `dark:` utilities apply whenever `.dark` is on
+   <html> (or an ancestor) -- set by ThemeContext, not by the OS media query
+   directly, so a manual override can win over prefers-color-scheme. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ===========================================================================
    Design tokens (Tailwind v4 CSS-first config)
    =========================================================================== */
@@ -49,7 +54,7 @@
   }
 
   body {
-    @apply bg-slate-100 font-sans text-slate-900 antialiased;
+    @apply bg-slate-100 font-sans text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
     /* Respect iOS notches; the bottom nav adds its own inset. */
     padding-top: env(safe-area-inset-top);
   }

@@ -35,7 +35,7 @@ export function CoverageReportPanel({
 
   return (
     <Card className="space-y-3">
-      <p className="font-bold text-slate-900">דוח כיסוי</p>
+      <p className="font-bold text-slate-900 dark:text-slate-100">דוח כיסוי</p>
 
       {report.floor_breaches.length > 0 && (
         <Alert tone="error" title={`${report.floor_breaches.length} משמרות מתחת לרצפת הבטיחות`}>
@@ -50,7 +50,9 @@ export function CoverageReportPanel({
               </li>
             ))}
             {report.floor_breaches.length > 8 && (
-              <li className="text-slate-500">ועוד {report.floor_breaches.length - 8}…</li>
+              <li className="text-slate-500 dark:text-slate-400">
+                ועוד {report.floor_breaches.length - 8}…
+              </li>
             )}
           </ul>
         </Alert>

@@ -19,6 +19,19 @@
     />
 
     <title>סידור משמרות</title>
+
+    <!-- Applies the theme before React mounts (and before first paint),
+         mirroring ThemeContext's own resolution -- otherwise the page paints
+         light first and flips to dark a beat later on every load. -->
+    <script>
+      (function () {
+        var stored = localStorage.getItem('wo.theme');
+        var dark =
+          stored === 'dark' ||
+          (stored !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

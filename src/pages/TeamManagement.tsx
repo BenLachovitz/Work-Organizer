@@ -96,14 +96,17 @@ function AddEmployeeCard({ existingCodes }: { existingCodes: string[] }) {
   return (
     <Card className="space-y-4">
       <div>
-        <p className="font-bold text-slate-900">הוספת עובד חדש</p>
-        <p className="mt-0.5 text-sm text-slate-500">
+        <p className="font-bold text-slate-900 dark:text-slate-100">הוספת עובד חדש</p>
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
           לאחר ההוספה, מסור לעובד את קוד העובד - הוא יגדיר לעצמו סיסמה בכניסה הראשונה.
         </p>
       </div>
 
       <div>
-        <label className="mb-1.5 block text-sm font-semibold text-slate-700" htmlFor="new-emp-name">
+        <label
+          className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300"
+          htmlFor="new-emp-name"
+        >
           שם
         </label>
         <input
@@ -114,13 +117,14 @@ function AddEmployeeCard({ existingCodes }: { existingCodes: string[] }) {
           placeholder="שם העובד"
           className={cn(
             'w-full rounded-xl border-2 border-slate-200 p-3 text-sm text-slate-800',
-            'placeholder:text-slate-400 focus:border-brand-400 focus:outline-none',
+            'dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100',
+            'placeholder:text-slate-400 focus:border-brand-400 focus:outline-none dark:placeholder:text-slate-500',
           )}
         />
       </div>
 
       <div>
-        <p className="mb-1.5 text-sm font-semibold text-slate-700">קוד עובד</p>
+        <p className="mb-1.5 text-sm font-semibold text-slate-700 dark:text-slate-300">קוד עובד</p>
         <CodeInput
           value={code}
           onChange={setCode}
@@ -135,10 +139,14 @@ function AddEmployeeCard({ existingCodes }: { existingCodes: string[] }) {
         )}
       </div>
 
-      <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5">
+      <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5 dark:bg-slate-800">
         <div>
-          <p className="text-sm font-bold text-slate-800">ברירת מחדל שבועית</p>
-          <p className="mt-0.5 text-xs text-slate-500">כמות ההתחלתית לכל שבוע חדש</p>
+          <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
+            ברירת מחדל שבועית
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            כמות ההתחלתית לכל שבוע חדש
+          </p>
         </div>
         <Stepper value={defaultKamut} onChange={setDefaultKamut} />
       </div>
@@ -171,16 +179,21 @@ function TeamSection({
 }) {
   return (
     <Card className="p-0">
-      <div className="border-b border-slate-200 px-4 py-3">
-        <p className="font-bold text-slate-900">
-          {title} <span className="text-sm font-normal text-slate-400">({rows.length})</span>
+      <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+        <p className="font-bold text-slate-900 dark:text-slate-100">
+          {title}{' '}
+          <span className="text-sm font-normal text-slate-400 dark:text-slate-500">
+            ({rows.length})
+          </span>
         </p>
-        <p className="mt-0.5 text-sm text-slate-500">{description}</p>
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{description}</p>
       </div>
       {rows.length === 0 ? (
-        <p className="px-4 py-6 text-center text-sm text-slate-400">{empty ?? 'אין רשומות'}</p>
+        <p className="px-4 py-6 text-center text-sm text-slate-400 dark:text-slate-500">
+          {empty ?? 'אין רשומות'}
+        </p>
       ) : (
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-slate-100 dark:divide-slate-800">
           {rows.map((row) => (
             <EmployeeRow key={row.employee_code} row={row} />
           ))}
@@ -204,15 +217,21 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate font-bold text-slate-900">{row.display_name}</span>
+            <span className="truncate font-bold text-slate-900 dark:text-slate-100">
+              {row.display_name}
+            </span>
             {row.initial_role === 'manager' && <Badge tone="brand">מנהל</Badge>}
             {!row.is_claimed && <Badge tone="amber">ממתין</Badge>}
           </div>
-          <p className="num mt-0.5 text-xs text-slate-500">{row.employee_code}</p>
+          <p className="num mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            {row.employee_code}
+          </p>
         </div>
 
         <div className="shrink-0 text-center">
-          <p className="mb-1 text-[10px] font-bold uppercase text-slate-400">ברירת מחדל</p>
+          <p className="mb-1 text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500">
+            ברירת מחדל
+          </p>
           <Stepper
             value={row.default_kamut}
             disabled={saving}
@@ -228,7 +247,9 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
       </div>
 
       {isSelf ? (
-        <p className="mt-2 text-xs text-slate-400">זהו החשבון שלך - לא ניתן למחוק אותו כאן.</p>
+        <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+          זהו החשבון שלך - לא ניתן למחוק אותו כאן.
+        </p>
       ) : (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Button
@@ -261,7 +282,7 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
       )}
 
       {(updateDefault.isError || deleteEmployee.isError) && (
-        <p className="mt-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800">
+        <p className="mt-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800 dark:bg-rose-950 dark:text-rose-300">
           {[updateDefault.error, deleteEmployee.error]
             .filter((e): e is Error => e instanceof Error)
             .map((e) => e.message)
