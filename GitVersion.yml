@@ -1,0 +1,22 @@
+# GitVersion config (https://gitversion.net).
+#
+# This repo has no CI pipeline running the actual GitVersion.Tool CLI yet --
+# this file exists as the single source of truth for "what version are we
+# at," kept in step by hand with package.json's `version` and an annotated
+# git tag (`vX.Y.Z`) on the commit that ships each version. That trio is what
+# actually enables rollback: `git checkout vX.Y.Z` gets back to exactly the
+# state described by that version, matching the spec's own version history
+# (dynamic-guard-scheduler-spec.md's changelog, currently at v2.8).
+#
+# next-version is the seed GitVersion computes from when no higher version
+# can be derived from tags/branch history -- bumped with each shipped
+# version (see BACKLOG.md's Versioning section). Currently 2.9.0: Step Q,
+# PWA support (spec section 10.4).
+next-version: 2.9.0
+mode: Mainline
+branches:
+  main:
+    regex: ^main$
+    increment: Patch
+    is-main-branch: true
+tag-prefix: '[vV]'

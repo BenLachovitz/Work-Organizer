@@ -1,8 +1,8 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.8** — §14 there is the
-build status and roadmap, §1.9 is the changelog for everything since v2.7. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.9** — §14 there is the
+build status and roadmap, §1.10 is the changelog for everything since v2.8. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
@@ -39,13 +39,24 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–P complete, live and in daily use
+## State: build steps A–Q complete, live and in daily use
 
-Full list in spec §14.1; changelog for every step is spec §1.1–§1.9. Step P (11 August) — per-day
+Full list in spec §14.1; changelog for every step is spec §1.1–§1.10. Step P (11 August) — per-day
 morning target override, a morning-priority coverage weight, the roster view stacking every
 published week instead of a selector, and an admin real/test view-mode toggle — is shipped, merged
 to `main`, and deployed, alongside a live production bug fix found while testing it (see below).
-Nothing mid-flight, no open branches.
+
+Step Q (11 August) — **PWA support** (spec §10.4): a web app manifest, a minimal no-cache service
+worker (deliberately no offline caching — this app's Realtime/deadline-sensitive data model makes a
+caching service worker a real staleness risk, not just an unused feature), and a full icon set
+generated from supplied artwork (`materials/Work-Organizer Icon.jpeg`, via
+`npm run generate:icons`) — so the app installs to the home screen on Android Chrome and iOS Safari
+and launches standalone. Shipped, merged, deployed. **One thing still open**: real "Add to Home
+Screen" verification on a physical Android phone and a physical iPhone — not something that can be
+checked from a dev machine (Chrome's mobile emulation only resizes the viewport, it doesn't
+reproduce a native install banner). Do this before considering Step Q fully done.
+
+Nothing else mid-flight, no open branches.
 
 **Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
 different underlying mechanism.
@@ -71,8 +82,12 @@ open. Confirmed live against the production project (roughly one `ensure_roster_
 ## What is left
 
 Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
-deliberately deferred design choice, not a build gap. Two things still open, not build gaps:
+deliberately deferred design choice, not a build gap. Three things still open, not build gaps:
 
+- **PWA real-device install check** (Step Q, spec §10.4) — everything checkable from a dev machine
+  (manifest, service worker activation, icon resolution, `vercel.json` static-asset headers) is
+  verified against both `vite preview` and production. Actually adding the app to a home screen on a
+  physical Android phone and a physical iPhone still needs Ben to do it himself.
 - Whether `configured_kamut` itself should act as a soft *ceiling* for **every** guard (not just a
   floor) — surfaced once in v2.4 testing but the segment-weighting fix alone independently resolved
   the case that raised it, so never pursued as a general policy. A related, narrower question is now
@@ -154,6 +169,17 @@ now in progress alongside them.
 
 ---
 
+## Versioning (GitVersion.yml, introduced Step Q)
+
+`GitVersion.yml` at the repo root is the single source of truth for "what version are we at" — kept
+in step by hand with `package.json`'s `version` and an annotated `vX.Y.Z` git tag on the commit that
+ships each version. There's no CI pipeline running the actual GitVersion.Tool CLI yet, so this is a
+manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
+bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
+commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
+state that version describes), matching the spec's own version history. Currently at **2.9.0**
+(Step Q, PWA support), seeded from the project's existing v2.8 milestone.
+
 ## Commands
 
 ```bash
@@ -164,6 +190,7 @@ npm run seed:testweek    # load a week of guard availability
 npm run preview:week     # read-only: what the MOCK would produce
 npm run preview:cpsat    # the same input through CP-SAT
 npm run test:cloud       # all eight cloud suites against the live project
+npm run generate:icons   # regenerate public/icons/* from materials/Work-Organizer Icon.jpeg
 ```
 
 ---

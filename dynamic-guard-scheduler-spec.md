@@ -1,6 +1,6 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.8 (build steps A–P complete; live and in daily use; deployed to production)
+**Version:** 2.9 (build steps A–Q complete; live and in daily use; deployed to production)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 11 August 2026
@@ -116,6 +116,12 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | 55  | **Roster view stacks every published week** instead of showing one at a time via a selector (§10.1) — for both guards and the manager | So a guard (or the manager) sees both the current and next week's roster at once, once both are published, instead of having to flip a selector |
 | 56  | **Admin real/test view-mode toggle** (`is_demo`, migration 34, §12.8) — a header control, manager/admin-only, filters the manager dashboard's employee lists between real employees and the seeded demo guards | The 7 mock guards (§1.4 item 25's rename) are permanent test fixtures now that real registration is under way; the manager needed a way to see just the real team without the demo noise, without deleting the fixtures he's still using |
 | 57  | Fixed: `ensure_roster_weeks()`'s "keep every untouched week's deadline live" step (migration 27) was an **unconditional** `UPDATE`, causing a live realtime feedback loop (migration 36, §12.1) | A same-value `UPDATE` still performs a physical row write, which Realtime broadcasts as a genuine change regardless of whether any column's value actually differs. `useRosterRealtime`'s subscription reacted to that broadcast by invalidating `roster_weeks`, whose query re-calls `ensure_roster_weeks()` — which repeated the same no-op write, forever. Caught live: opening `/manage` fired the RPC roughly every 100ms for as long as the dashboard stayed open |
+
+### 1.10 Changes in Version 2.9
+
+| #   | Change                                                                                            | Rationale                                                                                                                     |
+| --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 58  | **PWA support** (§10.4) — a web app manifest, a minimal no-cache service worker, and a full icon set generated from Ben-supplied artwork, so the app can be added to the home screen on Android (Chrome) and iOS (Safari) and launched standalone | Guards use this from their phones; a real installable icon and name (rather than a browser tab/bookmark) was the one piece of "feels like an app" polish still missing, matching the mobile-first intent stated in §1 |
 
 ---
 
@@ -1383,6 +1389,68 @@ to the one canonical light palette regardless of which theme the manager was act
 and restores it immediately after — the export must never silently vary by which theme the exporting
 manager happened to be in.
 
+### 10.4 PWA / Installability (v2.9)
+
+The app can be added to the home screen on Android (Chrome) and iOS (Safari) and launched
+standalone, via `public/manifest.webmanifest`, `public/sw.js`, and a full icon set in
+`public/icons/`, all wired up from `index.html` and registered from `src/registerServiceWorker.ts`
+(called once from `main.tsx`).
+
+**Manual, not `vite-plugin-pwa`.** A build-plugin-generated service worker (Workbox) defaults to
+precaching the built JS/CSS/HTML with a cache-first or stale-while-revalidate runtime — machinery
+for solving an *offline* problem this app doesn't have, and a real risk for one that does have a
+Realtime-driven, deadline-sensitive data model (submission windows, §2.4a; roster publishes, §12):
+a caching layer serving a stale JS bundle or stale deadline after a fresh push to `main` (which
+auto-deploys, §11.2) is exactly the failure mode to avoid. Installability itself only requires a
+service worker *registered with a fetch handler*, not that it caches anything, so `public/sw.js` is
+a minimal, no-op, network-passthrough worker: it stores nothing in Cache Storage and therefore can
+never serve anything stale. `registerServiceWorker()` is guarded on `import.meta.env.PROD`, so
+`npm run dev` never registers it and HMR is unaffected.
+
+**Icon set.** Generated once from Ben-supplied source artwork (`materials/Work-Organizer Icon.jpeg`,
+not itself deployed — a raw source asset, kept out of `public/`) via `scripts/generate-icons.mjs`
+(`npm run generate:icons`, new devDependency `sharp`): `icon-192.png` / `icon-512.png` (Android,
+`purpose: any`), `maskable-512.png` (Android adaptive icon, `purpose: maskable` — the source is
+padded into the inner 80% safe zone on a canvas sampled from its own corner pixel, since the
+artwork's glow ring sits close to the edge and Android's mask can crop up to the outer ~20%),
+`apple-touch-icon.png` (180×180, iOS), and `favicon-32.png`. Re-run the script manually whenever the
+source artwork changes; nothing in `vite build` or the Vercel deploy invokes it.
+
+**Manifest** (`public/manifest.webmanifest`): `display: "standalone"` (app-like, no URL bar, without
+`fullscreen`'s more aggressive status-bar hiding, which would fight the existing
+`apple-mobile-web-app-status-bar-style`); no `orientation` lock (a weekly shift grid may read better
+in landscape on a phone); `background_color: "#0f172a"` reuses the app's existing dark theme color as
+the Android splash-screen background; `theme_color: "#3762f4"` (brand-500) is a deliberate change
+from the flat `#0f172a` `<meta name="theme-color">` that predated this feature — `AppShell`'s header
+is semi-transparent blur with no single color of its own to copy, so the real brand blue is what
+makes the installed app read as branded (status bar, task-switcher card) rather than generic dark
+slate. `index.html`'s `theme-color` meta is now a light/dark media-queried pair mirroring that same
+split, rather than the single flat value.
+
+**iOS needs its own tags — the manifest alone is not enough.** `apple-mobile-web-app-capable` sits
+alongside the pre-existing, newer, non-prefixed `mobile-web-app-capable` — iOS Safari ignores the
+standard tag and requires its own vendor-prefixed one to launch standalone from the home screen. The
+pre-existing `apple-mobile-web-app-status-bar-style` and `apple-mobile-web-app-title` tags (added
+ahead of this feature, §1 mobile-first intent) needed no change. iOS has no `beforeinstallprompt` or
+install-banner concept at all — "Add to Home Screen" is always a manual action via Safari's Share
+sheet, and iOS relies on these tags and `apple-touch-icon`, not the manifest, which it largely
+ignores.
+
+**`vercel.json`** gained a `headers` block: an explicit `Content-Type: application/manifest+json` for
+`/manifest.webmanifest` (`.webmanifest` isn't reliably auto-typed) and `Cache-Control: no-cache` for
+`/sw.js` (a stale-cached service worker file would be a lingering version of the exact stale-content
+risk this feature otherwise avoids by design). The pre-existing catch-all SPA `rewrites` entry was
+verified, not assumed, to leave these paths alone — Vercel serves an existing static file ahead of a
+rewrite by default, confirmed directly against both `vite preview` and production after deploy.
+
+**Verified**: manifest parses and serves with the correct content-type, the service worker registers
+and reaches `activated` at scope `/`, icons resolve, zero console errors — checked with a headless
+browser against `vite preview` and re-checked against production content-types after deploy. **Not
+verifiable from this machine**: real "Add to Home Screen" behavior on physical Android Chrome and iOS
+Safari devices — Chrome's own mobile-emulation toolbar only resizes the viewport, it does not
+reproduce a native install banner or real home-screen icon rendering. Pending Ben's own on-device
+check before this is considered fully done.
+
 ---
 
 ## 11. DEPLOYMENT
@@ -1753,6 +1821,7 @@ the roster grid actually consume — is never touched by the toggle.
 | **N**     | Manager preference detail view + edit-on-behalf-of window (§12.7); submission confirmation modal (§3.11); dark mode, system-synced with a manual override, colours softened in two follow-up passes (§10.3) | ✅ complete                      |
 | **O**     | Guard-requested shift count, phased in two parts: general below/above-configured mechanism, then the 5→6 exception (§3.10, migration 33); two production bugs found and fixed along the way (the lower-request guarantee, and the feasible-shifts UI cap) | ✅ complete                      |
 | **P**     | Per-day morning target override (§2.4b, migration 35); morning-priority coverage weight (§4.2b); roster view stacks every published week instead of a selector (§10.0a); admin real/test view-mode toggle (§12.8, migration 34); fixed a live `ensure_roster_weeks()` realtime feedback loop found while testing this batch (migration 36) | ✅ complete                      |
+| **Q**     | PWA support (§10.4): web app manifest, minimal no-cache service worker, full icon set generated from supplied artwork, `vercel.json` static-asset headers; `GitVersion.yml` introduced for version tracking / rollback (repo root, kept in step with `package.json`'s `version` and a `vX.Y.Z` git tag per release) | ✅ complete; real-device Android/iOS install check pending Ben |
 
 ### 14.2 Verification
 
@@ -1802,6 +1871,15 @@ item 10 (guard-requested shift count) shipped in v2.7 (§3.10), both the general
 5→6 exception. Everything else in §13 is either decided or a deliberately deferred design choice,
 not a build gap. v2.8's four features (§1.9) were a single requested batch, all shipped together.
 
+**v2.9's PWA support (§10.4) has one item still open**: real "Add to Home Screen" verification on a
+physical Android Chrome device and a physical iOS Safari device. Everything checkable from this
+development machine — manifest validity and content-type, service worker registration reaching
+`activated`, icon resolution, zero console errors, `vercel.json` not swallowing the new static paths
+— has been verified against both `vite preview` and production. What cannot be verified here is the
+actual install experience on a real phone (Chrome's own mobile-emulation toolbar only resizes the
+viewport; it doesn't reproduce a native install banner or real home-screen icon rendering), so this
+stays open until Ben checks it on his own devices.
+
 One thread from v2.4 is now effectively resolved rather than deferred, and one demo-data note still
 stands:
 
@@ -1837,4 +1915,4 @@ password — both appear in the development transcript.
 
 ---
 
-_Specification v2.7 — revised 11 August 2026._
+_Specification v2.9 — revised 11 August 2026._

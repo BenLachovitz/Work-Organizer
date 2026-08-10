@@ -1,13 +1,14 @@
 {
   "name": "work-orgenizer",
   "private": true,
-  "version": "0.1.0",
+  "version": "2.9.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
+    "generate:icons": "node scripts/generate-icons.mjs",
     "test:rls": "node supabase/tests/rls.test.mjs",
     "db:apply": "node supabase/apply.mjs",
     "db:reset": "node supabase/apply.mjs --reset",
@@ -45,6 +46,7 @@
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
     "pg": "^8.22.0",
+    "sharp": "^0.35.3",
     "supabase": "^2.111.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
