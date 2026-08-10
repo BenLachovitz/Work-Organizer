@@ -1,6 +1,6 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.4 (build steps A–L complete; live and in daily use; deployed to production)
+**Version:** 2.5 (build steps A–M complete; live and in daily use; deployed to production)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 10 August 2026
@@ -75,6 +75,13 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | 35  | **Two-level preference strength turned on** (`יכול` / `עדיפות`, migration 31) — the `strength` column reserved since migration 1 is no longer inert; see §3.8 | A guard whose availability skews toward one shift but genuinely prefers another had no way to say so except free text, which the solver deliberately never reads (§3.6) — extracting it from Hebrew free text was assessed and rejected as unreliable and invisible to the guard when it misfired |
 | 36  | **Coverage gaps weighted by segment length**, not a flat per-slot count (`segmentWeight()` / `segment_weight()`, §4.2a) — an S1/S4 (8h) gap now costs double an S2/S3 (4h) gap in the floor/target objective terms | Solving the identical real week twice, at identical weights, produced two different Saturday layouts with the *same* score — once leaving an 8-guard-hour hole, once a 4-guard-hour one. The objective had no way to prefer the smaller hole; confirmed non-deterministic before the fix (CP-SAT bounced between them across repeated solves), deterministic and always picks the cheaper segment after |
+
+### 1.6 Changes in Version 2.5
+
+| #   | Change                                                                                            | Rationale                                                                                                                     |
+| --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 37  | The עדיפות chip (§3.8) now only renders on a day with **more than one** marked shift, and is capped at **N−1 preferred** of N marked shifts that day (1 of 2, 2 of 3) | With one marked shift there is nothing to prefer it over; with no cap a guard could mark every shift preferred, which is a null signal — the solver would have nothing to favour it over. Both close the same gap: preference only means something as a *relative* choice |
+| 38  | Guard-facing preference form: the manager-configured כמות number is no longer shown; replaced with a **feasible-shifts estimate** — the best shift count actually achievable from the guard's own marked slots, respecting the same ≥8h rest rule the solver enforces (§3.9) | Consistent with item 33 (v2.3) — a guard doesn't need to see a target set for them behind the scenes. A plain day-count would overstate what a submission can produce (e.g. Sunday night + Monday morning can never both happen, 0h rest) — the guard gets an honest number instead of either the hidden target or a misleading one |
 
 ---
 
@@ -361,6 +368,36 @@ stable *and* meaningful.
 
 Manager visibility: `TeamTable.tsx` shows a `★ עדיפות · N` badge per guard, next to the existing
 12h-opt-in badges, counting their strength-2 rows for the week.
+
+**UI refinement (v2.5, §1.6 item 37).** Two guardrails added after real testing surfaced both gaps:
+the chip row only renders when a day has **more than one** marked shift (`daySlots.length > 1`) —
+with one marked shift there is nothing to be preferred *over*, so showing it there was noise. And a
+day's preferred count is capped at **N−1** of its N marked shifts (`toggleStrength` in
+`WeeklyPreferenceForm.tsx` blocks turning a chip on once the cap is hit; the chip itself renders
+disabled rather than silently no-opping). Marking every marked shift preferred is exactly as
+uninformative to the solver as marking none — P4b needs a non-preferred alternative to have
+outscored for the bonus to mean anything.
+
+### 3.9 Feasible-Shift Estimate (v2.5, §1.6 item 38)
+
+The preference form's summary card used to show the guard their manager-configured כמות directly
+(`{configuredKamut} / {MAX_SHIFTS_PER_WEEK}`) — inconsistent with §1.4 item 33's decision that a
+guard doesn't need to see a target set for them behind the scenes. Removed, but a bare day-count in
+its place would have overstated what a submission can produce: marking Sunday `night` and Monday
+`morning` is two marked days but zero legal combinations (0h rest, the same H5/⛔ rule as
+generation itself) — so a naive count would read as a promise the roster can't keep.
+
+`maxFeasibleShifts` (`WeeklyPreferenceForm.tsx`) computes the actual best case instead: a small
+day-by-day DP where the score ending in "worked shift S on day d" is `1 + ` the best score from day
+`d−1` that isn't blocked by resting into S (or the best "day off" score, always compatible),
+reusing `classifyRest` — the same rest classification §2.6/generation itself uses. Capped at
+`MAX_SHIFTS_PER_WEEK` (5). Verified against a hand-worked example before shipping (alternating
+night/morning across four days collapses to 2 feasible, not 4 — confirmed both by hand and by the
+implementation before it shipped). Deliberately does not model 12h (day12/night12) opt-ins
+separately — this is a guidance number for the guard reading their own submission, not solver
+input, and the added complexity wasn't judged worth it for that purpose. A caption appears under
+the number only when it's actually lower than the plain day count, so the guard sees an explanation
+exactly when the number would otherwise look unexplained.
 
 ---
 
@@ -1339,6 +1376,7 @@ delete a seeded code through `delete_employee()`, rerun `seed.sql` verbatim, ass
 | **J**     | Cleanup pass: dropped the dead `schedule_assignments.post` column (migration 23); fixed `seed.sql` re-seeding a deleted employee on every `db:apply`; removed the two never-hired placeholder codes; this document brought back in sync with the code | ✅ complete                      |
 | **K**     | Deployed to Vercel (§11.2); admin week cursor + orphaned-week sweep fix (§12.1); guard can cancel a submission outright (§3.7); mobile layout fixes (SPA rewrite, viewport overflow, `AppShell` flex-shell restructure); guard-facing copy/UI polish | ✅ complete                      |
 | **L**     | Two-level preference strength (§3.8, migration 31); coverage gaps weighted by segment length, not a flat per-slot count (§4.2a) — built on separate branches, merged, deployed to Render together | ✅ complete                      |
+| **M**     | Guard preference-form polish: עדיפות chip only shown with 2+ marked shifts and capped at N−1 preferred (§3.8); manager-configured כמות dropped from the guard-facing summary in favour of a rest-rule-aware feasible-shifts estimate (§3.9) | ✅ complete                      |
 
 ### 14.2 Verification
 

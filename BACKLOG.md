@@ -1,8 +1,10 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.4** — §14 there is the
-build status and roadmap, §1.5 is the changelog for everything since v2.3.
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.5** — §14 there is the
+build status and roadmap, §1.6 is the changelog for everything since v2.3. This file deliberately
+doesn't re-tell what's already shipped and documented there — it's what's still worth knowing on
+top of the spec, not a second copy of the build log.
 
 *Last updated: 10 August 2026*
 
@@ -37,54 +39,31 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–L complete, live and in daily use
+## State: build steps A–M complete, live and in daily use
 
-Full list in spec §14.1. Step K (8 August) covered the Vercel deploy, the admin-cursor mechanism,
-guard self-cancel, and mobile fixes. **Step L (9–10 August)** shipped two things, built on separate
-branches and merged together before deploying:
+Full list in spec §14.1; changelog for every step is spec §1.1–§1.6. Steps L and M (9–10 August —
+two-level עדיפות preference, segment-length-weighted coverage, and the guard-form polish on top of
+both) are all shipped, merged to `main`, and deployed — nothing mid-flight, no open branches.
 
-1. **Two-level preference strength** (`יכול`/`עדיפות`, spec §3.8, migration 31) — a guard can flag
-   an already-marked slot as עדיפות; both solver engines add a small measured bonus (+2, on top of
-   the existing flat +1) for honouring it. The weight was **measured against live data before
-   shipping**, not assumed: 50 (enough to reliably win an ordinary coverage trade-off) fully
-   satisfied one guard's preference but cost two extra 8-hour-rest occurrences elsewhere for no
-   change in total coverage; 2 got 4 of 5 preferred shifts at zero cost anywhere, so 2 shipped.
-   Free-text extraction from the existing notes field (§3.6) was considered and rejected first —
-   Hebrew has no fixed phrasing, and a bad parse would be invisible to the guard.
-2. **Coverage gaps weighted by segment length** (spec §4.2a) — `target_gap`/`floor_gap` used to
-   count a missing guard the same on an 8-hour segment (morning/night) as a 4-hour one (either half
-   of the afternoon split), so the solver was provably indifferent between leaving an 8-guard-hour
-   hole and a 4-guard-hour one — confirmed by solving the same real week twice at identical weights
-   and getting two different Saturday layouts with an identical score. `segmentWeight()` scales
-   each gap by the segment's length (8h segments count double); verified deterministic on live data
-   after the fix where it wasn't before.
+**Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
+different underlying mechanism.
 
-Both were found and fixed by generating against the real live dataset for week `2026-08-09`
-repeatedly, not in the abstract — the segment-weighting bug in particular was only visible by
-noticing the Saturday layout wasn't stable across identical repeated generations.
-
-**Investigated and rejected (unchanged from before):** a tiered כמות penalty — see spec §13 item 9,
-don't re-attempt without a different underlying mechanism.
-
-**Thirteen test suites, all green** — the eleven from before, plus two new golden fixtures (a
-segment-weight tie-break and a preference tie-break) added to Gate E, each empirically constructed
-and verified against a hand-patched "before the fix" baseline to confirm the tie it tests was real.
+**Eleven test suites, all green** (`npm run test:cloud` + `test:fixtures` + `test_scheduler.py` +
+`test:compare` — spec §14.2). Gate E's engine fixtures grew from 8 to 10 in step L.
 
 ---
 
 ## What is left
 
 Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
-deliberately deferred design choice, not a build gap. Two things Ben deferred deliberately during
-step L testing, not build gaps:
+deliberately deferred design choice, not a build gap. Two things Ben deferred deliberately, still
+open, not build gaps:
 
 - Whether `configured_kamut` should act as a soft *ceiling* (not just a floor) — surfaced once but
   the segment-weighting fix alone independently resolved the case that raised it. Not pursuing
   unless a real case turns up where segment-weighting alone doesn't.
-- The demo week `2026-08-09` now carries hand-set עדיפות marks across the whole active roster
-  (night preferred over afternoon, afternoon over morning, wherever a guard has both marked the
-  same day) — a deliberate sanity-test dataset for step L, not real guard input. See the demo data
-  note below before reading a generated roster for that week as a preference-satisfaction demo.
+- The demo week `2026-08-09` carries hand-set עדיפות marks across the whole active roster (see
+  demo data note below) — a deliberate sanity-test dataset, not real guard input.
 
 ---
 
@@ -103,16 +82,15 @@ scheduling tension rather than synthetic data. `npm run preview:cpsat` (after du
 `preview-week.mjs --dump`) is the fastest way to see a fresh CP-SAT result without writing to the
 live database.
 
-**Step L addition:** on top of that base availability, every active guard's multi-option days
-(any day they marked more than one shift) now also carry a hand-set עדיפות mark, applied by a
-consistent priority — night preferred over afternoon, afternoon preferred over morning, whichever
-of those the guard actually marked that day. This is a deliberate sanity-test layer for the
-preference-strength feature (step L above), not real guard input — don't mistake a generated
-roster for this week as evidence real guards' preferences were honoured; it's evidence the
-*mechanism* works. One exception worth knowing: Shelly's Wednesday-night availability row was
-deleted outright (not just left unpreferred) as a data-hygiene step — she had added it manually
-*after* the roster was already published once, so it was never part of a genuine weekly
-submission, and leaving it in was distorting her כמות math during testing.
+**On top of that base availability**, every active guard's multi-option days (any day they marked
+more than one shift) also carry a hand-set עדיפות mark, applied by a consistent priority — night
+preferred over afternoon, afternoon preferred over morning, whichever the guard actually marked
+that day. This is a deliberate sanity-test layer for the preference-strength feature, not real
+guard input — don't mistake a generated roster for this week as evidence real guards' preferences
+were honoured; it's evidence the *mechanism* works. One exception worth knowing: Shelly's
+Wednesday-night availability row was deleted outright (not just left unpreferred) as a data-hygiene
+step — she had added it manually *after* the roster was already published once, so it was never
+part of a genuine weekly submission, and leaving it in was distorting her כמות math during testing.
 
 ---
 
@@ -129,8 +107,9 @@ submission, and leaving it in was distorting her כמות math during testing.
 
 ### Current database contents
 
-- Weeks `2026-08-02` (locked, archive), `2026-08-09` (generated — a fresh draft against the real
-  demo data above), `2026-08-16` (open for submissions)
+- Weeks `2026-08-02` (locked, archive), `2026-08-09` (generated — many draft versions accumulated
+  during step L/M testing against the demo data above; none published), `2026-08-16` (open for
+  submissions)
 - 9 profiles: Ben, the 7 mock guards (`{שם} - דמה`), and one real team member (עידן) who has already
   claimed their real badge code
 - 16 badge codes: the 8 original (Ben + 7 mocks) plus 8 real codes Ben has started registering for
@@ -156,7 +135,7 @@ npm run test:cloud       # all eight cloud suites against the live project
 
 ---
 
-## Three habits worth keeping
+## Four habits worth keeping
 
 **Nothing is trusted on the solver's word.** Both engines hand their assignments to an independent
 referee (`src/lib/validate.ts` and its Python twin `solver/verify.py`) which re-derives the coverage
