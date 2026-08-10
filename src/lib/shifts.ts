@@ -403,6 +403,15 @@ export function stretchTarget(
  * different underlying data shapes (a Map keyed by "date|shift", or rows
  * freshly read from the database) can each pass their own lookup without
  * this file needing to import a UI-layer type.
+ *
+ * Deliberately NOT clamped to MAX_SHIFTS_PER_WEEK (or anyone's requestable
+ * ceiling) here -- this is purely a physical fact about the marked slots
+ * (7 nights in a row rests fine, so it can legitimately answer 7), and
+ * baking a policy ceiling into a "fact" function would silently misreport
+ * it for whichever guard that ceiling doesn't apply to. Callers that need a
+ * selectable maximum (the requested-shifts stepper) combine this with
+ * maxRequestableShifts() themselves -- see WeeklyPreferenceForm.tsx and
+ * GuardPreferenceEditor.tsx.
  */
 export function maxFeasibleShifts(
   dates: readonly string[],
@@ -424,7 +433,7 @@ export function maxFeasibleShifts(
     }
     prev = next;
   }
-  return Math.min(MAX_SHIFTS_PER_WEEK, Math.max(...prev.values()));
+  return Math.max(...prev.values());
 }
 
 // ---------------------------------------------------------------------------
