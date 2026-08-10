@@ -111,7 +111,7 @@ export function CoverageMatrix({
                           below
                             ? 'bg-rose-100 text-rose-700 ring-1 ring-rose-300 dark:bg-rose-950/50 dark:text-rose-400 dark:ring-rose-800'
                             : short
-                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-400'
                               : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-400',
                         )}
                       >
@@ -132,7 +132,7 @@ export function CoverageMatrix({
           מספיק ליעד
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="size-3 rounded bg-amber-100 ring-1 ring-amber-300 dark:bg-amber-950 dark:ring-amber-700" />
+          <span className="size-3 rounded bg-amber-100 ring-1 ring-amber-300 dark:bg-amber-950/60 dark:ring-amber-700" />
           מעל הרצפה, מתחת ליעד
         </span>
         <span className="flex items-center gap-1.5">

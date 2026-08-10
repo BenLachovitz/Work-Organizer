@@ -169,10 +169,10 @@ export function Badge({
     green:
       'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-400 dark:ring-emerald-800',
     amber:
-      'bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:ring-amber-800',
+      'bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-400 dark:ring-amber-800',
     rose: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/50 dark:text-rose-400 dark:ring-rose-800',
     brand:
-      'bg-brand-50 text-brand-700 ring-brand-200 dark:bg-brand-950 dark:text-brand-300 dark:ring-brand-800',
+      'bg-brand-50 text-brand-700 ring-brand-200 dark:bg-brand-950/50 dark:text-brand-300 dark:ring-brand-800',
   };
   return (
     <span
@@ -287,7 +287,7 @@ export function Stepper({
         onClick={() => onChange(value + 1)}
         className={cn(
           btn,
-          'bg-brand-50 text-brand-700 hover:bg-brand-100 dark:bg-brand-950 dark:text-brand-300 dark:hover:bg-brand-900',
+          'bg-brand-50 text-brand-700 hover:bg-brand-100 dark:bg-brand-950/50 dark:text-brand-300 dark:hover:bg-brand-900/60',
         )}
         aria-label="הוסף"
       >
@@ -309,8 +309,8 @@ export function Alert({
   children: ReactNode;
 }) {
   const tones = {
-    info: 'bg-brand-50 text-brand-900 ring-brand-200 dark:bg-brand-950 dark:text-brand-200 dark:ring-brand-800',
-    warn: 'bg-amber-50 text-amber-900 ring-amber-200 dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-800',
+    info: 'bg-brand-50 text-brand-900 ring-brand-200 dark:bg-brand-950/50 dark:text-brand-300 dark:ring-brand-800',
+    warn: 'bg-amber-50 text-amber-900 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-800',
     error: 'bg-rose-50 text-rose-900 ring-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:ring-rose-800',
     success:
       'bg-emerald-50 text-emerald-900 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:ring-emerald-800',

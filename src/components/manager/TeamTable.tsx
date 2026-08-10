@@ -85,7 +85,7 @@ export function TeamTable({
                     </div>
                   )}
                   {row.notes && (
-                    <p className="mt-1.5 rounded-lg bg-brand-50 px-2.5 py-1.5 text-xs text-brand-900 dark:bg-brand-950 dark:text-brand-200">
+                    <p className="mt-1.5 rounded-lg bg-brand-50 px-2.5 py-1.5 text-xs text-brand-900 dark:bg-brand-950/50 dark:text-brand-300">
                       <span className="font-bold">הערה: </span>
                       {row.notes}
                     </p>
@@ -108,7 +108,7 @@ export function TeamTable({
                   A manager who sets 4 for someone who marked 2 days should find
                   out here, while they can still phone them. */}
               {row.lowered && (
-                <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-950/50 dark:text-amber-400">
                   סימן {row.availableDays} ימים בלבד - היעד בפועל יהיה{' '}
                   <strong>{row.effectiveKamut}</strong> במקום {row.configuredKamut}
                 </p>
