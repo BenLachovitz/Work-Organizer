@@ -10,6 +10,7 @@ import {
   type BaseShift,
   type MorningTarget,
   type MorningTargetOverrides,
+  type SecondaryTargetOverrides,
   type ShiftType,
 } from '@/lib/shifts';
 import { mockSolve } from '@/lib/mockSolver';
@@ -38,6 +39,7 @@ export function buildSolverInput(
   data: ManagerWeekData,
   carryIn: Record<string, ShiftType | null>,
   morningTargetOverrides: MorningTargetOverrides = {},
+  secondaryTargetOverrides: SecondaryTargetOverrides = {},
 ): SolverInput {
   const guards = data.guards.map((guard) => {
     const prefs = data.preferences.filter((p) => p.guard_id === guard.id);
@@ -84,6 +86,7 @@ export function buildSolverInput(
     week_start: weekStart,
     morning_target_slots: morningTarget,
     morning_target_overrides: morningTargetOverrides,
+    secondary_target_overrides: secondaryTargetOverrides,
     guards,
     carry_in: carryIn,
     weights: WEIGHTS,
@@ -174,9 +177,11 @@ export function useGenerateSchedule() {
       morningTarget: MorningTarget;
       data: ManagerWeekData;
       morningTargetOverrides?: MorningTargetOverrides;
+      secondaryTargetOverrides?: SecondaryTargetOverrides;
     }): Promise<GenerateResult> => {
       const db = requireSupabase();
-      const { weekStart, morningTarget, data, morningTargetOverrides } = args;
+      const { weekStart, morningTarget, data, morningTargetOverrides, secondaryTargetOverrides } =
+        args;
 
       // --- carry-in from last week's published roster ----------------------
       const carryIn: Record<string, ShiftType | null> = {};
@@ -191,6 +196,7 @@ export function useGenerateSchedule() {
         data,
         carryIn,
         morningTargetOverrides,
+        secondaryTargetOverrides,
       );
 
       // --- solve ------------------------------------------------------------

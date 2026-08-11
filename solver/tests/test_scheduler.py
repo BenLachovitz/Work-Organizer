@@ -301,6 +301,55 @@ def main() -> int:
             else:
                 bad("morning-priority tie-break", f"flexible assigned {flexible!r}, expected 'morning'")
 
+        if name.startswith("16-"):
+            # 3 afternoon-flex guards (a1-a3) available Mon(1)+Tue(2); 3
+            # night-flex guards (n1-n3) available Mon(1)+Wed(3), all kamut 2
+            # (maximum pressure to work both their marked days). Baseline
+            # S2/S3/S4 target is 2; Tuesday's S3 (late afternoon) and
+            # Wednesday's S4 (night) are independently overridden to 1. A
+            # plain 'afternoon' shift covers BOTH S2 and S3 at once, so
+            # overriding S3 alone caps the WHOLE day's afternoon headcount at
+            # 1 -- the stricter of the two segments -- proving S2 and S3 are
+            # now genuinely independent rather than a display-only split.
+            def count(day: int, shift: str) -> int:
+                return len([a for a in out.assignments if a.day == day and a.shift == shift])
+
+            mon_afternoon = count(1, "afternoon")
+            tue_afternoon = count(2, "afternoon")
+            if mon_afternoon == 2:
+                ok("non-overridden Monday afternoon reaches the baseline target of 2")
+            else:
+                bad("secondary override leak (S2/S3)", f"Monday afternoon = {mon_afternoon}, expected 2")
+
+            if tue_afternoon == 1:
+                ok("Tuesday's S3 override caps the whole afternoon shift at 1, despite 3 guards available")
+            else:
+                bad("secondary override apply (S3)", f"Tuesday afternoon = {tue_afternoon}, expected 1")
+
+            tue_s3_breach = any(b.day == 2 and b.segment == "S3" for b in report.floor_breaches)
+            if not tue_s3_breach:
+                ok("Tuesday's S3 floor came down to 1 with its target -- 1 guard is not a breach")
+            else:
+                bad("secondary floor pinning (S3)", "Tuesday S3 reported a floor breach despite 1 guard assigned")
+
+            mon_night = count(1, "night")
+            wed_night = count(3, "night")
+            if mon_night == 2:
+                ok("non-overridden Monday night reaches the baseline target of 2")
+            else:
+                bad("secondary override leak (S4)", f"Monday night = {mon_night}, expected 2")
+
+            if wed_night == 1:
+                ok("Wednesday's S4 override caps night at 1, despite 3 guards available")
+            else:
+                bad("secondary override apply (S4)", f"Wednesday night = {wed_night}, expected 1")
+
+            wed_s4_breach = any(b.day == 3 and b.segment == "S4" for b in report.floor_breaches)
+            if not wed_s4_breach:
+                ok("Wednesday's S4 floor came down to 1 with its target -- 1 guard is not a breach")
+            else:
+                bad("secondary floor pinning (S4)", "Wednesday S4 reported a floor breach despite 1 guard assigned")
+
         print()
 
     # CP-SAT is optimal; the greedy mock is not. Recording the scores lets

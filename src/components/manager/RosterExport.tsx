@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card } from '@/components/ui';
 import { downloadBlob, renderRosterImage, rosterFileName } from '@/lib/exportRoster';
 import type { DateKey } from '@/lib/dates';
-import type { MorningTarget, MorningTargetOverrides } from '@/lib/shifts';
+import type { MorningTarget, MorningTargetOverrides, SecondaryTargetOverrides } from '@/lib/shifts';
 import type { Profile, ScheduleAssignment } from '@/types/database';
 
 /**
@@ -25,6 +25,7 @@ export function RosterExport({
   weekStart,
   morningTarget,
   morningTargetOverrides,
+  segmentTargetOverrides,
   assignments,
   guards,
 }: {
@@ -32,6 +33,8 @@ export function RosterExport({
   morningTarget: MorningTarget;
   /** Per-day exceptions to morningTarget for this week (§1). */
   morningTargetOverrides?: MorningTargetOverrides;
+  /** S2/S3/S4's own, independent per-day exceptions to their flat target of 2 (§1). */
+  segmentTargetOverrides?: SecondaryTargetOverrides;
   assignments: ScheduleAssignment[];
   guards: Profile[];
 }) {
@@ -50,10 +53,11 @@ export function RosterExport({
         weekStart,
         morningTarget,
         JSON.stringify(morningTargetOverrides ?? {}),
+        JSON.stringify(segmentTargetOverrides ?? {}),
         guards.length,
         ...assignments.map((a) => `${a.target_date}|${a.shift}|${a.guard_id}`).sort(),
       ].join(','),
-    [weekStart, morningTarget, morningTargetOverrides, assignments, guards],
+    [weekStart, morningTarget, morningTargetOverrides, segmentTargetOverrides, assignments, guards],
   );
 
   useEffect(() => {
@@ -78,6 +82,7 @@ export function RosterExport({
       weekStart,
       morningTarget,
       morningTargetOverrides,
+      segmentTargetOverrides,
       assignments,
       guards,
     });

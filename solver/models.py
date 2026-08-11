@@ -98,22 +98,60 @@ def morning_target_for_day(
     return week_setting
 
 
+SecondarySegment = Literal["S2", "S3", "S4"]
+
+
+def secondary_target_for_day(
+    segment: SecondarySegment,
+    day_index: int,
+    secondary_overrides: dict[str, dict[str, int]] | None = None,
+) -> int:
+    """The S2/S3/S4 target in force on a given day -- flat 2 unless overridden.
+
+    Mirrors secondaryTargetForDay() in src/lib/shifts.ts. `secondary_overrides`
+    is keyed segment -> day_index (as a string) -> target, since S2/S3/S4 are
+    overridden independently of one another and of morning.
+    """
+    if secondary_overrides:
+        by_day = secondary_overrides.get(segment)
+        if by_day is not None:
+            override = by_day.get(str(day_index))
+            if override is not None:
+                return override
+    return 2
+
+
 def segment_targets(
-    week_setting: int, day_index: int, overrides: dict[str, int] | None = None
+    week_setting: int,
+    day_index: int,
+    overrides: dict[str, int] | None = None,
+    secondary_overrides: dict[str, dict[str, int]] | None = None,
 ) -> dict[Segment, int]:
     return {
         "S1": morning_target_for_day(week_setting, day_index, overrides),
-        "S2": 2,
-        "S3": 2,
-        "S4": 2,
+        "S2": secondary_target_for_day("S2", day_index, secondary_overrides),
+        "S3": secondary_target_for_day("S3", day_index, secondary_overrides),
+        "S4": secondary_target_for_day("S4", day_index, secondary_overrides),
     }
 
 
 def segment_floors(
-    week_setting: int, day_index: int, overrides: dict[str, int] | None = None
+    week_setting: int,
+    day_index: int,
+    overrides: dict[str, int] | None = None,
+    secondary_overrides: dict[str, dict[str, int]] | None = None,
 ) -> dict[Segment, int]:
+    """Mirrors segmentFloors() in src/lib/shifts.ts -- S2/S3/S4's floor is
+    pinned to min(1, target) rather than a flat 1, so a target overridden
+    down to 1 always brings its floor down to 1 with it."""
     morning = morning_target_for_day(week_setting, day_index, overrides)
-    return {"S1": 2 if morning == 3 else 1, "S2": 1, "S3": 1, "S4": 1}
+    targets = segment_targets(week_setting, day_index, overrides, secondary_overrides)
+    return {
+        "S1": 2 if morning == 3 else 1,
+        "S2": min(1, targets["S2"]),
+        "S3": min(1, targets["S3"]),
+        "S4": min(1, targets["S4"]),
+    }
 
 
 # Segment lengths in hours (spec 2.3). S1/S4 are the 8h morning/night windows;
@@ -194,12 +232,26 @@ class SolverGuard(BaseModel):
     twelve_hour_night: list[int] = Field(default_factory=list)
 
 
+class SecondaryTargetOverrides(BaseModel):
+    """Sparse segment -> day_index (as a string) -> target override for THIS
+    week only. See secondary_target_for_day() above. Default empty on every
+    field, matching morning_target_overrides' "old caller/fixture still
+    parses unchanged" discipline."""
+
+    S2: dict[str, Literal[1, 2]] = Field(default_factory=dict)
+    S3: dict[str, Literal[1, 2]] = Field(default_factory=dict)
+    S4: dict[str, Literal[1, 2]] = Field(default_factory=dict)
+
+
 class SolverInput(BaseModel):
     week_start: str
     morning_target_slots: Literal[2, 3] = 2
     # Sparse day_index (as a string) -> target override for THIS week only.
     # See morning_target_for_day() above.
     morning_target_overrides: dict[str, Literal[2, 3]] = Field(default_factory=dict)
+    secondary_target_overrides: SecondaryTargetOverrides = Field(
+        default_factory=SecondaryTargetOverrides
+    )
     guards: list[SolverGuard] = Field(default_factory=list)
     # guard_id -> shift worked last Saturday, for cross-week rest.
     carry_in: dict[str, ShiftType | None] = Field(default_factory=dict)

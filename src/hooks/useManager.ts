@@ -15,12 +15,16 @@ import {
   type BaseShift,
   type MorningTarget,
   type MorningTargetOverrides,
+  type SecondaryTarget,
+  type SecondarySegment,
+  type SecondaryTargetOverrides,
 } from '@/lib/shifts';
 
 export const managerKeys = {
   week: (weekStart: DateKey) => ['managerWeek', weekStart] as const,
   codes: ['rosterCodeStatus'] as const,
   morningTargetOverrides: (weekStart: DateKey) => ['morningTargetOverrides', weekStart] as const,
+  segmentTargetOverrides: (weekStart: DateKey) => ['segmentTargetOverrides', weekStart] as const,
 };
 
 /**
@@ -86,6 +90,78 @@ export function useUpdateMorningTargetOverride() {
     },
     onSuccess: (_d, input) => {
       void qc.invalidateQueries({ queryKey: managerKeys.morningTargetOverrides(input.weekStart) });
+    },
+  });
+}
+
+/**
+ * Per-day exceptions to the flat afternoon (S2 early / S3 late) and night
+ * (S4) target of 2, independently of one another and of morning -- e.g. a
+ * quiet Sunday needing only 1 guard overnight. Sparse: a (day, segment) with
+ * no row here just follows the flat baseline (see segmentTargets() in
+ * src/lib/shifts.ts). Unlike morning, these apply on all 7 days.
+ */
+export function useSegmentTargetOverrides(weekStart: DateKey) {
+  return useQuery({
+    queryKey: managerKeys.segmentTargetOverrides(weekStart),
+    enabled: Boolean(weekStart),
+    queryFn: async (): Promise<SecondaryTargetOverrides> => {
+      const { data, error } = await requireSupabase()
+        .from('weekly_segment_target_overrides')
+        .select('day_index, segment, target_slots')
+        .eq('week_start', weekStart);
+      if (error) throw new Error(error.message);
+
+      const overrides: SecondaryTargetOverrides = {};
+      for (const row of (data ?? []) as {
+        day_index: number;
+        segment: SecondarySegment;
+        target_slots: SecondaryTarget;
+      }[]) {
+        (overrides[row.segment] ??= {})[String(row.day_index)] = row.target_slots;
+      }
+      return overrides;
+    },
+  });
+}
+
+/**
+ * Sets or clears one (day, segment)'s override. `target: null` clears it --
+ * same normalize-to-absence convention as useUpdateMorningTargetOverride.
+ */
+export function useUpdateSegmentTargetOverride() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      weekStart: DateKey;
+      dayIndex: number;
+      segment: SecondarySegment;
+      target: SecondaryTarget | null;
+    }) => {
+      const db = requireSupabase();
+      if (input.target === null) {
+        const { error } = await db
+          .from('weekly_segment_target_overrides')
+          .delete()
+          .eq('week_start', input.weekStart)
+          .eq('day_index', input.dayIndex)
+          .eq('segment', input.segment);
+        if (error) throw new Error(error.message);
+        return;
+      }
+      const { error } = await db.from('weekly_segment_target_overrides').upsert(
+        {
+          week_start: input.weekStart,
+          day_index: input.dayIndex,
+          segment: input.segment,
+          target_slots: input.target,
+        },
+        { onConflict: 'week_start,day_index,segment' },
+      );
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: (_d, input) => {
+      void qc.invalidateQueries({ queryKey: managerKeys.segmentTargetOverrides(input.weekStart) });
     },
   });
 }

@@ -10,9 +10,10 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.9.0: Step Q,
-# PWA support (spec section 10.4).
-next-version: 2.9.0
+# version (see BACKLOG.md's Versioning section). Currently 2.10.0: Step R,
+# per-day afternoon/night coverage-target overrides (S2/S3/S4), generalizing
+# the existing per-day morning-target override (spec section 2.4b).
+next-version: 2.10.0
 mode: Mainline
 branches:
   main:

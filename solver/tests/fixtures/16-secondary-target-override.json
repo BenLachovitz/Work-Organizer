@@ -1,0 +1,61 @@
+{
+  "week_start": "2026-08-16",
+  "morning_target_slots": 2,
+  "morning_target_overrides": {},
+  "secondary_target_overrides": {
+    "S3": { "2": 1 },
+    "S4": { "3": 1 }
+  },
+  "weights": {
+    "floor": 1000,
+    "kamut": 100,
+    "target": 10,
+    "rest8": 5,
+    "pref": 1
+  },
+  "carry_in": {},
+  "guards": [
+    {
+      "id": "a1",
+      "effective_kamut": 2,
+      "availability": { "1": ["afternoon"], "2": ["afternoon"] },
+      "twelve_hour_day": [],
+      "twelve_hour_night": []
+    },
+    {
+      "id": "a2",
+      "effective_kamut": 2,
+      "availability": { "1": ["afternoon"], "2": ["afternoon"] },
+      "twelve_hour_day": [],
+      "twelve_hour_night": []
+    },
+    {
+      "id": "a3",
+      "effective_kamut": 2,
+      "availability": { "1": ["afternoon"], "2": ["afternoon"] },
+      "twelve_hour_day": [],
+      "twelve_hour_night": []
+    },
+    {
+      "id": "n1",
+      "effective_kamut": 2,
+      "availability": { "1": ["night"], "3": ["night"] },
+      "twelve_hour_day": [],
+      "twelve_hour_night": []
+    },
+    {
+      "id": "n2",
+      "effective_kamut": 2,
+      "availability": { "1": ["night"], "3": ["night"] },
+      "twelve_hour_day": [],
+      "twelve_hour_night": []
+    },
+    {
+      "id": "n3",
+      "effective_kamut": 2,
+      "availability": { "1": ["night"], "3": ["night"] },
+      "twelve_hour_day": [],
+      "twelve_hour_night": []
+    }
+  ]
+}

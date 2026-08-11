@@ -98,6 +98,21 @@ export const solverGuardSchema = z.object({
   twelve_hour_night: z.array(z.number().int().min(0).max(6)).default([]),
 });
 
+/** Sparse day_index (as a string) -> target override, for one S2/S3/S4 segment. */
+const secondarySegmentOverridesSchema = z.record(z.string(), z.union([z.literal(1), z.literal(2)]));
+
+/** Segment -> secondarySegmentOverridesSchema, for THIS week only -- see
+ *  SecondaryTargetOverrides in src/lib/shifts.ts. Every field defaults empty
+ *  so a fixture/caller written before this existed still parses unchanged,
+ *  same discipline as morning_target_overrides/morning_priority. */
+export const secondaryTargetOverridesSchema = z
+  .object({
+    S2: secondarySegmentOverridesSchema.default({}),
+    S3: secondarySegmentOverridesSchema.default({}),
+    S4: secondarySegmentOverridesSchema.default({}),
+  })
+  .default({ S2: {}, S3: {}, S4: {} });
+
 export const solverInputSchema = z.object({
   week_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   morning_target_slots: z.union([z.literal(2), z.literal(3)]),
@@ -106,6 +121,9 @@ export const solverInputSchema = z.object({
   morning_target_overrides: z
     .record(z.string(), z.union([z.literal(2), z.literal(3)]))
     .default({}),
+  /** S2/S3/S4's own, independent per-day overrides -- see
+   *  SecondaryTargetOverrides in src/lib/shifts.ts. */
+  secondary_target_overrides: secondaryTargetOverridesSchema,
   guards: z.array(solverGuardSchema),
   /** guard_id -> the shift they worked LAST Saturday, for cross-week rest. */
   carry_in: z.record(z.string(), shiftTypeSchema.nullable()).default({}),

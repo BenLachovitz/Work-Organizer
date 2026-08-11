@@ -8,6 +8,7 @@ import {
   segmentTargets,
   type MorningTarget,
   type MorningTargetOverrides,
+  type SecondaryTargetOverrides,
 } from '@/lib/shifts';
 import type { CoverageCell } from '@/hooks/useManager';
 
@@ -24,23 +25,34 @@ export function CoverageMatrix({
   dates,
   morningTarget,
   morningTargetOverrides,
+  segmentTargetOverrides,
 }: {
   cells: CoverageCell[];
   dates: DateKey[];
   morningTarget: MorningTarget;
   /** Per-day exceptions to morningTarget for this week (§1). */
   morningTargetOverrides?: MorningTargetOverrides;
+  /** S2/S3/S4's own, independent per-day exceptions to their flat target of 2 (§1). */
+  segmentTargetOverrides?: SecondaryTargetOverrides;
 }) {
   // Per day: the raised morning target applies Mon-Fri only, so Saturday and
   // Sunday show a requirement of 2 even when the week is set to 3. A per-day
   // override (§1) beats the week setting for a day that has one.
   // The 8h shifts map onto segments: morning->S1, afternoon->S2/S3, night->S4.
+  // Guards mark availability per BASE shift (one number for the whole
+  // afternoon), so a single "afternoon" supply count is checked against
+  // whichever of S2/S3 is more demanding -- their own per-day overrides can
+  // now diverge, and the pre-flight check should flag a shortage against the
+  // stricter half.
   const needOn = (dayIndex: number) => {
-    const floors = segmentFloors(morningTarget, dayIndex, morningTargetOverrides);
-    const targets = segmentTargets(morningTarget, dayIndex, morningTargetOverrides);
+    const floors = segmentFloors(morningTarget, dayIndex, morningTargetOverrides, segmentTargetOverrides);
+    const targets = segmentTargets(morningTarget, dayIndex, morningTargetOverrides, segmentTargetOverrides);
     return {
       morning: { floor: floors.S1, target: targets.S1 },
-      afternoon: { floor: floors.S2, target: targets.S2 },
+      afternoon: {
+        floor: Math.max(floors.S2, floors.S3),
+        target: Math.max(targets.S2, targets.S3),
+      },
       night: { floor: floors.S4, target: targets.S4 },
     } as const;
   };

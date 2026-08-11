@@ -199,9 +199,20 @@ export function verifySchedule(input: SolverInput, output: SolverOutput): Verify
     // Recomputed per day: the raised morning target applies Mon-Fri only, so
     // Saturday and Sunday run 2 whatever the week is set to. Per-day
     // overrides (§1, weekly_morning_target_overrides) beat the week setting
-    // for a day that has one.
-    const targets = segmentTargets(input.morning_target_slots, d, input.morning_target_overrides);
-    const floors = segmentFloors(input.morning_target_slots, d, input.morning_target_overrides);
+    // for a day that has one. S2/S3/S4 have their own, independent per-day
+    // overrides (weekly_segment_target_overrides).
+    const targets = segmentTargets(
+      input.morning_target_slots,
+      d,
+      input.morning_target_overrides,
+      input.secondary_target_overrides,
+    );
+    const floors = segmentFloors(
+      input.morning_target_slots,
+      d,
+      input.morning_target_overrides,
+      input.secondary_target_overrides,
+    );
 
     for (const seg of SEGMENTS as readonly Segment[]) {
       const assigned = cov.get(`${d}|${seg}`) ?? 0;

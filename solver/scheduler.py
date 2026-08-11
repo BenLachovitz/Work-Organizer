@@ -106,13 +106,19 @@ def solve(inp: SolverInput, time_limit_s: float = 20.0, workers: int = 8) -> Sol
     # elsewhere when a trade-off is otherwise unavoidable.
     floor_gap_terms: list[cp_model.LinearExprT] = []
     target_gap_terms: list[cp_model.LinearExprT] = []
+    secondary_overrides = inp.secondary_target_overrides.model_dump()
     for d in range(DAYS):
         # Per day: the raised morning target applies Mon-Fri only, so Saturday
         # and Sunday cap at 2 in the morning even when the week is set to 3.
         # A per-day override (weekly_morning_target_overrides, §1) beats the
-        # week setting for a day that has one.
-        targets = segment_targets(inp.morning_target_slots, d, inp.morning_target_overrides)
-        floors = segment_floors(inp.morning_target_slots, d, inp.morning_target_overrides)
+        # week setting for a day that has one. S2/S3/S4 have their own,
+        # independent per-day overrides (weekly_segment_target_overrides).
+        targets = segment_targets(
+            inp.morning_target_slots, d, inp.morning_target_overrides, secondary_overrides
+        )
+        floors = segment_floors(
+            inp.morning_target_slots, d, inp.morning_target_overrides, secondary_overrides
+        )
 
         for seg in SEGMENTS:
             covering = [

@@ -29,8 +29,10 @@ import {
   useManagerWeek,
   useMorningTargetOverrides,
   useRosterCodeStatus,
+  useSegmentTargetOverrides,
   useSetGuardTarget,
   useUpdateMorningTargetOverride,
+  useUpdateSegmentTargetOverride,
   useUpdateWeek,
 } from '@/hooks/useManager';
 import { formatWeekRange, weekDates } from '@/lib/dates';
@@ -57,6 +59,9 @@ export function ManagerDashboard() {
   const { data: morningTargetOverridesRaw } = useMorningTargetOverrides(selected);
   const morningTargetOverrides = morningTargetOverridesRaw ?? {};
   const updateDayOverride = useUpdateMorningTargetOverride();
+  const { data: segmentTargetOverridesRaw } = useSegmentTargetOverrides(selected);
+  const segmentTargetOverrides = segmentTargetOverridesRaw ?? {};
+  const updateSegmentDayOverride = useUpdateSegmentTargetOverride();
   const updateWeek = useUpdateWeek();
   const setTarget = useSetGuardTarget();
   const generate = useGenerateSchedule();
@@ -151,6 +156,17 @@ export function ManagerDashboard() {
               target: t === ((week?.morning_target_slots ?? 2) as MorningTarget) ? null : t,
             })
           }
+          segmentTargetOverrides={segmentTargetOverrides}
+          onSetSegmentDayOverride={(dayIndex, segment, t) =>
+            updateSegmentDayOverride.mutate({
+              weekStart: selected,
+              dayIndex,
+              segment,
+              // Same equal-to-baseline normalisation as morning -- S2/S3/S4's
+              // baseline is always the flat 2.
+              target: t === 2 ? null : t,
+            })
+          }
           onSetStatus={(s) => updateWeek.mutate({ weekStart: selected, status: s })}
         />
 
@@ -198,6 +214,7 @@ export function ManagerDashboard() {
               dates={dates}
               morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
               morningTargetOverrides={morningTargetOverrides}
+              segmentTargetOverrides={segmentTargetOverrides}
             />
 
             <TeamTable
@@ -268,6 +285,7 @@ export function ManagerDashboard() {
                     morningTarget: (week?.morning_target_slots ?? 2) as MorningTarget,
                     data,
                     morningTargetOverrides,
+                    secondaryTargetOverrides: segmentTargetOverrides,
                   })
                 }
               >
@@ -288,6 +306,7 @@ export function ManagerDashboard() {
                     weekStart={selected}
                     morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
                     morningTargetOverrides={morningTargetOverrides}
+                    segmentTargetOverrides={segmentTargetOverrides}
                     assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
                     guards={data.guards}
                     // The referee must judge an edit against exactly what the solver
@@ -300,6 +319,7 @@ export function ManagerDashboard() {
                       data,
                       carryIn ?? {},
                       morningTargetOverrides,
+                      segmentTargetOverrides,
                     )}
                     saving={saveEdits.isPending}
                     onCancel={() => setEditing(false)}
@@ -323,6 +343,7 @@ export function ManagerDashboard() {
                     weekStart={selected}
                     morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
                     morningTargetOverrides={morningTargetOverrides}
+                    segmentTargetOverrides={segmentTargetOverrides}
                     assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
                     guards={data?.guards ?? []}
                   />
@@ -336,6 +357,7 @@ export function ManagerDashboard() {
                     weekStart={selected}
                     morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
                     morningTargetOverrides={morningTargetOverrides}
+                    segmentTargetOverrides={segmentTargetOverrides}
                     assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
                     guards={data?.guards ?? []}
                   />

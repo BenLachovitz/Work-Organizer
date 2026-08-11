@@ -125,12 +125,18 @@ def verify(inp: SolverInput, assignments: list[Assignment]) -> tuple[list[str], 
 
     floor_breaches: list[FloorBreach] = []
     target_gaps: list[TargetGap] = []
+    secondary_overrides = inp.secondary_target_overrides.model_dump()
     for d in range(7):
         # Recomputed per day: the raised morning target applies Mon-Fri only,
         # and a per-day override (weekly_morning_target_overrides) beats the
-        # week setting for a day that has one.
-        targets = segment_targets(inp.morning_target_slots, d, inp.morning_target_overrides)
-        floors = segment_floors(inp.morning_target_slots, d, inp.morning_target_overrides)
+        # week setting for a day that has one. S2/S3/S4 have their own,
+        # independent per-day overrides (weekly_segment_target_overrides).
+        targets = segment_targets(
+            inp.morning_target_slots, d, inp.morning_target_overrides, secondary_overrides
+        )
+        floors = segment_floors(
+            inp.morning_target_slots, d, inp.morning_target_overrides, secondary_overrides
+        )
         for seg in SEGMENTS:
             assigned = cov.get((d, seg), 0)
             if assigned > targets[seg]:

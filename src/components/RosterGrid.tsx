@@ -10,6 +10,7 @@ import {
   type MorningTarget,
   type MorningTargetOverrides,
   type Segment,
+  type SecondaryTargetOverrides,
 } from '@/lib/shifts';
 import type { Profile, ScheduleAssignment } from '@/types/database';
 
@@ -48,7 +49,8 @@ interface AfternoonRow {
  */
 export function buildAfternoonRows(
   dayAssignments: ScheduleAssignment[],
-  slots: number,
+  earlySlots: number,
+  lateSlots: number,
 ): AfternoonRow[] {
   const full = dayAssignments.filter((a) => a.shift === 'afternoon');
   const early = dayAssignments.filter((a) => a.shift === 'day12');
@@ -61,6 +63,11 @@ export function buildAfternoonRows(
     rows.push({ early: early[i] ?? null, late: late[i] ?? null, full: null });
   }
 
+  // Early (S2) and late (S3) can now carry independent per-day targets, so
+  // pad up to whichever side demands more rows -- the same "at least N rows,
+  // a Chip where a real assignment exists, a Gap elsewhere" contract as
+  // before, just driven by two targets instead of one shared one.
+  const slots = Math.max(earlySlots, lateSlots);
   while (rows.length < slots) rows.push({ early: null, late: null, full: null });
   return rows;
 }
@@ -106,6 +113,7 @@ export function RosterGrid({
   weekStart,
   morningTarget,
   morningTargetOverrides,
+  segmentTargetOverrides,
   assignments,
   guards,
   highlightGuardId,
@@ -116,6 +124,8 @@ export function RosterGrid({
   morningTarget: MorningTarget;
   /** Per-day exceptions to morningTarget for this week (§1). */
   morningTargetOverrides?: MorningTargetOverrides;
+  /** S2/S3/S4's own, independent per-day exceptions to their flat target of 2 (§1). */
+  segmentTargetOverrides?: SecondaryTargetOverrides;
   assignments: ScheduleAssignment[];
   guards: Profile[];
   /** Ring this guard's chips. Set on the guard-facing view so a person can
@@ -155,8 +165,18 @@ export function RosterGrid({
     onDay(date).filter((a) => SHIFTS[a.shift].covers.includes(seg)).length;
 
   const cellTone = (date: DateKey, dayIndex: number, segs: Segment[]) => {
-    const floors = segmentFloors(morningTarget, dayIndex, morningTargetOverrides);
-    const targets = segmentTargets(morningTarget, dayIndex, morningTargetOverrides);
+    const floors = segmentFloors(
+      morningTarget,
+      dayIndex,
+      morningTargetOverrides,
+      segmentTargetOverrides,
+    );
+    const targets = segmentTargets(
+      morningTarget,
+      dayIndex,
+      morningTargetOverrides,
+      segmentTargetOverrides,
+    );
     const below = segs.some((s) => covers(date, s) < floors[s]);
     const short = !below && segs.some((s) => covers(date, s) < targets[s]);
     return below
@@ -247,7 +267,12 @@ export function RosterGrid({
                     const rows = day.filter(
                       (a) => a.shift === 'morning' || a.shift === 'day12',
                     );
-                    const target = segmentTargets(morningTarget, dayIndex, morningTargetOverrides).S1;
+                    const target = segmentTargets(
+                      morningTarget,
+                      dayIndex,
+                      morningTargetOverrides,
+                      segmentTargetOverrides,
+                    ).S1;
                     content = rows.length ? (
                       <>
                         {rows.map((a) => (
@@ -275,7 +300,12 @@ export function RosterGrid({
                     const rows = day.filter(
                       (a) => a.shift === 'night' || a.shift === 'night12',
                     );
-                    const target = segmentTargets(morningTarget, dayIndex, morningTargetOverrides).S4;
+                    const target = segmentTargets(
+                      morningTarget,
+                      dayIndex,
+                      morningTargetOverrides,
+                      segmentTargetOverrides,
+                    ).S4;
                     content = rows.length ? (
                       <>
                         {rows.map((a) => (
@@ -295,9 +325,17 @@ export function RosterGrid({
                       <Empty />
                     );
                   } else {
-                    const afternoonTarget =
-                      segmentTargets(morningTarget, dayIndex, morningTargetOverrides).S2;
-                    const rows = buildAfternoonRows(day, afternoonTarget);
+                    const afternoonTargets = segmentTargets(
+                      morningTarget,
+                      dayIndex,
+                      morningTargetOverrides,
+                      segmentTargetOverrides,
+                    );
+                    const rows = buildAfternoonRows(
+                      day,
+                      afternoonTargets.S2,
+                      afternoonTargets.S3,
+                    );
                     const anyCoverage = rows.some((r) => r.full || r.early || r.late);
                     content = anyCoverage ? (
                       rows.map((r, i) =>

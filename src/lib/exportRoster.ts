@@ -13,6 +13,7 @@ import {
   type MorningTarget,
   type MorningTargetOverrides,
   type Segment,
+  type SecondaryTargetOverrides,
 } from '@/lib/shifts';
 import type { Profile, ScheduleAssignment } from '@/types/database';
 
@@ -89,6 +90,8 @@ export interface RosterImageInput {
   morningTarget: MorningTarget;
   /** Per-day exceptions to morningTarget for this week (§1). */
   morningTargetOverrides?: MorningTargetOverrides;
+  /** S2/S3/S4's own, independent per-day exceptions to their flat target of 2 (§1). */
+  segmentTargetOverrides?: SecondaryTargetOverrides;
   assignments: ScheduleAssignment[];
   guards: Profile[];
   /** Printed under the title. Defaults to the week range. */
@@ -257,7 +260,8 @@ const LEGEND = [
 export async function renderRosterImage(input: RosterImageInput): Promise<Blob> {
   await document.fonts?.ready;
 
-  const { weekStart, morningTarget, morningTargetOverrides, assignments, guards } = input;
+  const { weekStart, morningTarget, morningTargetOverrides, segmentTargetOverrides, assignments, guards } =
+    input;
   const dates = weekDates(weekStart);
   const colors = shiftColors();
   const nameOf = (id: string) => guards.find((g) => g.id === id)?.display_name ?? '—';
@@ -277,13 +281,20 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
   // cell anywhere in the table, so the columns line up and nothing truncates.
   const grid = dates.map((date, di) => {
     const day = onDay(date);
-    const targets = segmentTargets(morningTarget, di, morningTargetOverrides);
+    const targets = segmentTargets(morningTarget, di, morningTargetOverrides, segmentTargetOverrides);
     return BLOCKS.map((b) =>
       rowsFor(
         b.key,
         day,
         nameOf,
-        b.key === 'morning' ? targets.S1 : b.key === 'night' ? targets.S4 : targets.S2,
+        // Afternoon's early (S2) and late (S3) halves can now carry independent
+        // targets -- pad up to whichever demands more rows, same as
+        // buildAfternoonRows() in RosterGrid.tsx.
+        b.key === 'morning'
+          ? targets.S1
+          : b.key === 'night'
+            ? targets.S4
+            : Math.max(targets.S2, targets.S3),
       ),
     );
   });
@@ -401,8 +412,8 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
       // amber below target, green otherwise.
       const covers = (seg: Segment) =>
         day.filter((a) => SHIFTS[a.shift].covers.includes(seg)).length;
-      const floors = segmentFloors(morningTarget, di, morningTargetOverrides);
-      const targets = segmentTargets(morningTarget, di, morningTargetOverrides);
+      const floors = segmentFloors(morningTarget, di, morningTargetOverrides, segmentTargetOverrides);
+      const targets = segmentTargets(morningTarget, di, morningTargetOverrides, segmentTargetOverrides);
       const below = block.segs.some((s) => covers(s) < floors[s]);
       const short = !below && block.segs.some((s) => covers(s) < targets[s]);
       const tone = below ? TONES.below : short ? TONES.short : TONES.ok;

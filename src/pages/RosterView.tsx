@@ -112,6 +112,7 @@ function WeekSection({
         weekStart={week.weekStart}
         morningTarget={week.morningTarget}
         morningTargetOverrides={week.morningTargetOverrides}
+        segmentTargetOverrides={week.segmentTargetOverrides}
         assignments={week.assignments}
         guards={guards}
         highlightGuardId={profileId}

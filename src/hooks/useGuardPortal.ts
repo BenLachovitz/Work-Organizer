@@ -9,7 +9,12 @@ import type {
   WishPreference,
 } from '@/types/database';
 import type { DateKey } from '@/lib/dates';
-import type { BaseShift, MorningTargetOverrides } from '@/lib/shifts';
+import type {
+  BaseShift,
+  MorningTargetOverrides,
+  SecondarySegment,
+  SecondaryTargetOverrides,
+} from '@/lib/shifts';
 
 export const guardKeys = {
   week: (guardId: string, weekStart: DateKey) => ['guardWeek', guardId, weekStart] as const,
@@ -164,6 +169,9 @@ export interface WeekRoster {
   /** Per-day exceptions to morningTarget for this week (§1) -- see
    *  morningTargetForDay() in src/lib/shifts.ts. */
   morningTargetOverrides: MorningTargetOverrides;
+  /** S2/S3/S4's own, independent per-day exceptions to their flat target of
+   *  2 (§1) -- see segmentTargets() in src/lib/shifts.ts. */
+  segmentTargetOverrides: SecondaryTargetOverrides;
   assignments: ScheduleAssignment[];
 }
 
@@ -200,7 +208,7 @@ export function useVisibleRosters() {
       const list = (runs ?? []) as { id: string; week_start: string }[];
       if (!list.length) return { weeks: [], guards: [] };
 
-      const [assignRes, guardRes, weekRes, overrideRes] = await Promise.all([
+      const [assignRes, guardRes, weekRes, overrideRes, segmentOverrideRes] = await Promise.all([
         db
           .from('schedule_assignments')
           .select('*')
@@ -215,11 +223,16 @@ export function useVisibleRosters() {
           .from('weekly_morning_target_overrides')
           .select('week_start, day_index, morning_target_slots')
           .in('week_start', list.map((r) => r.week_start)),
+        db
+          .from('weekly_segment_target_overrides')
+          .select('week_start, day_index, segment, target_slots')
+          .in('week_start', list.map((r) => r.week_start)),
       ]);
       if (assignRes.error) throw new Error(assignRes.error.message);
       if (guardRes.error) throw new Error(guardRes.error.message);
       if (weekRes.error) throw new Error(weekRes.error.message);
       if (overrideRes.error) throw new Error(overrideRes.error.message);
+      if (segmentOverrideRes.error) throw new Error(segmentOverrideRes.error.message);
 
       const assignments = (assignRes.data as ScheduleAssignment[]) ?? [];
       const targets = (weekRes.data ?? []) as { week_start: string; morning_target_slots: 2 | 3 }[];
@@ -228,20 +241,34 @@ export function useVisibleRosters() {
         day_index: number;
         morning_target_slots: 2 | 3;
       }[];
+      const segmentOverrideRows = (segmentOverrideRes.data ?? []) as {
+        week_start: string;
+        day_index: number;
+        segment: SecondarySegment;
+        target_slots: 1 | 2;
+      }[];
 
       return {
-        weeks: list.map((r) => ({
-          weekStart: r.week_start,
-          runId: r.id,
-          morningTarget:
-            targets.find((w) => w.week_start === r.week_start)?.morning_target_slots ?? 2,
-          morningTargetOverrides: Object.fromEntries(
-            overrideRows
-              .filter((o) => o.week_start === r.week_start)
-              .map((o) => [String(o.day_index), o.morning_target_slots]),
-          ),
-          assignments: assignments.filter((a) => a.run_id === r.id),
-        })),
+        weeks: list.map((r) => {
+          const segmentTargetOverrides: SecondaryTargetOverrides = {};
+          for (const o of segmentOverrideRows) {
+            if (o.week_start !== r.week_start) continue;
+            (segmentTargetOverrides[o.segment] ??= {})[String(o.day_index)] = o.target_slots;
+          }
+          return {
+            weekStart: r.week_start,
+            runId: r.id,
+            morningTarget:
+              targets.find((w) => w.week_start === r.week_start)?.morning_target_slots ?? 2,
+            morningTargetOverrides: Object.fromEntries(
+              overrideRows
+                .filter((o) => o.week_start === r.week_start)
+                .map((o) => [String(o.day_index), o.morning_target_slots]),
+            ),
+            segmentTargetOverrides,
+            assignments: assignments.filter((a) => a.run_id === r.id),
+          };
+        }),
         guards: (guardRes.data as Profile[]) ?? [],
       };
     },

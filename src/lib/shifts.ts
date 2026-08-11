@@ -203,6 +203,25 @@ export type MorningTarget = 2 | 3;
 export type MorningTargetOverrides = Partial<Record<string, MorningTarget>>;
 
 /**
+ * Afternoon (S2 early / S3 late) and night (S4) don't have a "raised" tier
+ * like morning's 3 -- their flat baseline is 2, and the only exception a
+ * manager can carve out per day is lowering one of them to 1.
+ */
+export type SecondaryTarget = 1 | 2;
+export type SecondarySegment = 'S2' | 'S3' | 'S4';
+
+/**
+ * Per-day exceptions to the flat S2/S3/S4 baseline of 2, for one specific
+ * week -- the same sparse convention as MorningTargetOverrides, just keyed
+ * one level deeper (segment, then day index as a string) since S2/S3/S4 are
+ * overridden independently of one another. Unlike morning, there is no
+ * separate weekend rule here, so any day 0-6 may have an entry.
+ */
+export type SecondaryTargetOverrides = Partial<
+  Record<SecondarySegment, Partial<Record<string, SecondaryTarget>>>
+>;
+
+/**
  * The morning target actually in force on a given day.
  *
  * The raised target (3) applies only to working days, Monday to Friday.
@@ -222,6 +241,15 @@ export function morningTargetForDay(
   return overrides?.[String(dayIndex)] ?? weekSetting;
 }
 
+/** The S2/S3/S4 target actually in force on a given day -- flat 2 unless overridden. */
+export function secondaryTargetForDay(
+  segment: SecondarySegment,
+  dayIndex: number,
+  overrides?: SecondaryTargetOverrides,
+): number {
+  return overrides?.[segment]?.[String(dayIndex)] ?? 2;
+}
+
 /**
  * Ceiling per segment for one day. The solver never staffs above this (H6).
  *
@@ -233,18 +261,40 @@ export function segmentTargets(
   weekSetting: MorningTarget,
   dayIndex: number,
   overrides?: MorningTargetOverrides,
+  secondaryOverrides?: SecondaryTargetOverrides,
 ): Record<Segment, number> {
-  return { S1: morningTargetForDay(weekSetting, dayIndex, overrides), S2: 2, S3: 2, S4: 2 };
+  return {
+    S1: morningTargetForDay(weekSetting, dayIndex, overrides),
+    S2: secondaryTargetForDay('S2', dayIndex, secondaryOverrides),
+    S3: secondaryTargetForDay('S3', dayIndex, secondaryOverrides),
+    S4: secondaryTargetForDay('S4', dayIndex, secondaryOverrides),
+  };
 }
 
-/** Critical floor per segment (spec 2.4). Soft, but penalised at weight 1000. */
+/**
+ * Critical floor per segment (spec 2.4). Soft, but penalised at weight 1000.
+ *
+ * S2/S3/S4's floor is pinned to min(1, target) rather than a flat 1: a
+ * shift can never be allowed to go fully empty, so when a day's target is
+ * overridden down to 1, the floor must come down to 1 with it -- otherwise
+ * a floor of 1 could sit ABOVE a target of... no target here ever drops
+ * below 1, but the clamp is what makes that invariant explicit rather than
+ * an accident of the values chosen today.
+ */
 export function segmentFloors(
   weekSetting: MorningTarget,
   dayIndex: number,
   overrides?: MorningTargetOverrides,
+  secondaryOverrides?: SecondaryTargetOverrides,
 ): Record<Segment, number> {
   const morning = morningTargetForDay(weekSetting, dayIndex, overrides);
-  return { S1: morning === 3 ? 2 : 1, S2: 1, S3: 1, S4: 1 };
+  const targets = segmentTargets(weekSetting, dayIndex, overrides, secondaryOverrides);
+  return {
+    S1: morning === 3 ? 2 : 1,
+    S2: Math.min(1, targets.S2),
+    S3: Math.min(1, targets.S3),
+    S4: Math.min(1, targets.S4),
+  };
 }
 
 /** Which shift types contribute coverage to a given segment. */

@@ -19,6 +19,7 @@ import {
   type MorningTarget,
   type MorningTargetOverrides,
   type Segment,
+  type SecondaryTargetOverrides,
   type ShiftType,
 } from '@/lib/shifts';
 import { verifySchedule, type Violation } from '@/lib/validate';
@@ -65,6 +66,7 @@ export function RosterEditor({
   weekStart,
   morningTarget,
   morningTargetOverrides,
+  segmentTargetOverrides,
   assignments,
   guards,
   solverInput,
@@ -76,6 +78,8 @@ export function RosterEditor({
   morningTarget: MorningTarget;
   /** Per-day exceptions to morningTarget for this week (§1). */
   morningTargetOverrides?: MorningTargetOverrides;
+  /** S2/S3/S4's own, independent per-day exceptions to their flat target of 2 (§1). */
+  segmentTargetOverrides?: SecondaryTargetOverrides;
   assignments: ScheduleAssignment[];
   guards: Profile[];
   /** The same input the solver saw, so the referee judges identically. */
@@ -162,8 +166,18 @@ export function RosterEditor({
   const onDate = (date: DateKey) => draft.filter((d) => d.date === date);
 
   const cellTone = (date: DateKey, dayIndex: number, segs: Segment[]) => {
-    const floors = segmentFloors(morningTarget, dayIndex, morningTargetOverrides);
-    const targets = segmentTargets(morningTarget, dayIndex, morningTargetOverrides);
+    const floors = segmentFloors(
+      morningTarget,
+      dayIndex,
+      morningTargetOverrides,
+      segmentTargetOverrides,
+    );
+    const targets = segmentTargets(
+      morningTarget,
+      dayIndex,
+      morningTargetOverrides,
+      segmentTargetOverrides,
+    );
     const cov = (s: Segment) =>
       onDate(date).filter((d) => SHIFTS[d.shift].covers.includes(s)).length;
     if (segs.some((s) => cov(s) < floors[s]))

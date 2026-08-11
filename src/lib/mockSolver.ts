@@ -27,10 +27,21 @@ import { addDays } from '@/lib/dates';
 export function mockSolve(input: SolverInput): SolverOutput {
   // Per day, because the raised morning target applies Mon-Fri only, and a
   // per-day override (§1) beats the week setting for a day that has one.
+  // S2/S3/S4 have their own, independent per-day overrides.
   const targetsOn = (day: number) =>
-    segmentTargets(input.morning_target_slots, day, input.morning_target_overrides);
+    segmentTargets(
+      input.morning_target_slots,
+      day,
+      input.morning_target_overrides,
+      input.secondary_target_overrides,
+    );
   const floorsOn = (day: number) =>
-    segmentFloors(input.morning_target_slots, day, input.morning_target_overrides);
+    segmentFloors(
+      input.morning_target_slots,
+      day,
+      input.morning_target_overrides,
+      input.secondary_target_overrides,
+    );
   const w = input.weights;
 
   const assignments: Assignment[] = [];
