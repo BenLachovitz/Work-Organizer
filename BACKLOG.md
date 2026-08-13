@@ -76,8 +76,7 @@ nullable, so a note can sit on a cell with no real guard behind it at all — e.
 the morning until 10:45, then Shely joins" as an annotation on the morning block itself, rather than
 a second, real assignment for Shely (who's already genuinely assigned elsewhere that day, and adding
 her again for real correctly trips the one-shift-per-day rule as the double-booking it would
-actually be). Excluded from every hard-rule check and all coverage/target counting; rendered with a
-dashed outline everywhere so it never reads as a real body.
+actually be). Excluded from every hard-rule check and all coverage/target counting.
 
 Migrations applied to the live database, full TypeScript typecheck clean, and `test:cloud` +
 `test:fixtures` + `test:rls` all green (including new Gate E (edit) assertions for the note

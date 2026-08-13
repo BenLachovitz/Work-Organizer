@@ -315,12 +315,7 @@ export function RosterEditor({
                         {rows.map((d) => (
                           <span
                             key={d.key}
-                            className={cn(
-                              'flex items-center justify-center gap-1 rounded px-1.5 py-1 text-[11px] font-semibold text-white',
-                              // A placeholder is not a real body -- a dashed
-                              // outline keeps it from reading as one at a glance.
-                              d.guard_id == null && 'outline outline-dashed outline-1 outline-white/70',
-                            )}
+                            className="flex items-center justify-center gap-1 rounded px-1.5 py-1 text-[11px] font-semibold text-white"
                             style={{ backgroundColor: SHIFTS[d.shift].colorVar }}
                           >
                             {d.noteBefore && (

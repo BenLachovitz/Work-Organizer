@@ -160,8 +160,6 @@ function roundRect(
 interface CellNotes {
   notePrefix?: string;
   noteSuffix?: string;
-  /** True when this is a placeholder (§12.9): a note-only chip with no real guard behind it. */
-  placeholder?: boolean;
 }
 
 /** One drawable line inside a cell: a single chip, an empty slot, or a two-name handover. */
@@ -200,7 +198,6 @@ function rowsFor(
       suffix: a.shift === 'day12' ? 'עד 18:45' : undefined,
       notePrefix: a.note_before ?? undefined,
       noteSuffix: a.note_after ?? undefined,
-      placeholder: a.guard_id == null,
     }));
     if (rows.length > 0) {
       // A placeholder (§12.9) renders as an extra chip but is not a real
@@ -220,7 +217,6 @@ function rowsFor(
       suffix: a.shift === 'night12' ? 'מ 18:45' : undefined,
       notePrefix: a.note_before ?? undefined,
       noteSuffix: a.note_after ?? undefined,
-      placeholder: a.guard_id == null,
     }));
     if (rows.length > 0) {
       const realCount = dayRows.filter((a) => a.guard_id != null).length;
@@ -236,7 +232,6 @@ function rowsFor(
     name: nameOf(a.guard_id),
     notePrefix: a.note_before ?? undefined,
     noteSuffix: a.note_after ?? undefined,
-    placeholder: a.guard_id == null,
   }));
 
   const early = day.filter((a) => a.shift === 'day12');
@@ -250,7 +245,6 @@ function rowsFor(
             name: nameOf(early[i]!.guard_id),
             notePrefix: early[i]!.note_before ?? undefined,
             noteSuffix: early[i]!.note_after ?? undefined,
-            placeholder: early[i]!.guard_id == null,
           }
         : null,
       late: late[i]
@@ -259,7 +253,6 @@ function rowsFor(
             name: nameOf(late[i]!.guard_id),
             notePrefix: late[i]!.note_before ?? undefined,
             noteSuffix: late[i]!.note_after ?? undefined,
-            placeholder: late[i]!.guard_id == null,
           }
         : null,
     });
@@ -516,7 +509,6 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
             row.suffix,
             row.notePrefix,
             row.noteSuffix,
-            row.placeholder,
           );
         } else if (row.kind === 'gap') {
           drawGap(ctx, innerX, ry, innerW);
@@ -537,7 +529,6 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
               undefined,
               row.early.notePrefix,
               row.early.noteSuffix,
-              row.early.placeholder,
             );
           } else {
             drawGap(ctx, rightX, ry, half);
@@ -557,7 +548,6 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
               undefined,
               row.late.notePrefix,
               row.late.noteSuffix,
-              row.late.placeholder,
             );
           } else {
             drawGap(ctx, innerX, ry, half);
@@ -609,23 +599,10 @@ function drawChip(
   suffix?: string,
   notePrefix?: string,
   noteSuffix?: string,
-  placeholder?: boolean,
 ) {
   ctx.fillStyle = color;
   roundRect(ctx, x, y, w, CHIP_H, 7);
   ctx.fill();
-
-  // A placeholder (§12.9) is not a real body -- a dashed outline keeps it
-  // from reading as one at a glance, matching the on-screen chip.
-  if (placeholder) {
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3, 2]);
-    roundRect(ctx, x + 0.5, y + 0.5, w - 1, CHIP_H - 1, 7);
-    ctx.stroke();
-    ctx.restore();
-  }
 
   const cy = y + CHIP_H / 2;
   ctx.fillStyle = '#ffffff';

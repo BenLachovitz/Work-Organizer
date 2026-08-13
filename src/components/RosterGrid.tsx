@@ -105,10 +105,6 @@ function Chip({
         // A ring rather than a different colour: the colour already encodes the
         // shift type, and overloading it would cost more than it gains.
         mine && 'ring-2 ring-slate-900 ring-offset-1 dark:ring-slate-100 dark:ring-offset-slate-900',
-        // A placeholder (§12.9) is not a real body -- a dashed outline keeps
-        // it from reading as one at a glance, next to real chips in the same
-        // cell.
-        assignment.guard_id == null && 'outline outline-dashed outline-1 outline-white/70',
         className,
       )}
       style={{ backgroundColor: SHIFTS[assignment.shift].colorVar }}
