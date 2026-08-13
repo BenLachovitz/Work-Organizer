@@ -1,6 +1,6 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.11 (build steps A–S complete; live and in daily use; deployed to production)
+**Version:** 2.12 (build steps A–T complete; live and in daily use; deployed to production)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 13 August 2026
@@ -135,6 +135,12 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | 60  | **Free-text assignment notes** (`schedule_assignments.note_before`/`note_after`, migration 38, §12.9) — when manually editing a generated roster, the manager can attach short free text before and/or after a guard's name on one specific cell, e.g. "(מ-10:45)" for an early arrival or "(עד 14:00)" for an early departure, without reshaping the assignment into a different shift type. Rendered everywhere that cell is displayed — the manager's live-edit grid, the shared `RosterGrid` (manager and guard-facing alike), and the JPEG export — and never carried over when the week is regenerated | The segment model (§2.3) answers coverage, not logistics: a guard's real arrival/departure time occasionally differs from what their assigned shift implies, and forcing that into an extra split segment would distort coverage over something that isn't actually a coverage fact. Two independent fields, not one, because the annotation can sit on either side of the name (or both) depending on what it says — same solver-blind, manager-only status as `weekly_submissions.notes` (§3.6) |
 | 61  | **Placeholder (guard-less) assignment rows** (`schedule_assignments.guard_id` now nullable, migration 39, §12.9) — a manager can attach a note to a cell with no real guard behind it at all, e.g. "Yam is alone in the morning until 10:45, then Shely joins" as an annotation on the morning block itself, without a second, real assignment for Shely (who may already be genuinely assigned elsewhere that day). Excluded from every hard-rule check and from all coverage/target counting | Item 60's note only ever rides on a real assignment, which breaks for exactly this case: adding Shely a second time, for real, to say the same thing correctly triggers the one-shift-per-day rule as a genuine double-booking, because that is what it would be. A cell annotation with nobody behind it needed to be expressible as something other than a person — `NULL` is that, and both existing uniqueness constraints already treat it as never colliding with anything |
+
+### 1.13 Changes in Version 2.12
+
+| #   | Change                                                                                            | Rationale                                                                                                                     |
+| --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 62  | **Push notifications** (`push_subscriptions`/`notification_log`/`notification_secrets`, migrations 40–42, `send-notifications` Edge Function, §12.10) — a fixed weekly broadcast (Sunday 11:00 Israel time, everyone) announcing that week's submission deadline, plus two reminders (~24h and ~2h before the deadline) sent only to guards who haven't submitted yet. Delivered via Web Push through the service worker already installed for the PWA (§10.4), gated by a bell-icon toggle in the header and a one-time enable prompt on the guard home page | Push-only, by explicit decision — no SMS/email fallback for a guard who never installs the app. First use of `pg_cron`/`pg_net` in this project, since nothing before this ran on a clock — see §12.10 for why the scheduling design changed twice during implementation (two real hosted-Postgres permission walls, not preference) |
 
 ---
 
@@ -934,6 +940,44 @@ CREATE TABLE schedule_assignments (
 CREATE INDEX idx_prefs_week        ON weekly_wish_preferences (week_start, guard_id);
 CREATE INDEX idx_assign_run        ON schedule_assignments (run_id, target_date);
 CREATE INDEX idx_runs_week_pub     ON schedule_runs (week_start, is_published);
+
+-- 9. Push notifications (§12.10, migrations 40-42). One row per browser/device.
+CREATE TABLE push_subscriptions (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  guard_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  endpoint   TEXT NOT NULL UNIQUE,
+  p256dh     TEXT NOT NULL,
+  auth       TEXT NOT NULL,
+  user_agent TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 10. Audit trail AND idempotency ledger for every send attempt.
+CREATE TABLE notification_log (
+  id                 BIGSERIAL PRIMARY KEY,
+  notification_type  TEXT NOT NULL CHECK (notification_type IN ('broadcast','reminder_24h','reminder_2h')),
+  week_start         DATE REFERENCES roster_weeks(week_start) ON DELETE CASCADE,
+  guard_id           UUID REFERENCES profiles(id) ON DELETE CASCADE, -- NULL = whole-run skip
+  status             TEXT NOT NULL CHECK (status IN
+                        ('sent','skipped_already_sent','skipped_out_of_window',
+                         'skipped_no_subscription','skipped_no_open_week','failed')),
+  detail             TEXT,
+  intended_at        TIMESTAMPTZ,
+  sent_at            TIMESTAMPTZ,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX notification_log_sent_once
+  ON notification_log (notification_type, week_start, guard_id) WHERE status = 'sent';
+
+-- 11. Singleton config: the send-notifications URL + shared secret
+-- notification_tick() calls. RLS enabled, ZERO policies -- unreachable via
+-- PostgREST by any role; filled in with a plain UPDATE after migrating.
+CREATE TABLE notification_secrets (
+  id          BOOLEAN NOT NULL PRIMARY KEY DEFAULT TRUE CHECK (id),
+  notify_url  TEXT,
+  cron_secret TEXT
+);
 ```
 
 ---
@@ -1943,6 +1987,103 @@ adding a note (either or both fields) creates a placeholder row; the marked/carr
 hints, which are meaningless for a non-guard, are silently skipped for one rather than showing a
 false "לא סימן" warning.
 
+### 12.10 Push Notifications (migrations 40–42, `send-notifications`, v2.12)
+
+Two kinds of notification, delivered as real OS-level push through the service worker already
+installed for the PWA (§10.4): a **fixed weekly broadcast** (every Sunday 11:00 Asia/Jerusalem, to
+every active non-demo profile, regardless of submission status) announcing that week's actual
+submission deadline, and **two deadline-relative reminders** (~24h and ~2h before the open week's
+real deadline) sent only to guards who haven't submitted yet — `unsubmitted_targets()`, the same
+"no row in `weekly_submissions`" convention §3.4 already uses for "never submitted" vs. "submitted
+empty." Push-only by explicit decision: no SMS/email fallback for a guard who doesn't install the
+app. iOS only delivers Web Push to a PWA actually added to the home screen (Safari 16.4+) — an
+accepted limitation, not something this feature works around.
+
+**Storage** (migration 40): `push_subscriptions` (one row per browser/device, keyed by `endpoint`
+so a guard can hold several) and `notification_log` (an audit trail of every send *attempt* — sent
+or one of five distinct skip/failure reasons). A partial unique index,
+`(notification_type, week_start, guard_id) WHERE status = 'sent'`, is the idempotency primitive —
+`claim_notification_send()` optimistically inserts a `'sent'` row before the actual push call, so a
+duplicate trigger (see below) can never double-send. Two SQL functions, `broadcast_targets()` and
+`unsubmitted_targets(week_start)`, are the single source of truth for "who gets this," reused by
+both `send-notifications` and the test suite so targeting logic is defined exactly once. Neither
+filters on `role` — a manager is also a real, active guard who submits their own availability (§2.1,
+Ben is scheduled exactly like everyone else); an earlier draft of `unsubmitted_targets()` filtered
+to `role = 'guard'` and would have silently excluded him from his own reminders, caught in review
+before shipping and asserted explicitly in Gate G so it can't regress unnoticed.
+
+**Scheduling — the design changed twice while building this, both times because of a real hosted-
+Postgres permission wall, not a change of mind:**
+
+1. *Original design*: three separate weekly `cron.schedule()` entries (one per notification type),
+   each firing once, at a precomputed day/time — deliberately not a repeating poll. The two
+   reminders' times were meant to be *derived* from `scheduler_settings` by a Postgres function,
+   re-registered automatically by an `AFTER UPDATE` trigger whenever the window changed. This
+   required `ALTER DATABASE postgres SET cron.timezone = 'Asia/Jerusalem'` so pg_cron's hour/day
+   fields would evaluate in Israel wall-clock time. **Rejected by Supabase itself**:
+   `55P02: parameter "cron.timezone" cannot be changed without restarting the server` — a restart a
+   client cannot trigger.
+2. *Revised design (what's actually running)*: a single cron job, `notification_tick`, fires every
+   15 minutes (`*/15 * * * *` — a cadence, not a wall-clock time, so it needs no timezone setting at
+   all). Each tick is pure SQL, no HTTP call: it compares `NOW()` against absolute `TIMESTAMPTZ`
+   targets — `broadcast_due()` computes "the nearest Sunday 11:00 Israel time" using the same
+   `AT TIME ZONE 'Asia/Jerusalem'` idiom `deadline_for_week()` already uses (migration 22, correctly
+   DST-aware), and the two reminders compare against the *open week's real, already-stored*
+   `submission_deadline` minus 24h/2h via `reminder_due()`'s ±20-minute tolerance window (migration
+   40). Only on the rare tick where something is actually due does it call `net.http_post` — the one
+   thing that costs an Edge Function invocation, still only a handful of real calls per week, not
+   96/day. This also means a `scheduler_settings` change needs no special handling at all anymore:
+   the tick always reads the *live* deadline, so there is nothing to precompute or go stale — a
+   genuine simplification, not just a workaround.
+3. *Secrets*: the URL and shared secret `notification_tick()` needs to call `send-notifications`
+   were originally meant to be two `ALTER DATABASE ... SET app.settings.*` GUCs (mirroring how every
+   other secret in this project is set manually, never committed). **Also rejected**:
+   `42501: permission denied to set parameter "app.settings.notify_url"` — the Management API role
+   (used for every migration and test in this project) isn't allowed to alter database-level config
+   here either. Replaced with an ordinary table, `notification_secrets` (migration 42): RLS enabled
+   with **zero policies** at all, so `authenticated`/`anon` get no access whatsoever via PostgREST —
+   filled in with a plain `UPDATE`, which only needs standard DML privileges the API role already
+   has (proven by every other migration and test in this project).
+
+**Gate A (local/PGlite) compatibility**: `pg_cron` requires a background-worker process PGlite — a
+single-process WASM Postgres — can never provide. Rather than let this break Gate A's guarantee that
+every migration applies cleanly from disk (`rls.test.mjs`'s own stated principle: migrations are
+*discovered*, not listed, specifically so nothing after a given point silently stops being tested),
+migration 41 wraps its extension creation and cron registration in `DO` blocks that catch the
+failure and log a `NOTICE` instead of erroring — on a real Supabase project (which has both
+extensions) it behaves identically to a bare statement; on PGlite it leaves `notification_tick()`
+defined but unscheduled, and every migration after it still applies and is still tested.
+
+**`send-notifications`** (`supabase/functions/send-notifications/index.ts`): deployed
+`--no-verify-jwt` — no browser ever calls this, only `pg_net` — authorized instead by an
+`x-cron-secret` header compared against the `CRON_SHARED_SECRET` Edge Function secret. Finds the
+target week with `ORDER BY week_start ASC LIMIT 1`, deliberately not `.maybeSingle()`: "exactly one
+open week" is a design intent (§2.4a), not a DB-enforced invariant — a manager's manual status
+override can leave two weeks open at once, and the earlier query shape would have thrown rather than
+picking the soonest-closing one (also caught in review, also asserted explicitly in Gate G). Sends
+via `npm:web-push` (confirmed working in Supabase's Deno runtime by a standalone smoke test before
+the real function was written); a 404/410 response means the subscription is dead and is pruned from
+`push_subscriptions` immediately. VAPID key pair generated once via `web-push generate-vapid-keys`;
+the private half and `CRON_SHARED_SECRET` live only as Edge Function secrets, the public half ships
+as `VITE_VAPID_PUBLIC_KEY` (safe for the browser, needed by `PushManager.subscribe()`) — same
+never-in-git discipline as `SOLVER_SECRET` (§11.1).
+
+**Frontend**: `src/lib/push.ts` (subscribe/unsubscribe, upserting into `push_subscriptions` via
+ordinary RLS-governed writes — a single-table write, no RPC needed) and `useNotifications` (hook
+wrapping `Notification.permission` + subscription state) back a bell-icon toggle in `AppShell`'s
+header (visible to everyone signed in, since the broadcast reaches managers too) and a one-time,
+dismissible enable-prompt card on `GuardHome` — that page, not somewhere more general, because it's
+where a guard actually is around deadline time, the same reasoning §10.4 gives for the PWA install
+nudge's placement.
+
+**Testing**: Gate G (`supabase/tests/notifications.cloud.test.mjs`) exercises the SQL primitives
+directly — RLS on `push_subscriptions`, both targeting functions (explicitly asserting the
+`role`-filter fix), the tolerance window, `claim_notification_send()` idempotency, and the two-open-
+weeks robustness fix — deliberately without invoking the real Edge Function, which would push real
+notifications to Ben's phone on every test run. The push-send path itself (VAPID signing, actual
+on-device delivery) needs a manual, on-device check — the same open-ended status as §10.4's still-
+pending real-device PWA install check.
+
 ---
 
 ## 13. OPEN ITEMS
@@ -1987,10 +2128,11 @@ false "לא סימן" warning.
 | **Q**     | PWA support (§10.4): web app manifest, minimal no-cache service worker, full icon set generated from supplied artwork, `vercel.json` static-asset headers; `GitVersion.yml` introduced for version tracking / rollback (repo root, kept in step with `package.json`'s `version` and a `vX.Y.Z` git tag per release) | ✅ complete; real-device Android/iOS install check pending Ben |
 | **R**     | Per-day secondary segment target override (§2.4c, migration 37): generalizes Step P's morning-only per-day override to S2/S3/S4, any day of the week, lowered to 1; new floor-pinning rule (`min(1, target)`) so an overridden target of 1 is never misreported as a floor breach | ✅ complete                      |
 | **S**     | Free-text assignment notes (§12.9, migrations 38–39): a manager annotation before and/or after a guard's name on one manually-edited cell, threaded through `RosterEditor`, `RosterGrid`, and the JPEG export; solver-blind, manual-edit only. Migration 39 adds placeholder (guard-less) rows for a note that isn't about any one guard's own shift, excluded from every hard-rule check and all coverage counting | ✅ complete                      |
+| **T**     | Push notifications (§12.10, migrations 40–42): a fixed weekly broadcast plus two deadline-relative reminders, delivered via Web Push through the PWA's service worker; `send-notifications` Edge Function, first use of `pg_cron`/`pg_net` in this project | ✅ complete; real-device push delivery check pending Ben |
 
 ### 14.2 Verification
 
-Eleven suites, all green. Every gate runs against the live project except the PGlite one. (Gate E
+Twelve suites, all green. Every gate runs against the live project except the PGlite one. (Gate E
 engines now run 16 golden fixtures, not 8 — two added in v2.4: a segment-weight tie-break and a
 preference tie-break, both empirically constructed and verified against a hand-patched "flat
 weighting" baseline to confirm the tie they test was real before asserting the fix resolves it.
@@ -2019,6 +2161,13 @@ sweep-window boundary (`current_week_start() + 28`) as of August 2026, so real p
 calling `ensure_roster_weeks()` mid-test-run can sweep the test's own fixture row. Self-resolving
 once the calendar moves the boundary past mid-September 2026; not a regression if seen before then.
 
+Gate A (local) has its own known, permanent caveat since migration 41 (v2.12, §12.10): `pg_cron`
+requires a background-worker process PGlite's single-process WASM Postgres can never provide.
+Migration 41 wraps its extension creation and cron registration in `DO` blocks that catch that
+specific failure and log a `NOTICE` instead of erroring, so every migration still applies cleanly
+there and Gate A still tests everything else — it just never actually registers the cron job
+locally, which is expected, not a regression.
+
 | Suite             | Command                                                   | Covers                                                                          |
 | ----------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | Gate A (local)    | `npm run test:rls`                                        | RLS logic in PGlite, all migrations applied from disk                           |
@@ -2031,10 +2180,11 @@ once the calendar moves the boundary past mid-September 2026; not a regression i
 | Gate E (engines)  | `npm run test:fixtures`, `solver/tests/test_scheduler.py` | 16 golden fixtures, both engines                                                |
 | Gate E (edit)     | `npm run test:edit`                                       | Draft and published-roster editing, deletion, assignment-note round-trip and length cap, placeholder rows coexisting with real ones without collision (§12.9) |
 | Gate F (realtime) | `npm run test:realtime`                                   | Live push both directions: roster changes to guards, submissions to the manager |
+| Gate G            | `npm run test:notifications`                              | push_subscriptions RLS, targeting functions (incl. the role-filter fix), tolerance window, send idempotency, two-open-weeks robustness (§12.10) |
 
 `npm run test:cloud` chains every cloud suite in this table (rls → auth → client → preferences →
-manager → generate → edit → realtime) and stops at the first failure. `npm run test:compare` asserts
-CP-SAT never scores below the mock.
+manager → generate → edit → realtime → notifications) and stops at the first failure. `npm run
+test:compare` asserts CP-SAT never scores below the mock.
 
 ### 14.3 What is left
 
@@ -2054,6 +2204,15 @@ development machine — manifest validity and content-type, service worker regis
 actual install experience on a real phone (Chrome's own mobile-emulation toolbar only resizes the
 viewport; it doesn't reproduce a native install banner or real home-screen icon rendering), so this
 stays open until Ben checks it on his own devices.
+
+**v2.12's push notifications (§12.10) have the same shape of open item**: real on-device delivery.
+Everything checkable from this development machine has been — `pg_cron`/`pg_net` enabled, the tick
+firing correctly (verified via a manual invocation), `send-notifications` deployed and its auth/
+targeting/logging path exercised end-to-end (auth rejection, "no open week" correctly logged), and
+`npm:web-push` confirmed to actually run in Supabase's Deno runtime via a standalone smoke test.
+What cannot be verified here is a real push notification arriving on a real installed PWA — that
+needs Ben to enable notifications from his own phone and either wait for the next real trigger or
+invoke `send-notifications` directly to test faster.
 
 One thread from v2.4 is now effectively resolved rather than deferred, and one demo-data note still
 stands:

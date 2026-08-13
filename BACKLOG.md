@@ -1,8 +1,8 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.11** — §14 there is the
-build status and roadmap, §1.12 is the changelog for everything since v2.9. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.12** — §14 there is the
+build status and roadmap, §1.13 is the changelog for everything since v2.9. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
@@ -39,9 +39,9 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–S complete, live and in daily use
+## State: build steps A–T complete, live and in daily use
 
-Full list in spec §14.1; changelog for every step is spec §1.1–§1.12. Step P (11 August) — per-day
+Full list in spec §14.1; changelog for every step is spec §1.1–§1.13. Step P (11 August) — per-day
 morning target override, a morning-priority coverage weight, the roster view stacking every
 published week instead of a selector, and an admin real/test view-mode toggle — is shipped, merged
 to `main`, and deployed, alongside a live production bug fix found while testing it (see below).
@@ -87,14 +87,45 @@ manual test, on the branch) was dropped in a follow-up commit — it now renders
 chip, coloured by its shift, with the note text alone carrying the meaning. Shipped, merged to
 `main` (`feature/assignment-cell-notes`), and deployed.
 
+Step T (13 August) — **push notifications** (spec §12.10, migrations 40–42, `send-notifications`
+Edge Function): a fixed weekly broadcast (Sunday 11:00 Israel time, everyone) announcing that
+week's real submission deadline, plus two reminders (~24h and ~2h before the deadline) sent only to
+guards who haven't submitted yet. Push-only, by explicit decision — no fallback for a guard who
+never installs the app. First use of `pg_cron`/`pg_net` in this project, and the scheduling design
+changed twice mid-build, both times because of a real Supabase permission wall rather than a change
+of mind (full account in spec §12.10): `ALTER DATABASE ... SET cron.timezone` is rejected outright
+on hosted Postgres (`55P02`, needs a restart no client can trigger), so the three-precomputed-
+weekly-cron-times design became one 15-minute tick doing pure `TIMESTAMPTZ` comparisons instead —
+and `ALTER DATABASE ... SET app.settings.*` for secrets is *also* rejected (`42501`, permission
+denied), so those moved from GUCs to an ordinary table with zero RLS policies at all. Worked around
+a third platform gap too: `pg_cron` can never run inside Gate A's local PGlite (no background-worker
+support, permanent) — migration 41 catches that specific failure in a `DO` block and logs a
+`NOTICE` instead of erroring, so every migration after it still applies locally and Gate A keeps
+testing them, matching this project's stated principle that migrations are discovered, never
+skipped. Two real bugs caught in review before shipping, both asserted explicitly in the new Gate G:
+an early draft of `unsubmitted_targets()` filtered to `role = 'guard'`, which would have silently
+excluded Ben from his own reminders (he's a manager *and* an active guard, spec §2.1); and the
+"find the open week" query used `.maybeSingle()`, which would throw rather than degrade if a
+manager's manual override ever left two weeks open at once. `npm:web-push` confirmed to actually
+run in Supabase's Deno Edge Function runtime via a standalone smoke test before the real function
+was written. VAPID keys generated once locally; secrets deployed via the Supabase CLI
+(`SUPABASE_ACCESS_TOKEN` already authenticates it non-interactively — no dashboard clicking needed).
+Migrations applied to the live database, full TypeScript typecheck clean, and `test:cloud` +
+`test:rls` + `test:fixtures` all green (12 suites now, Gate G new). Shipped, merged, deployed
+directly to `main` — Ben's explicit call for this feature, to keep mobile testing simple, backstopped
+by the same GitVersion tag discipline for rollback. **One thing still open**: real on-device push
+delivery — Ben needs to enable notifications from his own phone and trigger a send to confirm it
+actually arrives; everything else has been verified from this dev machine (see spec §14.3).
+
 Nothing else mid-flight, no open branches.
 
 **Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
 different underlying mechanism.
 
-**Eleven test suites, mostly green** (`npm run test:cloud` + `test:fixtures` + `test_scheduler.py` +
+**Twelve test suites, mostly green** (`npm run test:cloud` + `test:fixtures` + `test_scheduler.py` +
 `test:compare` — spec §14.2). Gate E's engine fixtures grew from 8 to 13 in step L/O, then to 15 in
-step P. **Gate D has a known, pre-existing, date-driven flake** — spec §14.2 has the full mechanics;
+step P. Gate G (`test:notifications`, step T) is the newest addition. **Gate D has a known,
+pre-existing, date-driven flake** — spec §14.2 has the full mechanics;
 short version: its dedicated test week (`2026-09-06`) now sits exactly on `ensure_roster_weeks()`'s
 sweep-window boundary, so real production traffic mid-test-run can sweep the test's own fixture row.
 Not a regression, self-resolves as the calendar moves past mid-September 2026; deliberately left
@@ -113,12 +144,17 @@ open. Confirmed live against the production project (roughly one `ensure_roster_
 ## What is left
 
 Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
-deliberately deferred design choice, not a build gap. Three things still open, not build gaps:
+deliberately deferred design choice, not a build gap. Four things still open, not build gaps:
 
 - **PWA real-device install check** (Step Q, spec §10.4) — everything checkable from a dev machine
   (manifest, service worker activation, icon resolution, `vercel.json` static-asset headers) is
   verified against both `vite preview` and production. Actually adding the app to a home screen on a
   physical Android phone and a physical iPhone still needs Ben to do it himself.
+- **Push notification on-device delivery check** (Step T, spec §12.10/§14.3) — same shape as the PWA
+  item above: everything checkable from a dev machine (extensions enabled, the tick firing, the
+  Edge Function's auth/targeting/logging path, `npm:web-push` actually running in Deno) has been.
+  A real push arriving on Ben's own installed PWA still needs him to enable notifications and
+  trigger a send himself.
 - Whether `configured_kamut` itself should act as a soft *ceiling* for **every** guard (not just a
   floor) — surfaced once in v2.4 testing but the segment-weighting fix alone independently resolved
   the case that raised it, so never pursued as a general policy. A related, narrower question is now
@@ -172,16 +208,61 @@ not yet measured the same way — worth running the same before/after comparison
 
 ---
 
+## Checking notification history (Step T, spec §12.10)
+
+While testing push notifications, run this in the Supabase SQL editor (Dashboard → project
+`atojvgyxqdbmhhycdcsa` → SQL Editor) to see what fired, what was skipped, and why — most recent
+first:
+
+```sql
+SELECT
+  nl.notification_type,
+  COALESCE(p.display_name, CASE WHEN nl.guard_id IS NULL THEN 'כלל המערכת' ELSE '(מדריך מחוק)' END) AS target,
+  nl.week_start,
+  nl.intended_at AT TIME ZONE 'Asia/Jerusalem' AS intended_local,
+  nl.sent_at     AT TIME ZONE 'Asia/Jerusalem' AS sent_local,
+  nl.status,
+  nl.detail,
+  nl.created_at  AT TIME ZONE 'Asia/Jerusalem' AS logged_local
+FROM notification_log nl
+LEFT JOIN profiles p ON p.id = nl.guard_id
+ORDER BY nl.created_at DESC
+LIMIT 200;
+```
+
+To trigger a send immediately instead of waiting for the next real cron tick (fires every 15
+minutes) — useful for testing faster:
+
+```bash
+curl -X POST "https://atojvgyxqdbmhhycdcsa.supabase.co/functions/v1/send-notifications" \
+  -H "x-cron-secret: <the CRON_SHARED_SECRET value>" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"broadcast"}'   # or "reminder_24h" / "reminder_2h"
+```
+
+`status` values: `sent`, `skipped_already_sent` (idempotency did its job), `skipped_out_of_window`
+(a reminder fired outside its ±20-minute tolerance — check `intended_at` vs. now),
+`skipped_no_subscription` (the target guard hasn't enabled notifications), `skipped_no_open_week`
+(nothing is currently open for submissions), `failed` (every one of that guard's subscriptions
+rejected the push — often a stale subscription that's already been pruned by the time you look).
+
+---
+
 ## Live environment
 
 - Supabase project `atojvgyxqdbmhhycdcsa` (eu-central-1 / Frankfurt)
 - Credentials in `.env.local` — **gitignored**, never committed
 - ⚠️ Outbound Postgres ports (5432/6543) are **firewalled on this machine**. `DATABASE_URL` will not
   work; migrations go over HTTPS through the Supabase Management API via `npm run db:apply`.
-- Edge Functions `claim-code` and `generate-schedule` are deployed
+- Edge Functions `claim-code`, `generate-schedule`, and `send-notifications` are deployed
 - Solver live at `https://guard-solver.onrender.com`; `SOLVER_URL` and `SOLVER_SECRET` are set as
   Supabase Edge Function secrets
-- 36 migrations applied, tracked in a `schema_migrations` ledger
+- `pg_cron`/`pg_net` enabled (first use in this project, spec §12.10); one job, `notification_tick`,
+  fires every 15 minutes. `CRON_SHARED_SECRET`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and
+  `VAPID_SUBJECT` are set as Supabase Edge Function secrets; the matching `notify_url`/`cron_secret`
+  pair lives in the `notification_secrets` table (not a GUC — see spec §12.10 for why), set via a
+  plain `UPDATE`, not committed anywhere
+- 42 migrations applied, tracked in a `schema_migrations` ledger
 
 ### Current database contents
 
@@ -208,8 +289,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.11.0**
-(Step S, free-text assignment notes and placeholder rows), tagged `v2.11.0`.
+state that version describes), matching the spec's own version history. Currently at **2.12.0**
+(Step T, push notifications), tagged `v2.12.0`.
 
 ## Commands
 

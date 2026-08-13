@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
-import { Alert, Badge, ButtonLink, Card, Spinner, cn } from '@/components/ui';
+import { Alert, Badge, Button, ButtonLink, Card, Spinner, cn } from '@/components/ui';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveWeek } from '@/hooks/useWeeks';
 import { useGuardWeek, useVisibleRosters } from '@/hooks/useGuardPortal';
+import { useNotifications } from '@/hooks/useNotifications';
 import { useRosterRealtime } from '@/hooks/useRosterRealtime';
 import {
   HEBREW_DAYS,
@@ -62,6 +64,8 @@ export function GuardHome() {
             בוצע שינוי בסידור זה עתה. המשמרות שלך מעודכנות למטה.
           </Alert>
         )}
+
+        <NotificationPrompt guardId={profile?.id} />
 
         {/* ---------------- my shifts, one card per published week ---------------- */}
         {rostersLoading ? (
@@ -188,5 +192,50 @@ export function GuardHome() {
         </Card>
       </div>
     </AppShell>
+  );
+}
+
+const NOTIF_PROMPT_DISMISSED_KEY = 'notif-prompt-dismissed';
+
+/**
+ * One-time nudge to enable push notifications (spec 12.10) -- shown only
+ * while the browser has never been asked (Notification.permission ===
+ * 'default'). Dismissing it just hides the card; it doesn't deny permission,
+ * so the bell icon in the header (AppShell) stays available either way.
+ * GuardHome, not a more general spot, because this is where a guard actually
+ * is around deadline time -- the same reasoning §10.4 gives for putting the
+ * PWA install nudge where it is.
+ */
+function NotificationPrompt({ guardId }: { guardId: string | undefined }) {
+  const { supported, permission, busy, error, toggle } = useNotifications(guardId);
+  const [dismissed, setDismissed] = useState(
+    () => localStorage.getItem(NOTIF_PROMPT_DISMISSED_KEY) === '1',
+  );
+
+  if (!supported || permission !== 'default' || dismissed) return null;
+
+  const dismiss = () => {
+    localStorage.setItem(NOTIF_PROMPT_DISMISSED_KEY, '1');
+    setDismissed(true);
+  };
+
+  return (
+    <Card className="flex items-start gap-3">
+      <div className="min-w-0 flex-1">
+        <p className="font-bold text-slate-900 dark:text-slate-100">קבלת תזכורות</p>
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+          הפעל התראות כדי לקבל תזכורת לפני סגירת ההגשה לשבוע.
+        </p>
+        {error && <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{error}</p>}
+        <div className="mt-3 flex gap-2">
+          <Button size="sm" loading={busy} onClick={toggle}>
+            הפעלת התראות
+          </Button>
+          <Button size="sm" variant="secondary" onClick={dismiss}>
+            לא עכשיו
+          </Button>
+        </div>
+      </div>
+    </Card>
   );
 }
