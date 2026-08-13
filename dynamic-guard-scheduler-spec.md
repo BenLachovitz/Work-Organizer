@@ -1,6 +1,6 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.12 (build steps A–T complete; live and in daily use; deployed to production)
+**Version:** 2.13 (build steps A–U complete; live and in daily use; deployed to production)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 13 August 2026
@@ -141,6 +141,12 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | #   | Change                                                                                            | Rationale                                                                                                                     |
 | --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | 62  | **Push notifications** (`push_subscriptions`/`notification_log`/`notification_secrets`, migrations 40–42, `send-notifications` Edge Function, §12.10) — a fixed weekly broadcast (Sunday 11:00 Israel time, everyone) announcing that week's submission deadline, plus two reminders (~24h and ~2h before the deadline) sent only to guards who haven't submitted yet. Delivered via Web Push through the service worker already installed for the PWA (§10.4), gated by a bell-icon toggle in the header and a one-time enable prompt on the guard home page | Push-only, by explicit decision — no SMS/email fallback for a guard who never installs the app. First use of `pg_cron`/`pg_net` in this project, since nothing before this ran on a clock — see §12.10 for why the scheduling design changed twice during implementation (two real hosted-Postgres permission walls, not preference) |
+
+### 1.14 Changes in Version 2.13
+
+| #   | Change                                                                                            | Rationale                                                                                                                     |
+| --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 63  | **Notification click routing** (§12.10) — tapping any of the three push notifications now opens (or navigates an already-open tab to) `/preferences` directly, instead of just opening the app to whatever page it happened to be on | All three notification types exist to get a guard to submit their availability; landing anywhere else is one extra tap the notification was supposed to save. Carried in the push payload (`url`) rather than hardcoded in the service worker, so a future notification type pointing elsewhere needs no new client code |
 
 ---
 
@@ -2081,8 +2087,19 @@ directly — RLS on `push_subscriptions`, both targeting functions (explicitly a
 `role`-filter fix), the tolerance window, `claim_notification_send()` idempotency, and the two-open-
 weeks robustness fix — deliberately without invoking the real Edge Function, which would push real
 notifications to Ben's phone on every test run. The push-send path itself (VAPID signing, actual
-on-device delivery) needs a manual, on-device check — the same open-ended status as §10.4's still-
-pending real-device PWA install check.
+on-device delivery) was verified live instead: a throwaway, fully isolated test week (a Sunday far
+from any real week, so nothing real could be affected) was created with `status = 'open'`, and
+`send-notifications` was invoked directly (`curl`, bypassing `notification_tick`) for each type in
+turn. All three arrived on Ben's own installed PWA and were confirmed by him before this shipped.
+
+**Click routing (v2.13, item 63)**: the push payload carries a `url` field (`/preferences` for all
+three current types — every one of them exists to get a guard to submit, so every one should land
+there, not just wherever the app happened to be). `showNotification()` stores it in the
+notification's own `data`, and `notificationclick` reads it back: if a tab is already open it's
+navigated there via `WindowClient.navigate()` rather than just focused in place, and if none is
+open `clients.openWindow(url)` opens straight to it. Carried in the payload rather than hardcoded in
+the service worker so a future notification type (e.g. a roster-published push, which would
+sensibly point at the roster instead) needs no new client-side branch.
 
 ---
 
@@ -2128,7 +2145,8 @@ pending real-device PWA install check.
 | **Q**     | PWA support (§10.4): web app manifest, minimal no-cache service worker, full icon set generated from supplied artwork, `vercel.json` static-asset headers; `GitVersion.yml` introduced for version tracking / rollback (repo root, kept in step with `package.json`'s `version` and a `vX.Y.Z` git tag per release) | ✅ complete; real-device Android/iOS install check pending Ben |
 | **R**     | Per-day secondary segment target override (§2.4c, migration 37): generalizes Step P's morning-only per-day override to S2/S3/S4, any day of the week, lowered to 1; new floor-pinning rule (`min(1, target)`) so an overridden target of 1 is never misreported as a floor breach | ✅ complete                      |
 | **S**     | Free-text assignment notes (§12.9, migrations 38–39): a manager annotation before and/or after a guard's name on one manually-edited cell, threaded through `RosterEditor`, `RosterGrid`, and the JPEG export; solver-blind, manual-edit only. Migration 39 adds placeholder (guard-less) rows for a note that isn't about any one guard's own shift, excluded from every hard-rule check and all coverage counting | ✅ complete                      |
-| **T**     | Push notifications (§12.10, migrations 40–42): a fixed weekly broadcast plus two deadline-relative reminders, delivered via Web Push through the PWA's service worker; `send-notifications` Edge Function, first use of `pg_cron`/`pg_net` in this project | ✅ complete; real-device push delivery check pending Ben |
+| **T**     | Push notifications (§12.10, migrations 40–42): a fixed weekly broadcast plus two deadline-relative reminders, delivered via Web Push through the PWA's service worker; `send-notifications` Edge Function, first use of `pg_cron`/`pg_net` in this project | ✅ complete; real-device delivery confirmed by Ben |
+| **U**     | Notification click routing (§12.10, v2.13): tapping any push notification now opens or navigates straight to `/preferences`, carried in the push payload's `url` field rather than hardcoded in the service worker | ✅ complete; real-device click confirmation pending Ben |
 
 ### 14.2 Verification
 
@@ -2205,14 +2223,10 @@ actual install experience on a real phone (Chrome's own mobile-emulation toolbar
 viewport; it doesn't reproduce a native install banner or real home-screen icon rendering), so this
 stays open until Ben checks it on his own devices.
 
-**v2.12's push notifications (§12.10) have the same shape of open item**: real on-device delivery.
-Everything checkable from this development machine has been — `pg_cron`/`pg_net` enabled, the tick
-firing correctly (verified via a manual invocation), `send-notifications` deployed and its auth/
-targeting/logging path exercised end-to-end (auth rejection, "no open week" correctly logged), and
-`npm:web-push` confirmed to actually run in Supabase's Deno runtime via a standalone smoke test.
-What cannot be verified here is a real push notification arriving on a real installed PWA — that
-needs Ben to enable notifications from his own phone and either wait for the next real trigger or
-invoke `send-notifications` directly to test faster.
+**v2.12's push notifications (§12.10) — resolved, not open.** Real on-device delivery was the one
+thing that couldn't be checked from this development machine; it has since been confirmed live —
+`send-notifications` invoked directly for all three notification types against an isolated test
+week, all three arrived on Ben's own installed PWA, and he confirmed each one before this closed.
 
 One thread from v2.4 is now effectively resolved rather than deferred, and one demo-data note still
 stands:

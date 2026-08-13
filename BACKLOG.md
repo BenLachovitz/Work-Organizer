@@ -1,8 +1,8 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.12** — §14 there is the
-build status and roadmap, §1.13 is the changelog for everything since v2.9. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.13** — §14 there is the
+build status and roadmap, §1.14 is the changelog for everything since v2.9. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
@@ -39,9 +39,9 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–T complete, live and in daily use
+## State: build steps A–U complete, live and in daily use
 
-Full list in spec §14.1; changelog for every step is spec §1.1–§1.13. Step P (11 August) — per-day
+Full list in spec §14.1; changelog for every step is spec §1.1–§1.14. Step P (11 August) — per-day
 morning target override, a morning-priority coverage weight, the roster view stacking every
 published week instead of a selector, and an admin real/test view-mode toggle — is shipped, merged
 to `main`, and deployed, alongside a live production bug fix found while testing it (see below).
@@ -113,9 +113,17 @@ was written. VAPID keys generated once locally; secrets deployed via the Supabas
 Migrations applied to the live database, full TypeScript typecheck clean, and `test:cloud` +
 `test:rls` + `test:fixtures` all green (12 suites now, Gate G new). Shipped, merged, deployed
 directly to `main` — Ben's explicit call for this feature, to keep mobile testing simple, backstopped
-by the same GitVersion tag discipline for rollback. **One thing still open**: real on-device push
-delivery — Ben needs to enable notifications from his own phone and trigger a send to confirm it
-actually arrives; everything else has been verified from this dev machine (see spec §14.3).
+by the same GitVersion tag discipline for rollback. **Real on-device delivery confirmed the same
+day**: an isolated, throwaway test week was used to invoke `send-notifications` directly for both
+the broadcast and the `reminder_24h` type (bypassing the 15-minute tick to test immediately), and
+Ben confirmed both arrived on his own installed PWA. Nothing left open on this one.
+
+Step U (13 August) — **notification click routing**: tapping a push notification now opens (or
+navigates an already-open tab to) `/preferences` directly, instead of just opening the app to
+whatever page it happened to be on — all three notification types exist to get a guard to submit,
+so all three should land there. Carried in the push payload's `url` field, read by the service
+worker's `notificationclick` handler; not hardcoded, so a future notification type pointing
+elsewhere needs no new client code. `send-notifications` redeployed with the change.
 
 Nothing else mid-flight, no open branches.
 
@@ -150,11 +158,9 @@ deliberately deferred design choice, not a build gap. Four things still open, no
   (manifest, service worker activation, icon resolution, `vercel.json` static-asset headers) is
   verified against both `vite preview` and production. Actually adding the app to a home screen on a
   physical Android phone and a physical iPhone still needs Ben to do it himself.
-- **Push notification on-device delivery check** (Step T, spec §12.10/§14.3) — same shape as the PWA
-  item above: everything checkable from a dev machine (extensions enabled, the tick firing, the
-  Edge Function's auth/targeting/logging path, `npm:web-push` actually running in Deno) has been.
-  A real push arriving on Ben's own installed PWA still needs him to enable notifications and
-  trigger a send himself.
+- **Notification click routing confirmation** (Step U, spec §12.10) — the push-send path itself is
+  confirmed live (Step T), but tapping a notification and landing on `/preferences` specifically is
+  new with this step and hasn't been tapped on a real device yet.
 - Whether `configured_kamut` itself should act as a soft *ceiling* for **every** guard (not just a
   floor) — surfaced once in v2.4 testing but the segment-weighting fix alone independently resolved
   the case that raised it, so never pursued as a general policy. A related, narrower question is now
@@ -289,8 +295,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.12.0**
-(Step T, push notifications), tagged `v2.12.0`.
+state that version describes), matching the spec's own version history. Currently at **2.13.0**
+(Step U, notification click routing), tagged `v2.13.0`.
 
 ## Commands
 

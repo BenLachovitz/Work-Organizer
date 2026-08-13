@@ -10,10 +10,10 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.12.0: Step T,
-# push notifications (a fixed weekly broadcast plus two deadline-relative
-# reminders, delivered via Web Push), spec section 12.10.
-next-version: 2.12.0
+# version (see BACKLOG.md's Versioning section). Currently 2.13.0: Step U,
+# notification click routing -- tapping a push notification now opens or
+# navigates straight to /preferences, spec section 12.10.
+next-version: 2.13.0
 mode: Mainline
 branches:
   main:

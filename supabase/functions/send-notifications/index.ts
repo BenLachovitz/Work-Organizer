@@ -134,6 +134,9 @@ Deno.serve(async (req: Request) => {
     title = 'תזכורת: מועד הגשה מתקרב';
     bodyText = `נותרו כ-${hoursLeft} להגשת אילוצים לשבוע הקרוב`;
   }
+  // All three types exist to get a guard to submit, so all three click
+  // straight through to the submission form -- not just open the app.
+  const targetUrl = '/preferences';
 
   const { data: targets } = type === 'broadcast'
     ? await admin.rpc('broadcast_targets')
@@ -170,7 +173,7 @@ Deno.serve(async (req: Request) => {
       try {
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          JSON.stringify({ title, body: bodyText, tag: type }),
+          JSON.stringify({ title, body: bodyText, tag: type, url: targetUrl }),
           { TTL: 3600 },
         );
         delivered = true;
