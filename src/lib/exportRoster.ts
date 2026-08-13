@@ -160,6 +160,8 @@ function roundRect(
 interface CellNotes {
   notePrefix?: string;
   noteSuffix?: string;
+  /** True when this is a placeholder (§12.9): a note-only chip with no real guard behind it. */
+  placeholder?: boolean;
 }
 
 /** One drawable line inside a cell: a single chip, an empty slot, or a two-name handover. */
@@ -186,51 +188,56 @@ type Row =
 function rowsFor(
   block: 'morning' | 'afternoon' | 'night',
   day: ScheduleAssignment[],
-  nameOf: (id: string) => string,
+  nameOf: (id: string | null) => string,
   target = 0,
 ): Row[] {
   if (block === 'morning') {
-    const rows: Row[] = day
-      .filter((a) => a.shift === 'morning' || a.shift === 'day12')
-      .map((a) => ({
-        kind: 'chip' as const,
-        shift: a.shift,
-        name: nameOf(a.guard_id),
-        suffix: a.shift === 'day12' ? 'עד 18:45' : undefined,
-        notePrefix: a.note_before ?? undefined,
-        noteSuffix: a.note_after ?? undefined,
-      }));
+    const dayRows = day.filter((a) => a.shift === 'morning' || a.shift === 'day12');
+    const rows: Row[] = dayRows.map((a) => ({
+      kind: 'chip' as const,
+      shift: a.shift,
+      name: nameOf(a.guard_id),
+      suffix: a.shift === 'day12' ? 'עד 18:45' : undefined,
+      notePrefix: a.note_before ?? undefined,
+      noteSuffix: a.note_after ?? undefined,
+      placeholder: a.guard_id == null,
+    }));
     if (rows.length > 0) {
-      for (let i = rows.length; i < target; i++) rows.push({ kind: 'gap' });
+      // A placeholder (§12.9) renders as an extra chip but is not a real
+      // body -- padding is driven by the REAL count, or a cosmetic note
+      // could hide a genuine shortfall.
+      const realCount = dayRows.filter((a) => a.guard_id != null).length;
+      for (let i = realCount; i < target; i++) rows.push({ kind: 'gap' });
     }
     return rows;
   }
   if (block === 'night') {
-    const rows: Row[] = day
-      .filter((a) => a.shift === 'night' || a.shift === 'night12')
-      .map((a) => ({
-        kind: 'chip' as const,
-        shift: a.shift,
-        name: nameOf(a.guard_id),
-        suffix: a.shift === 'night12' ? 'מ 18:45' : undefined,
-        notePrefix: a.note_before ?? undefined,
-        noteSuffix: a.note_after ?? undefined,
-      }));
+    const dayRows = day.filter((a) => a.shift === 'night' || a.shift === 'night12');
+    const rows: Row[] = dayRows.map((a) => ({
+      kind: 'chip' as const,
+      shift: a.shift,
+      name: nameOf(a.guard_id),
+      suffix: a.shift === 'night12' ? 'מ 18:45' : undefined,
+      notePrefix: a.note_before ?? undefined,
+      noteSuffix: a.note_after ?? undefined,
+      placeholder: a.guard_id == null,
+    }));
     if (rows.length > 0) {
-      for (let i = rows.length; i < target; i++) rows.push({ kind: 'gap' });
+      const realCount = dayRows.filter((a) => a.guard_id != null).length;
+      for (let i = realCount; i < target; i++) rows.push({ kind: 'gap' });
     }
     return rows;
   }
 
-  const rows: Row[] = day
-    .filter((a) => a.shift === 'afternoon')
-    .map((a) => ({
-      kind: 'chip' as const,
-      shift: a.shift,
-      name: nameOf(a.guard_id),
-      notePrefix: a.note_before ?? undefined,
-      noteSuffix: a.note_after ?? undefined,
-    }));
+  const fullAssignments = day.filter((a) => a.shift === 'afternoon');
+  const rows: Row[] = fullAssignments.map((a) => ({
+    kind: 'chip' as const,
+    shift: a.shift,
+    name: nameOf(a.guard_id),
+    notePrefix: a.note_before ?? undefined,
+    noteSuffix: a.note_after ?? undefined,
+    placeholder: a.guard_id == null,
+  }));
 
   const early = day.filter((a) => a.shift === 'day12');
   const late = day.filter((a) => a.shift === 'night12');
@@ -243,6 +250,7 @@ function rowsFor(
             name: nameOf(early[i]!.guard_id),
             notePrefix: early[i]!.note_before ?? undefined,
             noteSuffix: early[i]!.note_after ?? undefined,
+            placeholder: early[i]!.guard_id == null,
           }
         : null,
       late: late[i]
@@ -251,6 +259,7 @@ function rowsFor(
             name: nameOf(late[i]!.guard_id),
             notePrefix: late[i]!.note_before ?? undefined,
             noteSuffix: late[i]!.note_after ?? undefined,
+            placeholder: late[i]!.guard_id == null,
           }
         : null,
     });
@@ -261,7 +270,15 @@ function rowsFor(
   // rather than a plain shift. A block with nobody at all stays "ריק",
   // drawn by the caller when rows.length === 0 (checked before any padding).
   if (rows.length > 0) {
-    for (let i = rows.length; i < target; i++) rows.push({ kind: 'gap' });
+    // Same real-vs-rendered split as morning/night, generalised to the
+    // handover pairing: a pair counts as real if either half is real.
+    const realFull = fullAssignments.filter((a) => a.guard_id != null).length;
+    let realPairs = 0;
+    for (let i = 0; i < Math.max(early.length, late.length); i++) {
+      if (early[i]?.guard_id != null || late[i]?.guard_id != null) realPairs++;
+    }
+    const realRows = realFull + realPairs;
+    for (let i = realRows; i < target; i++) rows.push({ kind: 'gap' });
   }
   return rows;
 }
@@ -298,7 +315,9 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
     input;
   const dates = weekDates(weekStart);
   const colors = shiftColors();
-  const nameOf = (id: string) => guards.find((g) => g.id === id)?.display_name ?? '—';
+  // A placeholder (id === null) has no name at all -- '' lets the note text
+  // carry the whole chip, distinct from '—', which flags a real data problem.
+  const nameOf = (id: string | null) => (id ? (guards.find((g) => g.id === id)?.display_name ?? '—') : '');
 
   const measurer = document.createElement('canvas').getContext('2d');
   if (!measurer) throw new Error('לא ניתן ליצור תמונה בדפדפן הזה.');
@@ -339,11 +358,13 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
   const chipW = (name: string, suffix?: string, notePrefix?: string, noteSuffix?: string) => {
     const parts: { text: string; font: string }[] = [];
     if (notePrefix) parts.push({ text: notePrefix, font: SUFFIX_FONT });
-    parts.push({ text: name, font: NAME_FONT });
+    // A placeholder (§12.9) has no name -- nameOf() returns '' for it, and an
+    // empty part would still cost a gap on either side for nothing.
+    if (name) parts.push({ text: name, font: NAME_FONT });
     if (noteSuffix) parts.push({ text: noteSuffix, font: SUFFIX_FONT });
     if (suffix) parts.push({ text: suffix, font: SUFFIX_FONT });
     const textWidth = parts.reduce((sum, p) => sum + textW(p.text, p.font), 0);
-    return textWidth + (parts.length - 1) * NAME_SUFFIX_GAP + CHIP_PAD_X * 2;
+    return textWidth + Math.max(0, parts.length - 1) * NAME_SUFFIX_GAP + CHIP_PAD_X * 2;
   };
 
   let colWidth = MIN_COL;
@@ -454,9 +475,10 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
       const w = colWidth - 6;
 
       // Coverage tint, same thresholds the grid uses: red below the floor,
-      // amber below target, green otherwise.
+      // amber below target, green otherwise. A placeholder (§12.9) is not a
+      // real body and must never count toward it.
       const covers = (seg: Segment) =>
-        day.filter((a) => SHIFTS[a.shift].covers.includes(seg)).length;
+        day.filter((a) => a.guard_id && SHIFTS[a.shift].covers.includes(seg)).length;
       const floors = segmentFloors(morningTarget, di, morningTargetOverrides, segmentTargetOverrides);
       const targets = segmentTargets(morningTarget, di, morningTargetOverrides, segmentTargetOverrides);
       const below = block.segs.some((s) => covers(s) < floors[s]);
@@ -494,6 +516,7 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
             row.suffix,
             row.notePrefix,
             row.noteSuffix,
+            row.placeholder,
           );
         } else if (row.kind === 'gap') {
           drawGap(ctx, innerX, ry, innerW);
@@ -514,6 +537,7 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
               undefined,
               row.early.notePrefix,
               row.early.noteSuffix,
+              row.early.placeholder,
             );
           } else {
             drawGap(ctx, rightX, ry, half);
@@ -533,6 +557,7 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
               undefined,
               row.late.notePrefix,
               row.late.noteSuffix,
+              row.late.placeholder,
             );
           } else {
             drawGap(ctx, innerX, ry, half);
@@ -584,21 +609,36 @@ function drawChip(
   suffix?: string,
   notePrefix?: string,
   noteSuffix?: string,
+  placeholder?: boolean,
 ) {
   ctx.fillStyle = color;
   roundRect(ctx, x, y, w, CHIP_H, 7);
   ctx.fill();
+
+  // A placeholder (§12.9) is not a real body -- a dashed outline keeps it
+  // from reading as one at a glance, matching the on-screen chip.
+  if (placeholder) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 2]);
+    roundRect(ctx, x + 0.5, y + 0.5, w - 1, CHIP_H - 1, 7);
+    ctx.stroke();
+    ctx.restore();
+  }
 
   const cy = y + CHIP_H / 2;
   ctx.fillStyle = '#ffffff';
 
   const parts: { text: string; font: string; muted?: boolean }[] = [];
   if (notePrefix) parts.push({ text: notePrefix, font: SUFFIX_FONT, muted: true });
-  parts.push({ text: name, font: NAME_FONT });
+  // A placeholder has no name -- nameOf() returns '' for it, and an empty
+  // part would still cost a gap on either side for nothing.
+  if (name) parts.push({ text: name, font: NAME_FONT });
   if (noteSuffix) parts.push({ text: noteSuffix, font: SUFFIX_FONT, muted: true });
   if (suffix) parts.push({ text: suffix, font: SUFFIX_FONT, muted: true });
 
-  if (parts.length === 1) {
+  if (parts.length === 1 && parts[0]!.text === name) {
     ctx.textAlign = 'center';
     ctx.font = NAME_FONT;
     ctx.fillText(name, x + w / 2, cy, w - CHIP_PAD_X);
@@ -609,7 +649,7 @@ function drawChip(
     ctx.font = p.font;
     return ctx.measureText(p.text).width;
   });
-  const totalW = widths.reduce((a, b) => a + b, 0) + (parts.length - 1) * NAME_SUFFIX_GAP;
+  const totalW = widths.reduce((a, b) => a + b, 0) + Math.max(0, parts.length - 1) * NAME_SUFFIX_GAP;
   let right = x + w / 2 + totalW / 2;
 
   ctx.textAlign = 'right';

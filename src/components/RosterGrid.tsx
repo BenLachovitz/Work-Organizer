@@ -63,12 +63,23 @@ export function buildAfternoonRows(
     rows.push({ early: early[i] ?? null, late: late[i] ?? null, full: null });
   }
 
+  // A placeholder (guard_id === null) renders as an extra row but is not a
+  // real body -- it must never count against the target, or a cosmetic note
+  // could silently hide a real coverage gap underneath it. So padding is
+  // driven by how many REAL rows exist, not by rows.length.
+  const realFull = full.filter((a) => a.guard_id != null).length;
+  let realPairs = 0;
+  for (let i = 0; i < pairs; i++) {
+    if (early[i]?.guard_id != null || late[i]?.guard_id != null) realPairs++;
+  }
+  const realRows = realFull + realPairs;
+
   // Early (S2) and late (S3) can now carry independent per-day targets, so
   // pad up to whichever side demands more rows -- the same "at least N rows,
   // a Chip where a real assignment exists, a Gap elsewhere" contract as
   // before, just driven by two targets instead of one shared one.
   const slots = Math.max(earlySlots, lateSlots);
-  while (rows.length < slots) rows.push({ early: null, late: null, full: null });
+  for (let i = realRows; i < slots; i++) rows.push({ early: null, late: null, full: null });
   return rows;
 }
 
@@ -94,6 +105,10 @@ function Chip({
         // A ring rather than a different colour: the colour already encodes the
         // shift type, and overloading it would cost more than it gains.
         mine && 'ring-2 ring-slate-900 ring-offset-1 dark:ring-slate-100 dark:ring-offset-slate-900',
+        // A placeholder (§12.9) is not a real body -- a dashed outline keeps
+        // it from reading as one at a glance, next to real chips in the same
+        // cell.
+        assignment.guard_id == null && 'outline outline-dashed outline-1 outline-white/70',
         className,
       )}
       style={{ backgroundColor: SHIFTS[assignment.shift].colorVar }}
@@ -108,7 +123,7 @@ function Chip({
           {assignment.note_before}
         </span>
       )}
-      <span className="truncate">{name}</span>
+      {name && <span className="truncate">{name}</span>}
       {assignment.note_after && (
         <span className="shrink-0 text-[9px] font-normal opacity-90">{assignment.note_after}</span>
       )}
@@ -145,7 +160,10 @@ export function RosterGrid({
   title?: string;
 }) {
   const dates = weekDates(weekStart);
-  const nameOf = (id: string) => guards.find((g) => g.id === id)?.display_name ?? '—';
+  // A placeholder (id === null) has no name at all -- '' lets the note text
+  // carry the whole chip, distinct from '—', which flags a real data problem
+  // (an id that doesn't match any known guard).
+  const nameOf = (id: string | null) => (id ? (guards.find((g) => g.id === id)?.display_name ?? '—') : '');
 
   // Text measured with the web font still loading comes back too narrow, so
   // re-measure once it is ready. Without this the first paint sets a width
@@ -168,9 +186,10 @@ export function RosterGrid({
 
   const onDay = (date: DateKey) => assignments.filter((a) => a.target_date === date);
 
-  /** Coverage of one segment on one day, for the shortfall colouring. */
+  /** Coverage of one segment on one day, for the shortfall colouring. A
+   *  placeholder (§12.9) is not a real body and must never count toward it. */
   const covers = (date: DateKey, seg: Segment) =>
-    onDay(date).filter((a) => SHIFTS[a.shift].covers.includes(seg)).length;
+    onDay(date).filter((a) => a.guard_id && SHIFTS[a.shift].covers.includes(seg)).length;
 
   const cellTone = (date: DateKey, dayIndex: number, segs: Segment[]) => {
     const floors = segmentFloors(
@@ -281,6 +300,10 @@ export function RosterGrid({
                       morningTargetOverrides,
                       segmentTargetOverrides,
                     ).S1;
+                    // A placeholder (§12.9) renders as an extra chip but is
+                    // not a real body -- gap padding is driven by the REAL
+                    // count, or a cosmetic note could hide a genuine shortfall.
+                    const realCount = rows.filter((a) => a.guard_id != null).length;
                     content = rows.length ? (
                       <>
                         {rows.map((a) => (
@@ -296,7 +319,7 @@ export function RosterGrid({
                             same convention as an unpaired handover half --
                             shown, not hidden. Fully empty stays "ריק" below,
                             the stronger signal for nobody at all. */}
-                        {Array.from({ length: Math.max(0, target - rows.length) }, (_, i) => (
+                        {Array.from({ length: Math.max(0, target - realCount) }, (_, i) => (
                           <Gap key={`gap-${i}`} />
                         ))}
                       </>
@@ -314,6 +337,7 @@ export function RosterGrid({
                       morningTargetOverrides,
                       segmentTargetOverrides,
                     ).S4;
+                    const realCount = rows.filter((a) => a.guard_id != null).length;
                     content = rows.length ? (
                       <>
                         {rows.map((a) => (
@@ -325,7 +349,7 @@ export function RosterGrid({
                             mine={a.guard_id === highlightGuardId}
                           />
                         ))}
-                        {Array.from({ length: Math.max(0, target - rows.length) }, (_, i) => (
+                        {Array.from({ length: Math.max(0, target - realCount) }, (_, i) => (
                           <Gap key={`gap-${i}`} />
                         ))}
                       </>

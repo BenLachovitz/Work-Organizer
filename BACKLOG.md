@@ -63,17 +63,29 @@ fix (`min(1, target)`) so an overridden target of 1 is never misreported as a fl
 merged to `main`, deployed, `package.json`/`GitVersion.yml` bumped to 2.10.0 and tagged `v2.10.0`.
 Nothing open — unlike Step Q's PWA, this feature has no device-dependent manual check pending.
 
-Step S (13 August) — **free-text assignment notes** (spec §12.9, migration 38): when manually
+Step S (13 August) — **free-text assignment notes** (spec §12.9, migrations 38–39): when manually
 editing a generated roster, the manager can attach short free text before and/or after a guard's
 name on one specific cell — e.g. "(מ-10:45)" for an early arrival, "(עד 14:00)" for an early
 departure — without reshaping the assignment into a different shift type. Threaded through
 `RosterEditor`'s `SlotEditor`, the shared `RosterGrid` (manager and guard-facing), the JPEG export,
 and the guard's own "המשמרות שלי" list; deliberately solver-blind, same status as
-`weekly_submissions.notes`. Migration applied to the live database, full TypeScript typecheck clean,
-and `test:cloud` + `test:fixtures` + `test:rls` all green (including new Gate E (edit) assertions for
-the note round-trip, the 40-character cap, and clean rollback on a rejected save) — **on
-`feature/assignment-cell-notes`, not yet merged to `main`**. Ben still needs to manually test the
-actual editing UI before this merges; nothing else pending.
+`weekly_submissions.notes`.
+
+Extended same-day (migration 39) with **placeholder rows**: `schedule_assignments.guard_id` is now
+nullable, so a note can sit on a cell with no real guard behind it at all — e.g. "Yam is alone in
+the morning until 10:45, then Shely joins" as an annotation on the morning block itself, rather than
+a second, real assignment for Shely (who's already genuinely assigned elsewhere that day, and adding
+her again for real correctly trips the one-shift-per-day rule as the double-booking it would
+actually be). Excluded from every hard-rule check and all coverage/target counting; rendered with a
+dashed outline everywhere so it never reads as a real body.
+
+Migrations applied to the live database, full TypeScript typecheck clean, and `test:cloud` +
+`test:fixtures` + `test:rls` all green (including new Gate E (edit) assertions for the note
+round-trip, the 40-character cap, clean rollback on a rejected save, placeholders coexisting with
+real rows and with each other without collision, and confirmation that a genuine second real shift
+for the same guard is still correctly refused) — **on `feature/assignment-cell-notes`, not yet
+merged to `main`**. Ben still needs to manually test the actual editing UI before this merges;
+nothing else pending.
 
 Nothing else mid-flight beyond that one open branch.
 

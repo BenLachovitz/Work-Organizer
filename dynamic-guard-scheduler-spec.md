@@ -134,6 +134,7 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | #   | Change                                                                                            | Rationale                                                                                                                     |
 | --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | 60  | **Free-text assignment notes** (`schedule_assignments.note_before`/`note_after`, migration 38, §12.9) — when manually editing a generated roster, the manager can attach short free text before and/or after a guard's name on one specific cell, e.g. "(מ-10:45)" for an early arrival or "(עד 14:00)" for an early departure, without reshaping the assignment into a different shift type. Rendered everywhere that cell is displayed — the manager's live-edit grid, the shared `RosterGrid` (manager and guard-facing alike), and the JPEG export — and never carried over when the week is regenerated | The segment model (§2.3) answers coverage, not logistics: a guard's real arrival/departure time occasionally differs from what their assigned shift implies, and forcing that into an extra split segment would distort coverage over something that isn't actually a coverage fact. Two independent fields, not one, because the annotation can sit on either side of the name (or both) depending on what it says — same solver-blind, manager-only status as `weekly_submissions.notes` (§3.6) |
+| 61  | **Placeholder (guard-less) assignment rows** (`schedule_assignments.guard_id` now nullable, migration 39, §12.9) — a manager can attach a note to a cell with no real guard behind it at all, e.g. "Yam is alone in the morning until 10:45, then Shely joins" as an annotation on the morning block itself, without a second, real assignment for Shely (who may already be genuinely assigned elsewhere that day). Excluded from every hard-rule check and from all coverage/target counting; rendered with a dashed outline so it never reads as a real body | Item 60's note only ever rides on a real assignment, which breaks for exactly this case: adding Shely a second time, for real, to say the same thing correctly triggers the one-shift-per-day rule as a genuine double-booking, because that is what it would be. A cell annotation with nobody behind it needed to be expressible as something other than a person — `NULL` is that, and both existing uniqueness constraints already treat it as never colliding with anything |
 
 ---
 
@@ -912,12 +913,21 @@ CREATE TABLE schedule_assignments (
   run_id      UUID NOT NULL REFERENCES schedule_runs(id) ON DELETE CASCADE,
   target_date DATE NOT NULL,
   shift       shift_type NOT NULL,
-  guard_id    UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  -- v2.11 §12.9, migration 39: NULL means this row is a PLACEHOLDER -- a
+  -- note-only cell annotation with no real guard behind it. Never produced
+  -- by the solver; manual edits only. Both UNIQUE constraints below already
+  -- treat NULL as distinct from any other value, so any number of
+  -- placeholders can share a run/day/shift with no collision.
+  guard_id    UUID REFERENCES profiles(id) ON DELETE CASCADE,
   -- v2.11 §12.9, migration 38: manager-written, solver-blind free text
   -- rendered before/after the guard's name on this one cell. Nullable,
   -- capped short (40 chars) -- these render in a chip, not a paragraph field.
   note_before TEXT CHECK (char_length(note_before) <= 40),
   note_after  TEXT CHECK (char_length(note_after)  <= 40),
+  -- v2.11 §12.9, migration 39: a placeholder with no text at all is just a
+  -- blank row with no purpose.
+  CONSTRAINT placeholder_needs_a_note
+    CHECK (guard_id IS NOT NULL OR note_before IS NOT NULL OR note_after IS NOT NULL),
   UNIQUE (run_id, target_date, shift, guard_id)
 );
 
@@ -1861,7 +1871,7 @@ account to begin with.
 `buildGuardRows()`, on the derived rows, specifically so `data.guards` itself — what generation and
 the roster grid actually consume — is never touched by the toggle.
 
-### 12.9 Free-Text Assignment Notes (migration 38, v2.11)
+### 12.9 Free-Text Assignment Notes (migrations 38–39, v2.11)
 
 A generated assignment answers "who, what shift, which day" — not "what's actually different about
 this one." The manager sometimes knows a real wrinkle that doesn't fit that model: a guard covering
@@ -1894,6 +1904,44 @@ silently clipped.
 **Solver-blind by design**, same status as `weekly_submissions.notes`: never part of the solver
 contract (§9.2), never read by `validate.ts` / `verify.py`. It's context for a human reading the
 roster, not a constraint — the exact same reasoning that field's own migration comment gives.
+
+**Placeholder (guard-less) rows, migration 39.** Migration 38's note only ever rides on a REAL
+assignment — a note about Yam's own morning shift has to be attached to Yam's own row. That breaks
+for a note that isn't about any one guard's shift at all: "Yam is alone in the morning until 10:45,
+then Shely joins" is a fact about the morning *segment*, not a second real shift for Shely — who may
+already have a genuine assignment elsewhere that day (§2.3's afternoon, say), and adding her again
+to the morning cell would be a real double-booking. The `one_shift_per_guard_per_day` index and the
+referee's H3 check are *right* to refuse that, because as far as the data model is concerned it
+would be exactly that.
+
+`schedule_assignments.guard_id` is nullable as of migration 39: a `NULL`-guard row is a
+**placeholder** — a cell annotation with no real person behind it, existing purely to carry
+`note_before`/`note_after` text. Both existing `UNIQUE` constraints on the table already treat
+`NULL` as distinct from any other value (standard SQL) — so a run/day/shift can hold any number of
+placeholder rows alongside its real ones, with no collision, and no index change was needed. A
+placeholder is checked the other direction instead: `placeholder_needs_a_note`
+(`CHECK (guard_id IS NOT NULL OR note_before IS NOT NULL OR note_after IS NOT NULL)`) refuses a
+row that is neither a real assignment nor carries any text — just a blank row with no purpose.
+`RosterEditor.tsx` already drops an emptied-out placeholder client-side before saving, so this CHECK
+is a backstop, not the primary UX.
+
+Threaded through every consumer identically to a real row, minus anything that only makes sense for
+a real person: `nameOf()` returns `''` for a placeholder (not `'—'`, which stays reserved for a
+real data problem — an id that doesn't resolve to any known guard) so the note text carries the
+whole chip; the referee (`RosterEditor.tsx`'s `verifySchedule` call) filters placeholders out of its
+payload entirely rather than teaching every hard rule about them, the same way it never learns about
+a guard who isn't on the roster; and every coverage/target computation (`RosterEditor`'s `cellTone`,
+`RosterGrid`'s `covers()`, `exportRoster.ts`'s `covers()`, and the morning/night/afternoon
+gap-padding math in all three) counts only *real* rows, so a cosmetic placeholder chip can never
+paint a genuinely short-staffed cell green or hide a real coverage gap underneath it. A placeholder
+chip also renders with a dashed outline (`RosterEditor`, `RosterGrid`'s `Chip`,
+`exportRoster.ts`'s `drawChip`) so it never reads as a real body at a glance.
+
+**Manager UI**: the guard `<select>` in `SlotEditor` — both the per-row editor and the "הוספת
+מאבטח" add flow — gained a leading "— ריק (הערה בלבד, לא נספר בכיסוי)" option. Selecting it and
+adding a note (either or both fields) creates a placeholder row; the marked/carried-in-from-Saturday
+hints, which are meaningless for a non-guard, are silently skipped for one rather than showing a
+false "לא סימן" warning.
 
 ---
 
@@ -1938,7 +1986,7 @@ roster, not a constraint — the exact same reasoning that field's own migration
 | **P**     | Per-day morning target override (§2.4b, migration 35); morning-priority coverage weight (§4.2b); roster view stacks every published week instead of a selector (§10.0a); admin real/test view-mode toggle (§12.8, migration 34); fixed a live `ensure_roster_weeks()` realtime feedback loop found while testing this batch (migration 36) | ✅ complete                      |
 | **Q**     | PWA support (§10.4): web app manifest, minimal no-cache service worker, full icon set generated from supplied artwork, `vercel.json` static-asset headers; `GitVersion.yml` introduced for version tracking / rollback (repo root, kept in step with `package.json`'s `version` and a `vX.Y.Z` git tag per release) | ✅ complete; real-device Android/iOS install check pending Ben |
 | **R**     | Per-day secondary segment target override (§2.4c, migration 37): generalizes Step P's morning-only per-day override to S2/S3/S4, any day of the week, lowered to 1; new floor-pinning rule (`min(1, target)`) so an overridden target of 1 is never misreported as a floor breach | ✅ complete                      |
-| **S**     | Free-text assignment notes (§12.9, migration 38): a manager annotation before and/or after a guard's name on one manually-edited cell, threaded through `RosterEditor`, `RosterGrid`, and the JPEG export; solver-blind, manual-edit only | ✅ complete                      |
+| **S**     | Free-text assignment notes (§12.9, migrations 38–39): a manager annotation before and/or after a guard's name on one manually-edited cell, threaded through `RosterEditor`, `RosterGrid`, and the JPEG export; solver-blind, manual-edit only. Migration 39 adds placeholder (guard-less) rows for a note that isn't about any one guard's own shift, excluded from every hard-rule check and all coverage counting | ✅ complete                      |
 
 ### 14.2 Verification
 
@@ -1960,7 +2008,10 @@ baseline on unoverridden days, and that no floor breach is reported despite only
 assigned — proving the floor-pinning fix actually took effect. No fixture added for v2.11's
 assignment notes (§12.9) — the feature is deliberately solver-blind, so its coverage lives entirely
 in Gate E (edit) instead: a note round-trip through `save_run_assignments`, the 40-character CHECK
-being enforced, and the DELETE+INSERT rolling back cleanly when that CHECK rejects the save.)
+being enforced, the DELETE+INSERT rolling back cleanly when that CHECK rejects the save, a real
+guard and an unrelated placeholder coexisting in one cell, two placeholders sharing a day without
+colliding, and — the contrast that matters — a genuine second REAL shift for the same guard still
+being refused exactly as before.)
 
 Gate D (`manager.cloud.test.mjs`) has a known, pre-existing, date-driven flake unrelated to any
 of the above: its dedicated test week (`2026-09-06`) sits exactly on `ensure_roster_weeks()`'s
@@ -1978,7 +2029,7 @@ once the calendar moves the boundary past mid-September 2026; not a regression i
 | Gate D            | `node supabase/tests/manager.cloud.test.mjs`              | Week controls, כמות, lock/reopen override                                       |
 | Gate E (cloud)    | `npm run test:generate`                                   | Generate → verify stored rows → publish                                         |
 | Gate E (engines)  | `npm run test:fixtures`, `solver/tests/test_scheduler.py` | 16 golden fixtures, both engines                                                |
-| Gate E (edit)     | `npm run test:edit`                                       | Draft and published-roster editing, deletion, assignment-note round-trip and length cap (§12.9) |
+| Gate E (edit)     | `npm run test:edit`                                       | Draft and published-roster editing, deletion, assignment-note round-trip and length cap, placeholder rows coexisting with real ones without collision (§12.9) |
 | Gate F (realtime) | `npm run test:realtime`                                   | Live push both directions: roster changes to guards, submissions to the manager |
 
 `npm run test:cloud` chains every cloud suite in this table (rls → auth → client → preferences →

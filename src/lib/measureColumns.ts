@@ -56,19 +56,21 @@ const chipWidth = (
 ) => {
   const parts: { text: string; font: string }[] = [];
   if (notePrefix) parts.push({ text: notePrefix, font: SUFFIX_FONT });
-  parts.push({ text: name, font: NAME_FONT });
+  // A placeholder (§12.9) has no name at all -- nameOf() returns '' for it,
+  // and an empty part would still cost a gap on either side for nothing.
+  if (name) parts.push({ text: name, font: NAME_FONT });
   if (noteSuffix) parts.push({ text: noteSuffix, font: SUFFIX_FONT });
   if (suffix) parts.push({ text: suffix, font: SUFFIX_FONT });
 
   const textWidth = parts.reduce((sum, p) => sum + measure(p.text, p.font), 0);
-  const gaps = (parts.length - 1) * NAME_SUFFIX_GAP;
+  const gaps = Math.max(0, parts.length - 1) * NAME_SUFFIX_GAP;
   return textWidth + gaps + CHIP_PADDING_X + TOLERANCE;
 };
 
 export interface MeasurableAssignment {
   target_date: string;
   shift: ShiftType;
-  guard_id: string;
+  guard_id: string | null;
   note_before?: string | null;
   note_after?: string | null;
 }
@@ -84,7 +86,7 @@ export interface MeasurableAssignment {
 export function widestRosterColumn(
   dates: string[],
   assignments: MeasurableAssignment[],
-  nameOf: (guardId: string) => string,
+  nameOf: (guardId: string | null) => string,
   /**
    * The editor stacks every assignment as its own full-width chip, so it has no
    * two-names-in-a-row cell. Measuring it as if it did would leave the columns

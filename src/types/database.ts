@@ -101,7 +101,8 @@ export interface ScheduleAssignment {
   run_id: string;
   target_date: string;
   shift: ShiftType;
-  guard_id: string;
+  /** NULL means this row is a placeholder -- a note-only cell annotation with no real guard behind it (§12.9). */
+  guard_id: string | null;
   note_before: string | null;
   note_after: string | null;
   created_at: string;

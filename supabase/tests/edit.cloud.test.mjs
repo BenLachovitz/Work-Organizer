@@ -102,6 +102,67 @@ console.log('\n\x1b[1mEdit a draft roster\x1b[0m');
     ? ok('the rejected edit rolled back cleanly -- the prior note is still there')
     : bad('rollback after rejected note',JSON.stringify(rows));
 }
+
+console.log('');
+console.log('Placeholder (guard-less) assignment rows (§12.9, migration 39)');
+{
+  // "Yam is alone in the morning until 10:45, then Shely joins" -- a real
+  // guard (G1) plus a placeholder chip (no guard_id) annotating the same
+  // morning cell, without a second real assignment for anyone.
+  await mgr.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[
+    {date:WEEK,shift:'morning',guard_id:idOf(G1)},
+    {date:WEEK,shift:'morning',guard_id:null,note_before:'- /'},
+  ]});
+  const rows=await sql(`SELECT guard_id gid, note_before nb FROM schedule_assignments WHERE run_id='${RUN}' AND target_date='${WEEK}'::date ORDER BY guard_id NULLS LAST`);
+  rows.length===2 && rows[0].gid===idOf(G1) && rows[1].gid===null && rows[1].nb==='- /'
+    ? ok('a real guard and a placeholder coexist in the same cell')
+    : bad('real + placeholder in one cell',JSON.stringify(rows));
+}
+{
+  // A second placeholder, same day, different shift -- proves NULL guard_id
+  // never collides with itself under one_shift_per_guard_per_day (standard
+  // SQL: NULLs are always distinct from each other in a UNIQUE index).
+  await mgr.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[
+    {date:WEEK,shift:'morning',guard_id:idOf(G1)},
+    {date:WEEK,shift:'morning',guard_id:null,note_before:'- /'},
+    {date:WEEK,shift:'night',guard_id:null,note_after:'(עד 02:00)'},
+  ]});
+  const rows=await sql(`SELECT COUNT(*)::int n FROM schedule_assignments WHERE run_id='${RUN}' AND target_date='${WEEK}'::date AND guard_id IS NULL`);
+  rows[0].n===2
+    ? ok('two placeholders on the same day, different shifts, saved without collision')
+    : bad('two placeholders same day',JSON.stringify(rows));
+}
+{
+  // The exact scenario this feature exists for: G1's own REAL shift that day
+  // is 'afternoon'; an unrelated 'morning' placeholder (no guard_id at all)
+  // saves right alongside it -- nothing ties the placeholder to G1's
+  // identity, so there is nothing for the referee or the DB to see as a
+  // double-booking.
+  const { error } = await mgr.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[
+    {date:WEEK,shift:'afternoon',guard_id:idOf(G1)},
+    {date:WEEK,shift:'morning',guard_id:null,note_before:'- / (עד 10:45 לבד)'},
+  ]});
+  error ? bad('real guard + unrelated placeholder',error.message) : ok("a real guard's own shift and an unrelated placeholder on the same day both save fine");
+}
+{
+  // Contrast: giving G1 a SECOND REAL shift the same day (not a placeholder)
+  // is still correctly refused -- placeholders don't weaken this guarantee,
+  // which is exactly the constraint that made the manual workaround (adding
+  // Shely a second time, for real) fail in the first place.
+  const { error } = await mgr.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[
+    {date:WEEK,shift:'afternoon',guard_id:idOf(G1)},
+    {date:WEEK,shift:'morning',guard_id:idOf(G1)},
+  ]});
+  error ? ok('a genuine second REAL shift for the same guard is still rejected') : bad('double real booking','succeeded');
+}
+{
+  // A placeholder with no text at all is meaningless -- the DB rejects it as
+  // a backstop (RosterEditor.tsx already drops these before saving).
+  const { error } = await mgr.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[
+    {date:WEEK,shift:'night',guard_id:null},
+  ]});
+  error ? ok('a placeholder with no note at all is rejected') : bad('blank placeholder','succeeded');
+}
 {
   const { error } = await g1.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[]});
   error?ok('a guard cannot edit a roster'):bad('guard edit','succeeded');

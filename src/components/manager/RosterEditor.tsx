@@ -52,9 +52,21 @@ const BLOCKING_RULES: Violation['rule'][] = ['H3', 'H5', 'H7'];
 /** Width of the block-label column; the day columns divide the rest. */
 const LABEL_COLUMN = 64;
 
+/**
+ * A row can carry no real guard at all -- e.g. "Yam is alone until 10:45,
+ * then Shely joins" is a fact about the morning segment, not a second real
+ * shift for Shely (who may already have a genuine assignment elsewhere that
+ * day; adding her again would be a real double-booking, and the referee is
+ * right to refuse it). `guard_id: null` marks a PLACEHOLDER row: a cell
+ * annotation with no person behind it, excluded from every hard-rule check
+ * and from coverage counting (§12.9). `<select>` values are always strings,
+ * so this sentinel is the UI-only stand-in for `null` at that boundary.
+ */
+const PLACEHOLDER_OPTION = '__placeholder__';
+
 export interface DraftAssignment {
   key: string; // stable local id; assignments are rebuilt wholesale on save
-  guard_id: string;
+  guard_id: string | null;
   shift: ShiftType;
   date: DateKey;
   /** Free text rendered before/after the guard's name on this cell (§2.2c) -- empty string, not undefined, so the SlotEditor's inputs stay controlled. */
@@ -104,7 +116,10 @@ export function RosterEditor({
   const [openCell, setOpenCell] = useState<{ date: DateKey; block: BlockKey } | null>(null);
 
   const dates = useMemo(() => weekDates(weekStart), [weekStart]);
-  const nameOf = (id: string) => guards.find((g) => g.id === id)?.display_name ?? '—';
+  // A placeholder (id === null) has no name at all -- '' lets the note text
+  // carry the whole chip, distinct from '—', which flags a real data problem
+  // (an id that doesn't match any known guard).
+  const nameOf = (id: string | null) => (id ? (guards.find((g) => g.id === id)?.display_name ?? '—') : '');
 
   // Measuring before the web font loads reads short, so re-measure once it is
   // ready -- otherwise the columns are sized for the fallback font's metrics.
@@ -137,12 +152,18 @@ export function RosterEditor({
   );
 
   // --- referee -------------------------------------------------------------
+  // A placeholder is not a real guard: it never marked availability, can't be
+  // double-booked, and doesn't need rest. It's excluded here entirely rather
+  // than taught to every hard rule -- the referee never learns placeholders
+  // exist, the same way it never learns about a guard who isn't in the roster.
+  const isReal = (d: DraftAssignment): d is DraftAssignment & { guard_id: string } =>
+    d.guard_id !== null;
   const verdict = useMemo(
     () =>
       verifySchedule(solverInput, {
         status: 'EDITED',
         objective_value: 0,
-        assignments: draft.map((d) => ({
+        assignments: draft.filter(isReal).map((d) => ({
           day: dayIndexInWeek(weekStart, d.date),
           date: d.date,
           shift: d.shift,
@@ -177,7 +198,7 @@ export function RosterEditor({
   const update = (key: string, patch: Partial<DraftAssignment>) =>
     setDraft((prev) => prev.map((d) => (d.key === key ? { ...d, ...patch } : d)));
   const remove = (key: string) => setDraft((prev) => prev.filter((d) => d.key !== key));
-  const add = (date: DateKey, shift: ShiftType, guard_id: string) =>
+  const add = (date: DateKey, shift: ShiftType, guard_id: string | null) =>
     setDraft((prev) => [
       ...prev,
       { key: newKey(), guard_id, shift, date, noteBefore: '', noteAfter: '' },
@@ -198,8 +219,11 @@ export function RosterEditor({
       morningTargetOverrides,
       segmentTargetOverrides,
     );
+    // A placeholder chip is not a real body -- it must never count toward
+    // coverage, or a cosmetic note could paint a genuinely short-staffed cell
+    // green.
     const cov = (s: Segment) =>
-      onDate(date).filter((d) => SHIFTS[d.shift].covers.includes(s)).length;
+      onDate(date).filter((d) => d.guard_id && SHIFTS[d.shift].covers.includes(s)).length;
     if (segs.some((s) => cov(s) < floors[s]))
       return 'bg-rose-50 ring-rose-300 dark:bg-rose-950/40 dark:ring-rose-800';
     if (segs.some((s) => cov(s) < targets[s]))
@@ -291,7 +315,12 @@ export function RosterEditor({
                         {rows.map((d) => (
                           <span
                             key={d.key}
-                            className="flex items-center justify-center gap-1 rounded px-1.5 py-1 text-[11px] font-semibold text-white"
+                            className={cn(
+                              'flex items-center justify-center gap-1 rounded px-1.5 py-1 text-[11px] font-semibold text-white',
+                              // A placeholder is not a real body -- a dashed
+                              // outline keeps it from reading as one at a glance.
+                              d.guard_id == null && 'outline outline-dashed outline-1 outline-white/70',
+                            )}
                             style={{ backgroundColor: SHIFTS[d.shift].colorVar }}
                           >
                             {d.noteBefore && (
@@ -299,7 +328,9 @@ export function RosterEditor({
                                 {d.noteBefore}
                               </span>
                             )}
-                            <span className="truncate">{nameOf(d.guard_id)}</span>
+                            {nameOf(d.guard_id) && (
+                              <span className="truncate">{nameOf(d.guard_id)}</span>
+                            )}
                             {d.noteAfter && (
                               <span className="shrink-0 text-[9px] font-normal opacity-90">
                                 {d.noteAfter}
@@ -354,7 +385,14 @@ export function RosterEditor({
             fullWidth
             loading={saving}
             disabled={blocking.length > 0 || !dirty}
-            onClick={() => onSave(draft)}
+            onClick={() =>
+              // A placeholder with no text left is just a blank row -- drop it
+              // rather than send it and hit the DB's placeholder_needs_a_note
+              // check. The manager almost certainly meant to remove it anyway.
+              onSave(
+                draft.filter((d) => d.guard_id || d.noteBefore.trim() || d.noteAfter.trim()),
+              )
+            }
           >
             שמור שינויים
           </Button>
@@ -456,14 +494,15 @@ function SlotEditor({
   onClose: () => void;
   onUpdate: (key: string, patch: Partial<DraftAssignment>) => void;
   onRemove: (key: string) => void;
-  onAdd: (date: DateKey, shift: ShiftType, guardId: string) => void;
+  onAdd: (date: DateKey, shift: ShiftType, guardId: string | null) => void;
 }) {
   const dayIdx = dayIndexInWeek(weekStart, date);
   const [addGuard, setAddGuard] = useState('');
   const [addShift, setAddShift] = useState<ShiftType>(block.shifts[0]!);
 
-  /** Did this guard actually mark this shift? Shown, never enforced. */
-  const marked = (guardId: string, shift: ShiftType) => {
+  /** Did this guard actually mark this shift? Shown, never enforced. Meaningless for a placeholder, so it's always "yes" -- there's no warning to show. */
+  const marked = (guardId: string | null, shift: ShiftType) => {
+    if (!guardId) return true;
     const g = solverInput.guards.find((x) => x.id === guardId);
     if (!g) return false;
     const base = SHIFTS[shift].requiresBase;
@@ -478,10 +517,10 @@ function SlotEditor({
    * the hint is shown there and nowhere else -- a night-ending shift makes
    * Sunday morning a 0-hour rest, which the referee blocks outright.
    */
-  const carriedIn = (guardId: string): ShiftType | null =>
-    dayIdx === 0 ? (solverInput.carry_in?.[guardId] ?? null) : null;
+  const carriedIn = (guardId: string | null): ShiftType | null =>
+    guardId && dayIdx === 0 ? (solverInput.carry_in?.[guardId] ?? null) : null;
 
-  const carryNote = (guardId: string) => {
+  const carryNote = (guardId: string | null) => {
     const prev = carriedIn(guardId);
     if (!prev) return '';
     return `  (שבת: ${SHIFTS[prev].he})`;
@@ -527,10 +566,15 @@ function SlotEditor({
             >
               <div className="flex gap-2">
                 <select
-                  value={r.guard_id}
-                  onChange={(e) => onUpdate(r.key, { guard_id: e.target.value })}
+                  value={r.guard_id ?? PLACEHOLDER_OPTION}
+                  onChange={(e) =>
+                    onUpdate(r.key, {
+                      guard_id: e.target.value === PLACEHOLDER_OPTION ? null : e.target.value,
+                    })
+                  }
                   className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 >
+                  <option value={PLACEHOLDER_OPTION}>— ריק (הערה בלבד, לא נספר בכיסוי)</option>
                   {guards.map((g) => (
                     <option key={g.id} value={g.id}>
                       {g.display_name}
@@ -610,6 +654,7 @@ function SlotEditor({
               className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             >
               <option value="">בחר מאבטח…</option>
+              <option value={PLACEHOLDER_OPTION}>— ריק (הערה בלבד, לא נספר בכיסוי)</option>
               {guards.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.display_name}
@@ -633,7 +678,7 @@ function SlotEditor({
               size="sm"
               disabled={!addGuard}
               onClick={() => {
-                onAdd(date, addShift, addGuard);
+                onAdd(date, addShift, addGuard === PLACEHOLDER_OPTION ? null : addGuard);
                 setAddGuard('');
               }}
             >
@@ -645,6 +690,10 @@ function SlotEditor({
               משמרת 12 שעות מתווספת דרך הבוקר (עד 18:45) או דרך הלילה (מ-18:45).
             </p>
           )}
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            ״ריק״ מוסיף תא ללא מאבטח אמיתי, לכתיבת הערה חופשית בלבד -- למשל כדי לתאר חפיפה בתוך
+            משמרת אחת בלי לפצל אותה. לא נבדק מול זמינות ולא נספר בכיסוי או בכמות.
+          </p>
         </div>
 
         <Button className="mt-3" fullWidth variant="secondary" onClick={onClose}>

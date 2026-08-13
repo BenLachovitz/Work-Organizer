@@ -342,7 +342,8 @@ export function useSaveRunAssignments() {
       assignments: {
         date: DateKey;
         shift: ShiftType;
-        guard_id: string;
+        /** null is a placeholder row -- a note-only cell annotation with no real guard (§12.9). */
+        guard_id: string | null;
         note_before?: string;
         note_after?: string;
       }[];
