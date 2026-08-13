@@ -332,6 +332,8 @@ export function ManagerDashboard() {
                             date: d.date,
                             shift: d.shift,
                             guard_id: d.guard_id,
+                            note_before: d.noteBefore,
+                            note_after: d.noteAfter,
                           })),
                         },
                         { onSuccess: () => setEditing(false) },

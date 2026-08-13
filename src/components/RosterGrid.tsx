@@ -103,7 +103,15 @@ function Chip({
           boundary, and `ms-1` resolves against the SUFFIX's own direction --
           which .num sets to ltr -- so the margin landed on the far side and the
           text still read "בןמ 18:45". gap is direction-agnostic. */}
+      {assignment.note_before && (
+        <span className="shrink-0 text-[9px] font-normal opacity-90">
+          {assignment.note_before}
+        </span>
+      )}
       <span className="truncate">{name}</span>
+      {assignment.note_after && (
+        <span className="shrink-0 text-[9px] font-normal opacity-90">{assignment.note_after}</span>
+      )}
       {suffix && <span className="num shrink-0 text-[9px] font-normal opacity-90">{suffix}</span>}
     </span>
   );

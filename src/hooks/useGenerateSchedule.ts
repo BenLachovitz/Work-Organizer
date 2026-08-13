@@ -339,7 +339,13 @@ export function useSaveRunAssignments() {
     mutationFn: async (args: {
       runId: string;
       weekStart: DateKey;
-      assignments: { date: DateKey; shift: ShiftType; guard_id: string }[];
+      assignments: {
+        date: DateKey;
+        shift: ShiftType;
+        guard_id: string;
+        note_before?: string;
+        note_after?: string;
+      }[];
     }) => {
       const { error } = await requireSupabase().rpc('save_run_assignments', {
         p_run_id: args.runId,

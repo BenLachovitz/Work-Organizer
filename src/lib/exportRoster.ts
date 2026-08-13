@@ -156,11 +156,21 @@ function roundRect(
   ctx.closePath();
 }
 
+/** A guard's manager-written before/after notes for this cell (§2.2c). */
+interface CellNotes {
+  notePrefix?: string;
+  noteSuffix?: string;
+}
+
 /** One drawable line inside a cell: a single chip, an empty slot, or a two-name handover. */
 type Row =
-  | { kind: 'chip'; shift: string; name: string; suffix?: string }
+  | ({ kind: 'chip'; shift: string; name: string; suffix?: string } & CellNotes)
   | { kind: 'gap' }
-  | { kind: 'handover'; early: { shift: string; name: string } | null; late: { shift: string; name: string } | null };
+  | {
+      kind: 'handover';
+      early: ({ shift: string; name: string } & CellNotes) | null;
+      late: ({ shift: string; name: string } & CellNotes) | null;
+    };
 
 /**
  * The rows for one cell, derived exactly as RosterGrid derives them.
@@ -187,6 +197,8 @@ function rowsFor(
         shift: a.shift,
         name: nameOf(a.guard_id),
         suffix: a.shift === 'day12' ? 'עד 18:45' : undefined,
+        notePrefix: a.note_before ?? undefined,
+        noteSuffix: a.note_after ?? undefined,
       }));
     if (rows.length > 0) {
       for (let i = rows.length; i < target; i++) rows.push({ kind: 'gap' });
@@ -201,6 +213,8 @@ function rowsFor(
         shift: a.shift,
         name: nameOf(a.guard_id),
         suffix: a.shift === 'night12' ? 'מ 18:45' : undefined,
+        notePrefix: a.note_before ?? undefined,
+        noteSuffix: a.note_after ?? undefined,
       }));
     if (rows.length > 0) {
       for (let i = rows.length; i < target; i++) rows.push({ kind: 'gap' });
@@ -210,15 +224,35 @@ function rowsFor(
 
   const rows: Row[] = day
     .filter((a) => a.shift === 'afternoon')
-    .map((a) => ({ kind: 'chip' as const, shift: a.shift, name: nameOf(a.guard_id) }));
+    .map((a) => ({
+      kind: 'chip' as const,
+      shift: a.shift,
+      name: nameOf(a.guard_id),
+      notePrefix: a.note_before ?? undefined,
+      noteSuffix: a.note_after ?? undefined,
+    }));
 
   const early = day.filter((a) => a.shift === 'day12');
   const late = day.filter((a) => a.shift === 'night12');
   for (let i = 0; i < Math.max(early.length, late.length); i++) {
     rows.push({
       kind: 'handover',
-      early: early[i] ? { shift: 'day12', name: nameOf(early[i]!.guard_id) } : null,
-      late: late[i] ? { shift: 'night12', name: nameOf(late[i]!.guard_id) } : null,
+      early: early[i]
+        ? {
+            shift: 'day12',
+            name: nameOf(early[i]!.guard_id),
+            notePrefix: early[i]!.note_before ?? undefined,
+            noteSuffix: early[i]!.note_after ?? undefined,
+          }
+        : null,
+      late: late[i]
+        ? {
+            shift: 'night12',
+            name: nameOf(late[i]!.guard_id),
+            notePrefix: late[i]!.note_before ?? undefined,
+            noteSuffix: late[i]!.note_after ?? undefined,
+          }
+        : null,
     });
   }
   // Filled but short of target: a slot with neither a full-block guard nor
@@ -299,23 +333,34 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
     );
   });
 
-  const chipW = (name: string, suffix?: string) =>
-    textW(name, NAME_FONT) +
-    (suffix ? NAME_SUFFIX_GAP + textW(suffix, SUFFIX_FONT) : 0) +
-    CHIP_PAD_X * 2;
+  // Up to four parts share the chip: a before-note, the name, an after-note,
+  // and the 12h suffix -- same generalisation as measureColumns.ts's
+  // chipWidth(). Missing parts contribute neither width nor a gap.
+  const chipW = (name: string, suffix?: string, notePrefix?: string, noteSuffix?: string) => {
+    const parts: { text: string; font: string }[] = [];
+    if (notePrefix) parts.push({ text: notePrefix, font: SUFFIX_FONT });
+    parts.push({ text: name, font: NAME_FONT });
+    if (noteSuffix) parts.push({ text: noteSuffix, font: SUFFIX_FONT });
+    if (suffix) parts.push({ text: suffix, font: SUFFIX_FONT });
+    const textWidth = parts.reduce((sum, p) => sum + textW(p.text, p.font), 0);
+    return textWidth + (parts.length - 1) * NAME_SUFFIX_GAP + CHIP_PAD_X * 2;
+  };
 
   let colWidth = MIN_COL;
   for (const blocks of grid) {
     for (const rows of blocks) {
       for (const row of rows) {
         if (row.kind === 'chip') {
-          colWidth = Math.max(colWidth, chipW(row.name, row.suffix) + CELL_PAD * 2);
+          colWidth = Math.max(
+            colWidth,
+            chipW(row.name, row.suffix, row.notePrefix, row.noteSuffix) + CELL_PAD * 2,
+          );
         } else if (row.kind === 'handover') {
           // Both halves are drawn the same width, so the cell must fit twice
           // the LONGER name -- not their sum, which would let a short name
           // donate space its neighbour never receives.
-          const a = chipW(row.early?.name ?? '—');
-          const b = chipW(row.late?.name ?? '—');
+          const a = chipW(row.early?.name ?? '—', undefined, row.early?.notePrefix, row.early?.noteSuffix);
+          const b = chipW(row.late?.name ?? '—', undefined, row.late?.notePrefix, row.late?.noteSuffix);
           colWidth = Math.max(
             colWidth,
             2 * Math.max(a, b) + SLASH_W + HANDOVER_GAP * 2 + CELL_PAD * 2,
@@ -439,7 +484,17 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
       rows.forEach((row, ri) => {
         const ry = y + 3 + CELL_PAD + ri * (CHIP_H + CHIP_GAP);
         if (row.kind === 'chip') {
-          drawChip(ctx, innerX, ry, innerW, colors[row.shift]!, row.name, row.suffix);
+          drawChip(
+            ctx,
+            innerX,
+            ry,
+            innerW,
+            colors[row.shift]!,
+            row.name,
+            row.suffix,
+            row.notePrefix,
+            row.noteSuffix,
+          );
         } else if (row.kind === 'gap') {
           drawGap(ctx, innerX, ry, innerW);
         } else {
@@ -449,7 +504,17 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
           const half = (innerW - SLASH_W - HANDOVER_GAP * 2) / 2;
           const rightX = innerX + innerW - half;
           if (row.early) {
-            drawChip(ctx, rightX, ry, half, colors[row.early.shift]!, row.early.name);
+            drawChip(
+              ctx,
+              rightX,
+              ry,
+              half,
+              colors[row.early.shift]!,
+              row.early.name,
+              undefined,
+              row.early.notePrefix,
+              row.early.noteSuffix,
+            );
           } else {
             drawGap(ctx, rightX, ry, half);
           }
@@ -458,7 +523,17 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
           ctx.fillStyle = FAINT;
           ctx.fillText('/', innerX + half + HANDOVER_GAP + SLASH_W / 2, ry + CHIP_H / 2);
           if (row.late) {
-            drawChip(ctx, innerX, ry, half, colors[row.late.shift]!, row.late.name);
+            drawChip(
+              ctx,
+              innerX,
+              ry,
+              half,
+              colors[row.late.shift]!,
+              row.late.name,
+              undefined,
+              row.late.notePrefix,
+              row.late.noteSuffix,
+            );
           } else {
             drawGap(ctx, innerX, ry, half);
           }
@@ -492,6 +567,13 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
   return await toBlob(canvas);
 }
 
+/**
+ * Draws a chip's text, in reading order: an optional manager note before the
+ * name, the name itself, an optional manager note after the name, then the
+ * 12h suffix. In RTL, the first part sits rightmost -- so the group is laid
+ * out right-to-left from a right edge computed to keep the WHOLE group
+ * centered in the chip, generalising the old name+suffix-only centering.
+ */
 function drawChip(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -500,6 +582,8 @@ function drawChip(
   color: string,
   name: string,
   suffix?: string,
+  notePrefix?: string,
+  noteSuffix?: string,
 ) {
   ctx.fillStyle = color;
   roundRect(ctx, x, y, w, CHIP_H, 7);
@@ -508,29 +592,34 @@ function drawChip(
   const cy = y + CHIP_H / 2;
   ctx.fillStyle = '#ffffff';
 
-  if (!suffix) {
+  const parts: { text: string; font: string; muted?: boolean }[] = [];
+  if (notePrefix) parts.push({ text: notePrefix, font: SUFFIX_FONT, muted: true });
+  parts.push({ text: name, font: NAME_FONT });
+  if (noteSuffix) parts.push({ text: noteSuffix, font: SUFFIX_FONT, muted: true });
+  if (suffix) parts.push({ text: suffix, font: SUFFIX_FONT, muted: true });
+
+  if (parts.length === 1) {
     ctx.textAlign = 'center';
     ctx.font = NAME_FONT;
     ctx.fillText(name, x + w / 2, cy, w - CHIP_PAD_X);
     return;
   }
 
-  // Name then suffix, in that reading order -- so in RTL the name sits on the
-  // right and the "עד 18:45" annotation to its left, exactly as the chip lays
-  // them out on screen.
-  ctx.font = NAME_FONT;
-  const nameW = ctx.measureText(name).width;
-  ctx.font = SUFFIX_FONT;
-  const sufW = ctx.measureText(suffix).width;
-  const right = x + w / 2 + (nameW + NAME_SUFFIX_GAP + sufW) / 2;
+  const widths = parts.map((p) => {
+    ctx.font = p.font;
+    return ctx.measureText(p.text).width;
+  });
+  const totalW = widths.reduce((a, b) => a + b, 0) + (parts.length - 1) * NAME_SUFFIX_GAP;
+  let right = x + w / 2 + totalW / 2;
 
   ctx.textAlign = 'right';
-  ctx.font = NAME_FONT;
-  ctx.fillText(name, right, cy);
-  ctx.font = SUFFIX_FONT;
-  ctx.globalAlpha = 0.9;
-  ctx.fillText(suffix, right - nameW - NAME_SUFFIX_GAP, cy);
-  ctx.globalAlpha = 1;
+  parts.forEach((p, i) => {
+    ctx.font = p.font;
+    ctx.globalAlpha = p.muted ? 0.9 : 1;
+    ctx.fillText(p.text, right, cy);
+    ctx.globalAlpha = 1;
+    right -= widths[i]! + NAME_SUFFIX_GAP;
+  });
 }
 
 /** An uncovered half of a handover -- shown, not hidden, as on screen. */

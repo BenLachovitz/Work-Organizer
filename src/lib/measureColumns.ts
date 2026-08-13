@@ -41,16 +41,36 @@ function measure(text: string, font: string): number {
  */
 const TOLERANCE = 3;
 
-const chipWidth = (name: string, suffix?: string) =>
-  measure(name, NAME_FONT) +
-  (suffix ? NAME_SUFFIX_GAP + measure(suffix, SUFFIX_FONT) : 0) +
-  CHIP_PADDING_X +
-  TOLERANCE;
+/**
+ * A chip can carry up to four pieces of text: a manager's before-note, the
+ * name, a manager's after-note, and the 12h suffix -- all separated by the
+ * same `gap-1` the chip itself renders with. Missing pieces contribute
+ * neither width nor a gap, so an ordinary chip (name only) measures exactly
+ * as it always did.
+ */
+const chipWidth = (
+  name: string,
+  suffix?: string,
+  notePrefix?: string,
+  noteSuffix?: string,
+) => {
+  const parts: { text: string; font: string }[] = [];
+  if (notePrefix) parts.push({ text: notePrefix, font: SUFFIX_FONT });
+  parts.push({ text: name, font: NAME_FONT });
+  if (noteSuffix) parts.push({ text: noteSuffix, font: SUFFIX_FONT });
+  if (suffix) parts.push({ text: suffix, font: SUFFIX_FONT });
+
+  const textWidth = parts.reduce((sum, p) => sum + measure(p.text, p.font), 0);
+  const gaps = (parts.length - 1) * NAME_SUFFIX_GAP;
+  return textWidth + gaps + CHIP_PADDING_X + TOLERANCE;
+};
 
 export interface MeasurableAssignment {
   target_date: string;
   shift: ShiftType;
   guard_id: string;
+  note_before?: string | null;
+  note_after?: string | null;
 }
 
 /**
@@ -80,7 +100,10 @@ export function widestRosterColumn(
     for (const a of day) {
       const suffix =
         a.shift === 'day12' ? 'עד 18:45' : a.shift === 'night12' ? 'מ 18:45' : undefined;
-      widest = Math.max(widest, chipWidth(nameOf(a.guard_id), suffix));
+      widest = Math.max(
+        widest,
+        chipWidth(nameOf(a.guard_id), suffix, a.note_before ?? undefined, a.note_after ?? undefined),
+      );
     }
 
     if (!opts.handover) continue;
@@ -95,8 +118,14 @@ export function widestRosterColumn(
     const early = day.filter((a) => a.shift === 'day12');
     const late = day.filter((a) => a.shift === 'night12');
     for (let i = 0; i < Math.max(early.length, late.length); i++) {
-      const a = early[i] ? chipWidth(nameOf(early[i]!.guard_id)) : chipWidth('—');
-      const b = late[i] ? chipWidth(nameOf(late[i]!.guard_id)) : chipWidth('—');
+      const earlyA = early[i];
+      const lateA = late[i];
+      const a = earlyA
+        ? chipWidth(nameOf(earlyA.guard_id), undefined, earlyA.note_before ?? undefined, earlyA.note_after ?? undefined)
+        : chipWidth('—');
+      const b = lateA
+        ? chipWidth(nameOf(lateA.guard_id), undefined, lateA.note_before ?? undefined, lateA.note_after ?? undefined)
+        : chipWidth('—');
       widest = Math.max(widest, 2 * Math.max(a, b) + HANDOVER_SLASH + HANDOVER_GAPS);
     }
   }

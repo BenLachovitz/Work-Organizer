@@ -1,8 +1,8 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.10** — §14 there is the
-build status and roadmap, §1.11 is the changelog for everything since v2.9. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.11** — §14 there is the
+build status and roadmap, §1.12 is the changelog for everything since v2.9. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
@@ -39,9 +39,9 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–R complete, live and in daily use
+## State: build steps A–S complete (S on a feature branch, pending Ben's manual test + merge)
 
-Full list in spec §14.1; changelog for every step is spec §1.1–§1.11. Step P (11 August) — per-day
+Full list in spec §14.1; changelog for every step is spec §1.1–§1.12. Step P (11 August) — per-day
 morning target override, a morning-priority coverage weight, the roster view stacking every
 published week instead of a selector, and an admin real/test view-mode toggle — is shipped, merged
 to `main`, and deployed, alongside a live production bug fix found while testing it (see below).
@@ -63,7 +63,19 @@ fix (`min(1, target)`) so an overridden target of 1 is never misreported as a fl
 merged to `main`, deployed, `package.json`/`GitVersion.yml` bumped to 2.10.0 and tagged `v2.10.0`.
 Nothing open — unlike Step Q's PWA, this feature has no device-dependent manual check pending.
 
-Nothing else mid-flight, no open branches.
+Step S (13 August) — **free-text assignment notes** (spec §12.9, migration 38): when manually
+editing a generated roster, the manager can attach short free text before and/or after a guard's
+name on one specific cell — e.g. "(מ-10:45)" for an early arrival, "(עד 14:00)" for an early
+departure — without reshaping the assignment into a different shift type. Threaded through
+`RosterEditor`'s `SlotEditor`, the shared `RosterGrid` (manager and guard-facing), the JPEG export,
+and the guard's own "המשמרות שלי" list; deliberately solver-blind, same status as
+`weekly_submissions.notes`. Migration applied to the live database, full TypeScript typecheck clean,
+and `test:cloud` + `test:fixtures` + `test:rls` all green (including new Gate E (edit) assertions for
+the note round-trip, the 40-character cap, and clean rollback on a rejected save) — **on
+`feature/assignment-cell-notes`, not yet merged to `main`**. Ben still needs to manually test the
+actual editing UI before this merges; nothing else pending.
+
+Nothing else mid-flight beyond that one open branch.
 
 **Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
 different underlying mechanism.
@@ -184,8 +196,9 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.10.0**
-(Step R, per-day afternoon/night coverage-target overrides), up from v2.9's PWA-support milestone.
+state that version describes), matching the spec's own version history. `package.json` and
+`GitVersion.yml` are at **2.11.0** (Step S, free-text assignment notes) on the feature branch; the
+tag and the `main`-branch history stay at `v2.10.0` until this branch merges.
 
 ## Commands
 

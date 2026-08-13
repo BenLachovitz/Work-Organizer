@@ -160,6 +160,11 @@ function WeekSection({
                     <p className="text-xs text-slate-500 dark:text-slate-400">
                       {formatDayMonth(a.target_date)}
                     </p>
+                    {(a.note_before || a.note_after) && (
+                      <p className="mt-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                        {[a.note_before, a.note_after].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
                   </div>
                   <div className="text-end">
                     <p className="text-xs font-bold text-slate-700 dark:text-slate-300">

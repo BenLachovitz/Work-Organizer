@@ -76,6 +76,33 @@ console.log('\n\x1b[1mEdit a draft roster\x1b[0m');
     : bad('edit marker',JSON.stringify(rows));
 }
 {
+  // Free text before/after the guard's name (§2.2c) -- trimmed and NULLed when
+  // blank, same convention weekly_submissions.notes already uses.
+  await mgr.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[
+    {date:WEEK,shift:'day12',guard_id:idOf(G2),note_before:'  (מ-10:45)  ',note_after:'  '},
+  ]});
+  const rows=await sql(`SELECT note_before nb, note_after na FROM schedule_assignments WHERE run_id='${RUN}'`);
+  rows.length===1 && rows[0].nb==='(מ-10:45)' && rows[0].na===null
+    ? ok('note_before is trimmed and saved, blank note_after becomes NULL')
+    : bad('note round-trip',JSON.stringify(rows));
+}
+{
+  // A note over the 40-character cap is rejected by the CHECK constraint.
+  const { error } = await mgr.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[
+    {date:WEEK,shift:'day12',guard_id:idOf(G2),note_after:'x'.repeat(41)},
+  ]});
+  error ? ok('a note over 40 characters is rejected') : bad('note length cap','succeeded');
+}
+{
+  // save_run_assignments does DELETE then INSERT inside one function call, so
+  // a rejected INSERT must roll back the DELETE too -- the prior note should
+  // still be there, not gone.
+  const rows=await sql(`SELECT note_before nb FROM schedule_assignments WHERE run_id='${RUN}'`);
+  rows.length===1 && rows[0].nb==='(מ-10:45)'
+    ? ok('the rejected edit rolled back cleanly -- the prior note is still there')
+    : bad('rollback after rejected note',JSON.stringify(rows));
+}
+{
   const { error } = await g1.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[]});
   error?ok('a guard cannot edit a roster'):bad('guard edit','succeeded');
 }

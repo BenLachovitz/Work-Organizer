@@ -6,14 +6,14 @@
 # git tag (`vX.Y.Z`) on the commit that ships each version. That trio is what
 # actually enables rollback: `git checkout vX.Y.Z` gets back to exactly the
 # state described by that version, matching the spec's own version history
-# (dynamic-guard-scheduler-spec.md's changelog, currently at v2.8).
+# (dynamic-guard-scheduler-spec.md's changelog).
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.10.0: Step R,
-# per-day afternoon/night coverage-target overrides (S2/S3/S4), generalizing
-# the existing per-day morning-target override (spec section 2.4b).
-next-version: 2.10.0
+# version (see BACKLOG.md's Versioning section). Currently 2.11.0: Step S,
+# free-text notes on a manually-edited assignment cell (rendered before
+# and/or after the guard's name), spec section 2.2c.
+next-version: 2.11.0
 mode: Mainline
 branches:
   main:

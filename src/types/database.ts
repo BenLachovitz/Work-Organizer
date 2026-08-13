@@ -102,5 +102,7 @@ export interface ScheduleAssignment {
   target_date: string;
   shift: ShiftType;
   guard_id: string;
+  note_before: string | null;
+  note_after: string | null;
   created_at: string;
 }

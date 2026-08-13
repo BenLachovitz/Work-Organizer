@@ -57,6 +57,9 @@ export interface DraftAssignment {
   guard_id: string;
   shift: ShiftType;
   date: DateKey;
+  /** Free text rendered before/after the guard's name on this cell (§2.2c) -- empty string, not undefined, so the SlotEditor's inputs stay controlled. */
+  noteBefore: string;
+  noteAfter: string;
 }
 
 let seq = 0;
@@ -94,6 +97,8 @@ export function RosterEditor({
       guard_id: a.guard_id,
       shift: a.shift,
       date: a.target_date,
+      noteBefore: a.note_before ?? '',
+      noteAfter: a.note_after ?? '',
     })),
   );
   const [openCell, setOpenCell] = useState<{ date: DateKey; block: BlockKey } | null>(null);
@@ -118,7 +123,13 @@ export function RosterEditor({
     () =>
       widestRosterColumn(
         dates,
-        draft.map((d) => ({ target_date: d.date, shift: d.shift, guard_id: d.guard_id })),
+        draft.map((d) => ({
+          target_date: d.date,
+          shift: d.shift,
+          guard_id: d.guard_id,
+          note_before: d.noteBefore,
+          note_after: d.noteAfter,
+        })),
         nameOf,
         { handover: false },
       ),
@@ -153,7 +164,13 @@ export function RosterEditor({
     draft.length !== assignments.length ||
     draft.some((d) => {
       const orig = assignments.find((a) => a.id === d.key);
-      return !orig || orig.guard_id !== d.guard_id || orig.shift !== d.shift;
+      return (
+        !orig ||
+        orig.guard_id !== d.guard_id ||
+        orig.shift !== d.shift ||
+        (orig.note_before ?? '') !== d.noteBefore ||
+        (orig.note_after ?? '') !== d.noteAfter
+      );
     });
 
   // --- edits ---------------------------------------------------------------
@@ -161,7 +178,10 @@ export function RosterEditor({
     setDraft((prev) => prev.map((d) => (d.key === key ? { ...d, ...patch } : d)));
   const remove = (key: string) => setDraft((prev) => prev.filter((d) => d.key !== key));
   const add = (date: DateKey, shift: ShiftType, guard_id: string) =>
-    setDraft((prev) => [...prev, { key: newKey(), guard_id, shift, date }]);
+    setDraft((prev) => [
+      ...prev,
+      { key: newKey(), guard_id, shift, date, noteBefore: '', noteAfter: '' },
+    ]);
 
   const onDate = (date: DateKey) => draft.filter((d) => d.date === date);
 
@@ -274,7 +294,17 @@ export function RosterEditor({
                             className="flex items-center justify-center gap-1 rounded px-1.5 py-1 text-[11px] font-semibold text-white"
                             style={{ backgroundColor: SHIFTS[d.shift].colorVar }}
                           >
+                            {d.noteBefore && (
+                              <span className="shrink-0 text-[9px] font-normal opacity-90">
+                                {d.noteBefore}
+                              </span>
+                            )}
                             <span className="truncate">{nameOf(d.guard_id)}</span>
+                            {d.noteAfter && (
+                              <span className="shrink-0 text-[9px] font-normal opacity-90">
+                                {d.noteAfter}
+                              </span>
+                            )}
                             {/* Only the morning and night blocks carry the 12h
                                 annotation; in the afternoon the slash already
                                 marks the 18:45 boundary. */}
@@ -527,6 +557,28 @@ function SlotEditor({
                 >
                   ✕
                 </button>
+              </div>
+              {/* Free text next to the guard's name -- e.g. "she's actually
+                  coming at 10:45 and working a 12h day" -- without reshaping
+                  the assignment itself into a different shift type (§2.2c).
+                  Purely cosmetic: never read by the referee or the solver. */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={r.noteBefore}
+                  onChange={(e) => onUpdate(r.key, { noteBefore: e.target.value })}
+                  maxLength={40}
+                  placeholder="הערה לפני השם"
+                  className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                />
+                <input
+                  type="text"
+                  value={r.noteAfter}
+                  onChange={(e) => onUpdate(r.key, { noteAfter: e.target.value })}
+                  maxLength={40}
+                  placeholder="הערה אחרי השם"
+                  className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                />
               </div>
               {!marked(r.guard_id, r.shift) && (
                 <p className="text-xs text-amber-700 dark:text-amber-400">

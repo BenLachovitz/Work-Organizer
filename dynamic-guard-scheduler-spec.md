@@ -1,6 +1,6 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.10 (build steps A–R complete; live and in daily use; deployed to production)
+**Version:** 2.11 (build steps A–S complete; live and in daily use; deployed to production)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 13 August 2026
@@ -128,6 +128,12 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | #   | Change                                                                                            | Rationale                                                                                                                     |
 | --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | 59  | **Per-day secondary segment target override** (`weekly_segment_target_overrides`, migration 37, §2.4c) — generalizes item 53's per-day morning override to the other three segments: early afternoon (S2), late afternoon (S3), and night (S4), each independently overridable on **any** day of the week (not just Mon-Fri), lowered to **1** instead of morning's raised-to-3. Overriding a segment's target down to 1 also **pins its floor to `min(1, target)`** instead of leaving it at the flat baseline of 1 | A holiday or short-staffed week sometimes only needs relief outside the morning window — e.g. one guard alone at night is genuinely fine that week — and the morning-only override (§2.4b) had no equivalent for S2/S3/S4. The floor-pinning fix matters on its own: without it, a target correctly lowered to 1 would still report a floor breach the moment exactly 1 guard was assigned, which is the same class of "target isn't what actually gets enforced" bug §1.8 item 47 fixed for כמות — caught and fixed here before shipping, not after, per golden fixture 16 |
+
+### 1.12 Changes in Version 2.11
+
+| #   | Change                                                                                            | Rationale                                                                                                                     |
+| --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 60  | **Free-text assignment notes** (`schedule_assignments.note_before`/`note_after`, migration 38, §12.9) — when manually editing a generated roster, the manager can attach short free text before and/or after a guard's name on one specific cell, e.g. "(מ-10:45)" for an early arrival or "(עד 14:00)" for an early departure, without reshaping the assignment into a different shift type. Rendered everywhere that cell is displayed — the manager's live-edit grid, the shared `RosterGrid` (manager and guard-facing alike), and the JPEG export — and never carried over when the week is regenerated | The segment model (§2.3) answers coverage, not logistics: a guard's real arrival/departure time occasionally differs from what their assigned shift implies, and forcing that into an extra split segment would distort coverage over something that isn't actually a coverage fact. Two independent fields, not one, because the annotation can sit on either side of the name (or both) depending on what it says — same solver-blind, manager-only status as `weekly_submissions.notes` (§3.6) |
 
 ---
 
@@ -907,6 +913,11 @@ CREATE TABLE schedule_assignments (
   target_date DATE NOT NULL,
   shift       shift_type NOT NULL,
   guard_id    UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  -- v2.11 §12.9, migration 38: manager-written, solver-blind free text
+  -- rendered before/after the guard's name on this one cell. Nullable,
+  -- capped short (40 chars) -- these render in a chip, not a paragraph field.
+  note_before TEXT CHECK (char_length(note_before) <= 40),
+  note_after  TEXT CHECK (char_length(note_after)  <= 40),
   UNIQUE (run_id, target_date, shift, guard_id)
 );
 
@@ -1850,6 +1861,40 @@ account to begin with.
 `buildGuardRows()`, on the derived rows, specifically so `data.guards` itself — what generation and
 the roster grid actually consume — is never touched by the toggle.
 
+### 12.9 Free-Text Assignment Notes (migration 38, v2.11)
+
+A generated assignment answers "who, what shift, which day" — not "what's actually different about
+this one." The manager sometimes knows a real wrinkle that doesn't fit that model: a guard covering
+an `afternoon` shift will really walk in at 10:45 and work a 12h day instead, or a guard on `morning`
+is leaving two hours early that one day. Reshaping the assignment to fit — splitting the afternoon
+into two segments just to capture an early arrival — would distort the segment coverage model (§2.3)
+over something that isn't actually a coverage fact. `schedule_assignments.note_before` and
+`.note_after` let the manager say it in words instead, attached to the exact cell it's about.
+
+Two independent, nullable `TEXT` columns (not one), each capped at 40 characters — short by design,
+since these render inside an 11px on-screen chip and a fixed-width canvas column, not a paragraph
+field like `weekly_submissions.notes` (§3.6). Both can be set on the same cell at once: "(מ-10:45)
+שלי (12 שעות)" is a legitimate single annotation split across both sides of the name.
+
+**Manual edit only**, wired through `RosterEditor.tsx`'s `SlotEditor` — the per-cell modal the
+manager already uses to change a guard or shift type gained two short text inputs alongside them.
+`save_run_assignments` already replaces a run's assignments wholesale on every save (migration
+13/14); the notes ride along in the same JSONB payload, trimmed and NULLed when blank
+(`NULLIF(TRIM(...), '')`, the same convention `weekly_submissions.notes` uses). A fresh solver
+generation never sets these — a new run starts with zero notes, consistent with every other manual
+edit not carrying over between versions.
+
+**Rendered everywhere the cell is displayed**, not just in the editor: the shared `RosterGrid.tsx`
+`Chip` component (used by both the manager's own roster view and the guard-facing one), the JPEG
+export (`exportRoster.ts`, which mirrors `RosterGrid` rule for rule, §10.2), and the guard's own
+"המשמרות שלי" list (`RosterView.tsx`). Column widths (`measureColumns.ts`'s `widestRosterColumn()`,
+and `exportRoster.ts`'s own canvas measurement pass) account for the extra text so a note is never
+silently clipped.
+
+**Solver-blind by design**, same status as `weekly_submissions.notes`: never part of the solver
+contract (§9.2), never read by `validate.ts` / `verify.py`. It's context for a human reading the
+roster, not a constraint — the exact same reasoning that field's own migration comment gives.
+
 ---
 
 ## 13. OPEN ITEMS
@@ -1893,6 +1938,7 @@ the roster grid actually consume — is never touched by the toggle.
 | **P**     | Per-day morning target override (§2.4b, migration 35); morning-priority coverage weight (§4.2b); roster view stacks every published week instead of a selector (§10.0a); admin real/test view-mode toggle (§12.8, migration 34); fixed a live `ensure_roster_weeks()` realtime feedback loop found while testing this batch (migration 36) | ✅ complete                      |
 | **Q**     | PWA support (§10.4): web app manifest, minimal no-cache service worker, full icon set generated from supplied artwork, `vercel.json` static-asset headers; `GitVersion.yml` introduced for version tracking / rollback (repo root, kept in step with `package.json`'s `version` and a `vX.Y.Z` git tag per release) | ✅ complete; real-device Android/iOS install check pending Ben |
 | **R**     | Per-day secondary segment target override (§2.4c, migration 37): generalizes Step P's morning-only per-day override to S2/S3/S4, any day of the week, lowered to 1; new floor-pinning rule (`min(1, target)`) so an overridden target of 1 is never misreported as a floor breach | ✅ complete                      |
+| **S**     | Free-text assignment notes (§12.9, migration 38): a manager annotation before and/or after a guard's name on one manually-edited cell, threaded through `RosterEditor`, `RosterGrid`, and the JPEG export; solver-blind, manual-edit only | ✅ complete                      |
 
 ### 14.2 Verification
 
@@ -1911,7 +1957,10 @@ symmetric S1-vs-S4 coverage tie, broken only by `WEIGHTS.morning_priority`. One 
 (§2.4c): fixture 16 overrides Tuesday's S3 target and Wednesday's S4 target to 1 and asserts both
 that the shared `afternoon`/`night` shift type caps correctly on the overridden day while staying at
 baseline on unoverridden days, and that no floor breach is reported despite only 1 guard being
-assigned — proving the floor-pinning fix actually took effect.)
+assigned — proving the floor-pinning fix actually took effect. No fixture added for v2.11's
+assignment notes (§12.9) — the feature is deliberately solver-blind, so its coverage lives entirely
+in Gate E (edit) instead: a note round-trip through `save_run_assignments`, the 40-character CHECK
+being enforced, and the DELETE+INSERT rolling back cleanly when that CHECK rejects the save.)
 
 Gate D (`manager.cloud.test.mjs`) has a known, pre-existing, date-driven flake unrelated to any
 of the above: its dedicated test week (`2026-09-06`) sits exactly on `ensure_roster_weeks()`'s
@@ -1929,7 +1978,7 @@ once the calendar moves the boundary past mid-September 2026; not a regression i
 | Gate D            | `node supabase/tests/manager.cloud.test.mjs`              | Week controls, כמות, lock/reopen override                                       |
 | Gate E (cloud)    | `npm run test:generate`                                   | Generate → verify stored rows → publish                                         |
 | Gate E (engines)  | `npm run test:fixtures`, `solver/tests/test_scheduler.py` | 16 golden fixtures, both engines                                                |
-| Gate E (edit)     | `npm run test:edit`                                       | Draft and published-roster editing, deletion                                    |
+| Gate E (edit)     | `npm run test:edit`                                       | Draft and published-roster editing, deletion, assignment-note round-trip and length cap (§12.9) |
 | Gate F (realtime) | `npm run test:realtime`                                   | Live push both directions: roster changes to guards, submissions to the manager |
 
 `npm run test:cloud` chains every cloud suite in this table (rls → auth → client → preferences →

@@ -55,7 +55,9 @@ export function RosterExport({
         JSON.stringify(morningTargetOverrides ?? {}),
         JSON.stringify(segmentTargetOverrides ?? {}),
         guards.length,
-        ...assignments.map((a) => `${a.target_date}|${a.shift}|${a.guard_id}`).sort(),
+        ...assignments
+          .map((a) => `${a.target_date}|${a.shift}|${a.guard_id}|${a.note_before ?? ''}|${a.note_after ?? ''}`)
+          .sort(),
       ].join(','),
     [weekStart, morningTarget, morningTargetOverrides, segmentTargetOverrides, assignments, guards],
   );
