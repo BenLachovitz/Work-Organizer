@@ -1,9 +1,9 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.9 (build steps A–Q complete; live and in daily use; deployed to production)
+**Version:** 2.10 (build steps A–R complete; live and in daily use; deployed to production)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
-**Document Date:** 11 August 2026
+**Document Date:** 13 August 2026
 
 ---
 
@@ -123,6 +123,12 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | 58  | **PWA support** (§10.4) — a web app manifest, a minimal no-cache service worker, and a full icon set generated from Ben-supplied artwork, so the app can be added to the home screen on Android (Chrome) and iOS (Safari) and launched standalone | Guards use this from their phones; a real installable icon and name (rather than a browser tab/bookmark) was the one piece of "feels like an app" polish still missing, matching the mobile-first intent stated in §1 |
 
+### 1.11 Changes in Version 2.10
+
+| #   | Change                                                                                            | Rationale                                                                                                                     |
+| --- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 59  | **Per-day secondary segment target override** (`weekly_segment_target_overrides`, migration 37, §2.4c) — generalizes item 53's per-day morning override to the other three segments: early afternoon (S2), late afternoon (S3), and night (S4), each independently overridable on **any** day of the week (not just Mon-Fri), lowered to **1** instead of morning's raised-to-3. Overriding a segment's target down to 1 also **pins its floor to `min(1, target)`** instead of leaving it at the flat baseline of 1 | A holiday or short-staffed week sometimes only needs relief outside the morning window — e.g. one guard alone at night is genuinely fine that week — and the morning-only override (§2.4b) had no equivalent for S2/S3/S4. The floor-pinning fix matters on its own: without it, a target correctly lowered to 1 would still report a floor breach the moment exactly 1 guard was assigned, which is the same class of "target isn't what actually gets enforced" bug §1.8 item 47 fixed for כמות — caught and fixed here before shipping, not after, per golden fixture 16 |
+
 ---
 
 ## 2. OPERATIONAL SCHEDULING RULES
@@ -178,9 +184,9 @@ Both grids tile the same 24 hours on four boundaries: **06:45 / 14:45 / 18:45 / 
 | ------------------------------------ | ----------------------- | ---------------------------------------- |
 | **S1** (morning window, **Mon-Fri**) | Manager-set: **2 or 3** | **1** if target = 2; **2** if target = 3 |
 | **S1** (morning window, **Sat/Sun**) | Always **2**            | Always **1**                             |
-| **S2** (early afternoon)             | 2                       | 1                                        |
-| **S3** (late afternoon)              | 2                       | 1                                        |
-| **S4** (night window)                | 2                       | 1                                        |
+| **S2** (early afternoon)             | 2 (or **1**, per-day override, §2.4c) | 1, or **`min(1, target)`** under an override |
+| **S3** (late afternoon)              | 2 (or **1**, per-day override, §2.4c) | 1, or **`min(1, target)`** under an override |
+| **S4** (night window)                | 2 (or **1**, per-day override, §2.4c) | 1, or **`min(1, target)`** under an override |
 
 - The **target is a hard ceiling** — the solver never over-staffs a segment.
 - The **floor is a soft constraint with a heavy penalty** (weight 1000). It is effectively never breached, but a breach returns a readable _coverage report_ instead of a bare `INFEASIBLE`.
@@ -236,6 +242,55 @@ empty so every fixture and caller written before this existed still parses uncha
 (`ManagerDashboard.tsx`), one row per weekday, each a 2/3 toggle identical in style to the existing
 week-level one, pre-filled with the *effective* value (override or baseline) and badged "הוחרג" when
 an explicit override is active for that day.
+
+### 2.4c Per-Day Secondary Segment Target Override (migration 37, v2.10)
+
+§2.4b's per-day override only ever touched the morning (S1) target. The other three segments —
+early afternoon (S2), late afternoon (S3), night (S4) — had no equivalent: their target sat at a
+flat **2** every day, for every week, with no way to express "this one day only needs 1." A short-
+staffed or exceptional week sometimes needs relief outside the morning window specifically — one
+guard alone at night is genuinely acceptable that day — and §2.4b couldn't say that.
+`weekly_segment_target_overrides` closes that gap for S2/S3/S4, independently, on **any day of the
+week** (`day_index BETWEEN 0 AND 6` — unlike §2.4b, there is no weekend lock to preserve here, since
+S2/S3/S4 never had a Sat/Sun special case to begin with), lowered to **1** (never raised — these
+segments have no "3" tier the way morning does).
+
+One generic table, not three near-identical ones: a `segment` column (`'S2' | 'S3' | 'S4'`)
+distinguishes which of the three a row applies to, since all three share an identical shape
+(day-scoped, week-scoped, 1-or-2 valued). Same **sparse-by-design** convention as §2.4b: a row
+exists only when it differs from the flat-2 baseline. `secondaryTargetForDay(segment, dayIndex,
+overrides)` (`src/lib/shifts.ts`, mirrored in `solver/models.py`) checks the override map first,
+falling back to 2 when a day/segment has no entry.
+
+**Floor pinning — the one behaviorally new rule, not just a copy of §2.4b's shape.** Overriding a
+segment's target down to 1 also pins that segment's floor to **`min(1, target)`**, not the old flat
+1 baseline. Without this, a target correctly lowered to 1 would still report a floor breach the
+instant exactly 1 guard was assigned — the same "target isn't actually what gets enforced" trap
+§1.8 item 47 hit for כמות. `segmentFloors()` computes this identically in both `src/lib/shifts.ts`
+and `solver/models.py`, verified by golden fixture 16
+(`solver/tests/fixtures/16-secondary-target-override.json`), which explicitly asserts no floor
+breach is reported when a day's S3 or S4 target is overridden to 1 and exactly 1 guard is assigned.
+
+Threaded through everywhere §2.4b's override already reaches: both solver engines (§9.3), both
+referees (`validate.ts` / `verify.py`), `CoverageMatrix`, `RosterGrid`, `RosterEditor`, and the JPEG
+export (`exportRoster.ts`), plus the guard-facing roster view (`RosterView.tsx` via
+`useVisibleRosters`), which now also fetches this table so a guard's own view of a published week
+reflects the same overridden target. The solver contract (§9.2) carries it as
+`secondary_target_overrides`, a sparse `{S2: {day_index: target}, S3: {...}, S4: {...}}` map,
+default `{}` for every segment so every fixture and caller written before this existed still
+parses unchanged. Because guards mark availability per **base shift** (`afternoon` as one unit, not
+S2/S3 separately), the pre-flight coverage check in `CoverageMatrix` uses the **stricter of S2 and
+S3** for the afternoon block (`Math.max(floors.S2, floors.S3)` / `Math.max(targets.S2, targets.S3)`)
+— and `RosterGrid` / `exportRoster.ts` pad the afternoon block's row count to
+`Math.max(earlySlots, lateSlots)` so the grid still shows the right number of rows when S2 and S3
+diverge for a day.
+
+**Manager UI**: the same "החרגה ליום ספציפי" section on `WeekControlsPanel` now renders up to four
+rows per day — S1 (only on working days, unchanged from §2.4b) plus S2/S3/S4 (every day) — each a
+`SegmentOverrideRow`, morning's toggle at 2/3 and the other three at 1/2, labeled "בוקר" / "צהריים
+מוקדם" / "צהריים מאוחר" / "לילה" and badged "הוחרג" the same way. The override counter badge changed
+from "(N ימים הוחרגו)" to a combined "(N חריגות)" summing the morning override count with all three
+secondary segments' counts.
 
 ### 2.5 Capacity Analysis (why floors must be soft)
 
@@ -813,6 +868,20 @@ CREATE TABLE weekly_morning_target_overrides (
   UNIQUE (week_start, day_index)
 );
 
+-- 6c. Per-day exceptions to the flat-2 baseline for S2/S3/S4 (§2.4c, v2.10
+--     migration 37). One generic table for all three segments (not three
+--     near-duplicates of 6b) since they share an identical shape. Unlike 6b:
+--     all 7 days are overridable (no weekend lock -- these segments never had
+--     one), and the value only ever lowers to 1 (no raised "3" tier).
+CREATE TABLE weekly_segment_target_overrides (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  week_start    DATE NOT NULL REFERENCES roster_weeks(week_start) ON DELETE CASCADE,
+  day_index     SMALLINT NOT NULL CHECK (day_index BETWEEN 0 AND 6),
+  segment       TEXT NOT NULL CHECK (segment IN ('S2', 'S3', 'S4')),
+  target_slots  SMALLINT NOT NULL CHECK (target_slots IN (1, 2)),
+  UNIQUE (week_start, day_index, segment)
+);
+
 -- 7. One row per solver execution; holds the coverage report and publication state
 CREATE TABLE schedule_runs (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1065,6 +1134,7 @@ rather than saved.
   "week_start": "2026-08-09",
   "morning_target_slots": 2,
   "morning_target_overrides": { "4": 3, "5": 3 },  // v2.8 §2.4b: sparse day_index -> target for THIS week only, default {}
+  "secondary_target_overrides": { "S3": { "2": 1 }, "S4": { "3": 1 } },  // v2.10 §2.4c: sparse segment -> day_index -> target, default {} per segment
   "guards": [
     { "id": "uuid", "effective_kamut": 3,
       "stretch_target": 3,   // v2.7 §3.10: rewarded (never penalised) ceiling above effective_kamut, default 0
@@ -1822,11 +1892,12 @@ the roster grid actually consume — is never touched by the toggle.
 | **O**     | Guard-requested shift count, phased in two parts: general below/above-configured mechanism, then the 5→6 exception (§3.10, migration 33); two production bugs found and fixed along the way (the lower-request guarantee, and the feasible-shifts UI cap) | ✅ complete                      |
 | **P**     | Per-day morning target override (§2.4b, migration 35); morning-priority coverage weight (§4.2b); roster view stacks every published week instead of a selector (§10.0a); admin real/test view-mode toggle (§12.8, migration 34); fixed a live `ensure_roster_weeks()` realtime feedback loop found while testing this batch (migration 36) | ✅ complete                      |
 | **Q**     | PWA support (§10.4): web app manifest, minimal no-cache service worker, full icon set generated from supplied artwork, `vercel.json` static-asset headers; `GitVersion.yml` introduced for version tracking / rollback (repo root, kept in step with `package.json`'s `version` and a `vX.Y.Z` git tag per release) | ✅ complete; real-device Android/iOS install check pending Ben |
+| **R**     | Per-day secondary segment target override (§2.4c, migration 37): generalizes Step P's morning-only per-day override to S2/S3/S4, any day of the week, lowered to 1; new floor-pinning rule (`min(1, target)`) so an overridden target of 1 is never misreported as a floor breach | ✅ complete                      |
 
 ### 14.2 Verification
 
 Eleven suites, all green. Every gate runs against the live project except the PGlite one. (Gate E
-engines now run 15 golden fixtures, not 8 — two added in v2.4: a segment-weight tie-break and a
+engines now run 16 golden fixtures, not 8 — two added in v2.4: a segment-weight tie-break and a
 preference tie-break, both empirically constructed and verified against a hand-patched "flat
 weighting" baseline to confirm the tie they test was real before asserting the fix resolves it.
 Three more added in v2.7 for the guard-requested shift count (§3.10): a stretch-bonus tie-break
@@ -1836,7 +1907,11 @@ fixture proving both the grant and its exclusivity to guards configured at exact
 scenario. Two more added in v2.8 (§2.4b/§4.2b): a per-day override fixture proving the raised target
 actually applies on its overridden days and never leaks onto the days around it, and a
 morning-priority tie-break fixture mirroring fixture 9's construction — an otherwise perfectly
-symmetric S1-vs-S4 coverage tie, broken only by `WEIGHTS.morning_priority`.)
+symmetric S1-vs-S4 coverage tie, broken only by `WEIGHTS.morning_priority`. One more added in v2.10
+(§2.4c): fixture 16 overrides Tuesday's S3 target and Wednesday's S4 target to 1 and asserts both
+that the shared `afternoon`/`night` shift type caps correctly on the overridden day while staying at
+baseline on unoverridden days, and that no floor breach is reported despite only 1 guard being
+assigned — proving the floor-pinning fix actually took effect.)
 
 Gate D (`manager.cloud.test.mjs`) has a known, pre-existing, date-driven flake unrelated to any
 of the above: its dedicated test week (`2026-09-06`) sits exactly on `ensure_roster_weeks()`'s
@@ -1853,7 +1928,7 @@ once the calendar moves the boundary past mid-September 2026; not a regression i
 | Gate C            | `node supabase/tests/preferences.cloud.test.mjs`          | Persistence, atomicity, deadline, isolation, notes (§3.6), cancelling a submission outright (§3.7), guard-requested shift count round-trip and isolation (§3.10) |
 | Gate D            | `node supabase/tests/manager.cloud.test.mjs`              | Week controls, כמות, lock/reopen override                                       |
 | Gate E (cloud)    | `npm run test:generate`                                   | Generate → verify stored rows → publish                                         |
-| Gate E (engines)  | `npm run test:fixtures`, `solver/tests/test_scheduler.py` | 15 golden fixtures, both engines                                                |
+| Gate E (engines)  | `npm run test:fixtures`, `solver/tests/test_scheduler.py` | 16 golden fixtures, both engines                                                |
 | Gate E (edit)     | `npm run test:edit`                                       | Draft and published-roster editing, deletion                                    |
 | Gate F (realtime) | `npm run test:realtime`                                   | Live push both directions: roster changes to guards, submissions to the manager |
 

@@ -1,12 +1,12 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.9** — §14 there is the
-build status and roadmap, §1.10 is the changelog for everything since v2.8. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.10** — §14 there is the
+build status and roadmap, §1.11 is the changelog for everything since v2.9. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
-*Last updated: 11 August 2026*
+*Last updated: 13 August 2026*
 
 ---
 
@@ -39,9 +39,9 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–Q complete, live and in daily use
+## State: build steps A–R complete, live and in daily use
 
-Full list in spec §14.1; changelog for every step is spec §1.1–§1.10. Step P (11 August) — per-day
+Full list in spec §14.1; changelog for every step is spec §1.1–§1.11. Step P (11 August) — per-day
 morning target override, a morning-priority coverage weight, the roster view stacking every
 published week instead of a selector, and an admin real/test view-mode toggle — is shipped, merged
 to `main`, and deployed, alongside a live production bug fix found while testing it (see below).
@@ -55,6 +55,13 @@ and launches standalone. Shipped, merged, deployed. **One thing still open**: re
 Screen" verification on a physical Android phone and a physical iPhone — not something that can be
 checked from a dev machine (Chrome's mobile emulation only resizes the viewport, it doesn't
 reproduce a native install banner). Do this before considering Step Q fully done.
+
+Step R (11 August) — **per-day secondary segment target override** (spec §2.4c, migration 37):
+generalizes Step P's morning-only per-day override to the other three segments (early afternoon,
+late afternoon, night), overridable on any day of the week and lowered to 1, plus a floor-pinning
+fix (`min(1, target)`) so an overridden target of 1 is never misreported as a floor breach. Shipped,
+merged to `main`, deployed, `package.json`/`GitVersion.yml` bumped to 2.10.0 and tagged `v2.10.0`.
+Nothing open — unlike Step Q's PWA, this feature has no device-dependent manual check pending.
 
 Nothing else mid-flight, no open branches.
 
@@ -177,8 +184,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.9.0**
-(Step Q, PWA support), seeded from the project's existing v2.8 milestone.
+state that version describes), matching the spec's own version history. Currently at **2.10.0**
+(Step R, per-day afternoon/night coverage-target overrides), up from v2.9's PWA-support milestone.
 
 ## Commands
 
