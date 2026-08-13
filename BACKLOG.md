@@ -39,7 +39,7 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–S complete (S on a feature branch, pending Ben's manual test + merge)
+## State: build steps A–S complete, live and in daily use
 
 Full list in spec §14.1; changelog for every step is spec §1.1–§1.12. Step P (11 August) — per-day
 morning target override, a morning-priority coverage weight, the roster view stacking every
@@ -82,11 +82,12 @@ Migrations applied to the live database, full TypeScript typecheck clean, and `t
 `test:fixtures` + `test:rls` all green (including new Gate E (edit) assertions for the note
 round-trip, the 40-character cap, clean rollback on a rejected save, placeholders coexisting with
 real rows and with each other without collision, and confirmation that a genuine second real shift
-for the same guard is still correctly refused) — **on `feature/assignment-cell-notes`, not yet
-merged to `main`**. Ben still needs to manually test the actual editing UI before this merges;
-nothing else pending.
+for the same guard is still correctly refused). A placeholder chip's dashed outline (Ben's own first
+manual test, on the branch) was dropped in a follow-up commit — it now renders exactly like a real
+chip, coloured by its shift, with the note text alone carrying the meaning. Shipped, merged to
+`main` (`feature/assignment-cell-notes`), and deployed.
 
-Nothing else mid-flight beyond that one open branch.
+Nothing else mid-flight, no open branches.
 
 **Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
 different underlying mechanism.
@@ -207,9 +208,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. `package.json` and
-`GitVersion.yml` are at **2.11.0** (Step S, free-text assignment notes) on the feature branch; the
-tag and the `main`-branch history stay at `v2.10.0` until this branch merges.
+state that version describes), matching the spec's own version history. Currently at **2.11.0**
+(Step S, free-text assignment notes and placeholder rows), tagged `v2.11.0`.
 
 ## Commands
 
