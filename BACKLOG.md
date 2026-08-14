@@ -1,7 +1,7 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.13** — §14 there is the
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.15** — §14 there is the
 build status and roadmap, §1.14 is the changelog for everything since v2.9. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
@@ -39,7 +39,7 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–U complete, live and in daily use
+## State: build steps A–W complete, live and in daily use
 
 Full list in spec §14.1; changelog for every step is spec §1.1–§1.14. Step P (11 August) — per-day
 morning target override, a morning-priority coverage weight, the roster view stacking every
@@ -342,7 +342,7 @@ rejected the push — often a stale subscription that's already been pruned by t
   `VAPID_SUBJECT` are set as Supabase Edge Function secrets; the matching `notify_url`/`cron_secret`
   pair lives in the `notification_secrets` table (not a GUC — see spec §12.10 for why), set via a
   plain `UPDATE`, not committed anywhere
-- 42 migrations applied, tracked in a `schema_migrations` ledger
+- 45 migrations applied, tracked in a `schema_migrations` ledger
 
 ### Current database contents
 
@@ -382,7 +382,7 @@ npm run db:verify        # RLS + reachability audit
 npm run seed:testweek    # load a week of guard availability
 npm run preview:week     # read-only: what the MOCK would produce
 npm run preview:cpsat    # the same input through CP-SAT
-npm run test:cloud       # all eight cloud suites against the live project
+npm run test:cloud       # all nine cloud suites against the live project
 npm run generate:icons   # regenerate public/icons/* from materials/Work-Organizer Icon.jpeg
 ```
 
