@@ -1,43 +1,67 @@
 /**
  * send-notifications -- fires the weekly broadcast, the two deadline
- * reminders, and a manager-triggered "roster published" broadcast
- * (spec 12.10, migration 43).
+ * reminders, a manager-triggered "roster published" broadcast (migration
+ * 43), and a guard's own submit/edit/cancel notifying the manager
+ * (migration 45).
  *
- * The first three types are invoked exclusively by pg_cron's
+ * The three original types are invoked exclusively by pg_cron's
  * notification_tick (via pg_net), authenticated by a shared secret in a
  * custom header -- there is no end-user session to check for a cron job.
- * roster_published is different: a manager presses a real button in their
- * browser, so it is ALSO reachable with a valid manager JWT, re-checked
- * server-side via is_manager() (same pattern as generate-schedule) -- never
- * trusting the client's own opinion of its role. A manager JWT unlocks ONLY
- * roster_published; the cron-only types stay cron-secret-only even for a
- * manager's own browser session.
+ * roster_published and guard_submitted/guard_cancelled are different: a real
+ * person presses a button (or saves a form) in their browser, so each is
+ * ALSO reachable with a valid JWT, re-checked server-side rather than
+ * trusting the client's own claim:
+ *   - roster_published needs a MANAGER JWT (is_manager(), same pattern as
+ *     generate-schedule).
+ *   - guard_submitted/guard_cancelled need the CALLER'S OWN JWT to resolve to
+ *     the guard_id in the payload (auth.getUser()) -- any guard may report
+ *     their own event, never someone else's.
+ * A JWT of either kind unlocks ONLY its own type(s); the cron-only types stay
+ * cron-secret-only even for a manager's own browser session.
+ *
+ * guard_submitted/guard_cancelled are deliberately client-triggered rather
+ * than a database trigger on weekly_submissions: test:cloud calls
+ * save_week_preferences/delete_week_submission directly, dozens of times per
+ * run, against the LIVE project (no separate test database exists here). A
+ * table-level trigger would fire on every one of those and page the real
+ * manager on every future test run. Firing from the client instead means
+ * test scripts -- which talk to the RPC over supabase-js, never through
+ * React -- never reach the code that calls this function. It also means the
+ * manager's own edit-on-behalf-of path (manager_save_week_preferences /
+ * useManager.ts) is excluded for free: it is simply a different code path
+ * that was never wired to notify.
  *
  * The three cron types are idempotent (claim_notification_send, migration
  * 40) and deduped to one 'sent' row per (type, week, guard) ever.
- * roster_published is deliberately NOT deduped that way -- a manager who
- * republishes a correction later in the same week may want to announce
- * again -- see migration 43's narrowed partial unique index. Every outcome,
- * for every type, is still logged to notification_log.
+ * roster_published/guard_submitted/guard_cancelled are deliberately NOT
+ * deduped that way -- each press or each real submit/edit/cancel is its own
+ * distinct event worth its own notification (migration 43's narrowed
+ * partial unique index). Every outcome, for every type, is still logged to
+ * notification_log.
  */
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import webpush from 'npm:web-push@3.6.7';
 
-type NotificationType = 'broadcast' | 'reminder_24h' | 'reminder_2h' | 'roster_published';
+type NotificationType =
+  | 'broadcast' | 'reminder_24h' | 'reminder_2h'
+  | 'roster_published' | 'guard_submitted' | 'guard_cancelled';
 const OFFSET_HOURS: Record<'reminder_24h' | 'reminder_2h', number> = {
   reminder_24h: 24,
   reminder_2h: 2,
 };
 
-// All three cron types exist to get a guard to submit, so they click
+// The three cron types exist to get a guard to submit, so they click
 // straight through to the submission form. roster_published sensibly points
-// at the roster instead. Carried in the payload (not hardcoded in the
+// at the roster; guard_submitted/guard_cancelled point at the manager's own
+// preference-review screen. Carried in the payload (not hardcoded in the
 // service worker) so a future type needs no new client-side branch.
 const TARGET_URL: Record<NotificationType, string> = {
   broadcast: '/preferences',
   reminder_24h: '/preferences',
   reminder_2h: '/preferences',
   roster_published: '/roster',
+  guard_submitted: '/manage/preferences',
+  guard_cancelled: '/manage/preferences',
 };
 
 const CORS = {
@@ -69,6 +93,12 @@ function formatIsraelParts(iso: string) {
   const weekdayShort = parts.find((p) => p.type === 'weekday')!.value; // 'Sun'..'Sat'
   const idx = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekdayShort);
   return { weekday: HEBREW_WEEKDAYS[idx] ?? weekdayShort, time: `${hour}:${minute}` };
+}
+
+/** e.g. "16 באוגוסט" -- mirrors src/lib/dates.ts's formatDayMonth exactly, for a plain DATE (no time-of-day). */
+function formatWeekStartHebrew(weekStart: string) {
+  return new Intl.DateTimeFormat('he-IL', { timeZone: 'UTC', day: 'numeric', month: 'long' })
+    .format(new Date(`${weekStart}T00:00:00Z`));
 }
 
 /**
@@ -138,14 +168,20 @@ Deno.serve(async (req: Request) => {
   }
   webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
 
-  let payload: { type?: NotificationType; week_start?: string };
+  let payload: {
+    type?: NotificationType; week_start?: string;
+    guard_id?: string; event?: 'new' | 'edited';
+  };
   try {
     payload = await req.json();
   } catch {
     return json({ error: 'invalid JSON' }, 400);
   }
   const type = payload.type;
-  if (type !== 'broadcast' && type !== 'reminder_24h' && type !== 'reminder_2h' && type !== 'roster_published') {
+  if (
+    type !== 'broadcast' && type !== 'reminder_24h' && type !== 'reminder_2h' &&
+    type !== 'roster_published' && type !== 'guard_submitted' && type !== 'guard_cancelled'
+  ) {
     return json({ error: 'unknown type' }, 400);
   }
 
@@ -153,29 +189,29 @@ Deno.serve(async (req: Request) => {
   const cronSecret = Deno.env.get('CRON_SHARED_SECRET');
   const hasCronAuth = Boolean(cronSecret) && req.headers.get('x-cron-secret') === cronSecret;
 
-  let isManagerCaller = false;
-  if (!hasCronAuth) {
+  let authorized = hasCronAuth;
+  if (!authorized) {
     const authHeader = req.headers.get('Authorization') ?? '';
     if (authHeader) {
-      // Runs as the CALLER, so is_manager() applies exactly as it would for
-      // a direct query -- a forged role claim in the request body is
-      // irrelevant, since the role is read from the database using the
-      // caller's own JWT (same pattern as generate-schedule).
+      // Runs as the CALLER, so is_manager()/auth.getUser() apply exactly as
+      // they would for a direct query -- a forged claim in the request body
+      // is irrelevant, since the check is resolved from the caller's own
+      // JWT (same pattern as generate-schedule).
       const asCaller = createClient(url, anonKey, {
         global: { headers: { Authorization: authHeader } },
         auth: { persistSession: false },
       });
-      const { data } = await asCaller.rpc('is_manager');
-      isManagerCaller = data === true;
+      if (type === 'roster_published') {
+        const { data } = await asCaller.rpc('is_manager');
+        authorized = data === true;
+      } else if (type === 'guard_submitted' || type === 'guard_cancelled') {
+        // Any guard may report THEIR OWN event -- never someone else's.
+        const { data } = await asCaller.auth.getUser();
+        authorized = Boolean(data.user) && data.user!.id === payload.guard_id;
+      }
     }
   }
-
-  // The cron secret authorises every type. A manager JWT authorises ONLY
-  // roster_published -- a manager's own logged-in browser must not be able
-  // to manually fire the deadline reminders just by having a valid session.
-  if (!hasCronAuth && !(isManagerCaller && type === 'roster_published')) {
-    return json({ error: 'forbidden' }, 403);
-  }
+  if (!authorized) return json({ error: 'forbidden' }, 403);
 
   const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 
@@ -215,6 +251,79 @@ Deno.serve(async (req: Request) => {
       if (!logRow) continue; // unexpected insert failure -- skip rather than crash the whole run
 
       if (await sendToTarget(admin, guardId, title, bodyText, type, targetUrl, logRow.id as number)) sent++;
+    }
+
+    return json({ ok: true, sent, targets: (targets ?? []).length });
+  }
+
+  // ==========================================================================
+  // guard_submitted / guard_cancelled -- a real guard's own event, verified
+  // server-side rather than trusted from the body: a submission row must
+  // actually exist (submit/edit) or actually be gone (cancel) right now.
+  // ==========================================================================
+  if (type === 'guard_submitted' || type === 'guard_cancelled') {
+    const guardId = payload.guard_id;
+    const weekStart = payload.week_start;
+    if (!guardId || !weekStart) return json({ error: 'guard_id and week_start required' }, 400);
+
+    const { data: existingSub } = await admin
+      .from('weekly_submissions')
+      .select('id')
+      .eq('guard_id', guardId)
+      .eq('week_start', weekStart)
+      .maybeSingle();
+
+    if (type === 'guard_submitted' && !existingSub) {
+      return json({ error: 'no submission found for guard/week' }, 400);
+    }
+    if (type === 'guard_cancelled' && existingSub) {
+      return json({ error: 'a submission still exists for guard/week' }, 400);
+    }
+
+    const { data: guardProfile } = await admin
+      .from('profiles')
+      .select('display_name')
+      .eq('id', guardId)
+      .maybeSingle();
+    const guardName = (guardProfile?.display_name as string | undefined) ?? 'מדריך';
+    const dateStr = formatWeekStartHebrew(weekStart);
+
+    let title: string;
+    let bodyText: string;
+    if (type === 'guard_cancelled') {
+      title = 'ביטול הגשה';
+      bodyText = `בוטלה הגשת האילוצים של ${guardName} לשבוע ${dateStr}`;
+    } else if (payload.event === 'edited') {
+      title = 'עדכון אילוצים';
+      bodyText = `עודכנה הגשת האילוצים של ${guardName} לשבוע ${dateStr}`;
+    } else {
+      title = 'הגשת אילוצים';
+      bodyText = `התקבלה הגשת אילוצים חדשה מ${guardName} לשבוע ${dateStr}`;
+    }
+    const targetUrl = TARGET_URL[type];
+
+    const { data: targets } = await admin.rpc('manager_targets');
+
+    let sent = 0;
+    for (const row of targets ?? []) {
+      const managerId = row.guard_id as string;
+
+      // No claim_notification_send here, deliberately -- each real submit,
+      // edit, or cancel is its own distinct event, not a duplicate to
+      // suppress (migration 45's CHECK addition, migration 43's narrowed
+      // unique index).
+      const { data: logRow } = await admin
+        .from('notification_log')
+        .insert({
+          notification_type: type, week_start: weekStart, guard_id: managerId,
+          status: 'sent', sent_at: new Date().toISOString(),
+          detail: `${guardName} (${guardId})${payload.event ? ` -- ${payload.event}` : ''}`,
+        })
+        .select('id')
+        .single();
+      if (!logRow) continue; // unexpected insert failure -- skip rather than crash the whole run
+
+      if (await sendToTarget(admin, managerId, title, bodyText, type, targetUrl, logRow.id as number)) sent++;
     }
 
     return json({ ok: true, sent, targets: (targets ?? []).length });

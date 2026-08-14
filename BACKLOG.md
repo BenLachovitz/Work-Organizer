@@ -151,9 +151,32 @@ the auth-rejection paths (403/400), for the same reason Gate G never invokes the
 a success case: it would broadcast to every real subscribed guard, including Ben's own phone, on
 every test run. Do this manually before considering Step V fully done.
 
-A second, related feature — a manager-facing notification when a guard submits, edits, or cancels
-their availability — was scoped and planned alongside this one but is deliberately **not** part of
-Step V; it ships as its own step, per Ben's explicit direction to keep the two efforts separate.
+Step W (14 August) — **manager notified on guard submit/edit/cancel** (spec §12.10, migration 45):
+two new push types, `guard_submitted` (new submission or an edit, distinguished in the copy) and
+`guard_cancelled`, sent to every `manager_targets()` row (role-based, not hardcoded to Ben) whenever
+a guard saves or cancels their own availability. **Deliberately client-triggered, not a database
+trigger** — the original plan called for a trigger on `weekly_submissions`, but implementation
+surfaced a real problem first: `test:cloud` calls `save_week_preferences`/`delete_week_submission`
+directly, dozens of times per run, against the live project (there is no separate test database
+here), so a table-level trigger would have paged Ben's real phone on every future test run. Moved to
+firing from `useSavePreferences`/`useDeleteSubmission`'s `onSuccess` instead — test scripts talk to
+the RPC over `supabase-js` directly, never through React, so they never reach the code that sends it.
+This also excludes the manager's own edit-on-behalf-of path (`manager_save_week_preferences`, a
+separate hook in `useManager.ts`) for free, with no `auth.uid()` guard needed, since that path was
+simply never wired to notify. `send-notifications` verifies both the caller's identity (their own JWT
+must resolve to the `guard_id` being reported — any guard may report only their own event) and the
+claimed event itself (a submission row must actually exist for submit/edit, actually not exist for
+cancel) server-side, rather than trusting the request body. Neither type is deduped — each real
+submit, edit, or cancel is its own distinct, reviewable event.
+
+Migrations applied to the live database, `send-notifications` redeployed, full TypeScript typecheck
+clean, and `test:cloud` (10 new Gate G assertions: `manager_targets()` targeting, both types' repeat-
+send behaviour, and five auth/verification rejection paths) + `test:fixtures` + `test:rls` all green.
+Shipped, `package.json`/`GitVersion.yml` bumped to 2.15.0, tagged `v2.15.0`. **One thing still open**:
+same as Step V, real on-device delivery hasn't been confirmed — the automated suite only exercises
+the safe rejection paths (403/400), for the same reason Gate G never invokes a real success path for
+`roster_published`: it would page Ben's real phone on every test run. Do this manually before
+considering Step W fully done.
 
 Nothing else mid-flight, no open branches.
 
@@ -195,6 +218,9 @@ deliberately deferred design choice, not a build gap. Four things still open, no
   as the two items above: everything checkable without pushing to a real phone (auth paths, schema,
   idempotency) is covered by `test:cloud`; actually pressing the button and confirming it arrives on
   Ben's installed PWA still needs Ben to do it himself.
+- **`guard_submitted`/`guard_cancelled` real-device delivery confirmation** (Step W, spec §12.10) —
+  same gap again: submitting or cancelling a real (or throwaway test) guard's availability through the
+  actual app and confirming the notification lands on Ben's phone still needs a manual pass.
 - Whether `configured_kamut` itself should act as a soft *ceiling* for **every** guard (not just a
   floor) — surfaced once in v2.4 testing but the segment-weighting fix alone independently resolved
   the case that raised it, so never pursued as a general policy. A related, narrower question is now
@@ -329,8 +355,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.14.0**
-(Step V, manual roster-published broadcast), tagged `v2.14.0`.
+state that version describes), matching the spec's own version history. Currently at **2.15.0**
+(Step W, manager notified on guard submit/edit/cancel), tagged `v2.15.0`.
 
 ## Commands
 

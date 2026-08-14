@@ -289,6 +289,99 @@ async function run() {
     res.status === 400 ? ok('an unpublished week is rejected (400), before any send') : bad('unpublished week', `status ${res.status}`);
   }
 
+  console.log('\n\x1b[1m9. manager_targets() (migration 45) + guard_submitted/guard_cancelled schema\x1b[0m');
+  const mgrId = await idOf(MGR);
+  {
+    const rows = await sql(`SELECT p.employee_code FROM public.manager_targets() t JOIN profiles p ON p.id = t.guard_id WHERE p.employee_code LIKE '9905%' ORDER BY p.employee_code`);
+    const codes = rows.map((r) => r.employee_code);
+    JSON.stringify(codes) === JSON.stringify([MGR])
+      ? ok(`manager_targets() returns exactly {MGR}, not the guards (${codes.join(',')})`)
+      : bad('manager_targets', JSON.stringify(codes));
+  }
+  {
+    // Neither new type is deduped -- two 'sent' rows for the same (week, manager) must both succeed.
+    await sql(`INSERT INTO notification_log (notification_type, week_start, guard_id, status, sent_at)
+               VALUES ('guard_submitted', '${WEEK}', '${mgrId}', 'sent', NOW());`);
+    let secondFailed = false;
+    try {
+      await sql(`INSERT INTO notification_log (notification_type, week_start, guard_id, status, sent_at)
+                 VALUES ('guard_submitted', '${WEEK}', '${mgrId}', 'sent', NOW());`);
+    } catch { secondFailed = true; }
+    !secondFailed
+      ? ok('a second guard_submitted sent row for the same (week, manager) is allowed')
+      : bad('guard_submitted repeat', 'second insert was unexpectedly rejected');
+  }
+  {
+    await sql(`INSERT INTO notification_log (notification_type, week_start, guard_id, status, sent_at)
+               VALUES ('guard_cancelled', '${WEEK}', '${mgrId}', 'sent', NOW());`);
+    let secondFailed = false;
+    try {
+      await sql(`INSERT INTO notification_log (notification_type, week_start, guard_id, status, sent_at)
+                 VALUES ('guard_cancelled', '${WEEK}', '${mgrId}', 'sent', NOW());`);
+    } catch { secondFailed = true; }
+    !secondFailed
+      ? ok('a second guard_cancelled sent row for the same (week, manager) is allowed')
+      : bad('guard_cancelled repeat', 'second insert was unexpectedly rejected');
+  }
+
+  console.log('\n\x1b[1m10. send-notifications auth for guard_submitted/guard_cancelled -- safe paths only\x1b[0m');
+  // Same reasoning as section 8: a "success" call here would page every real
+  // manager_targets() row, including Ben's own phone. This is exactly the
+  // scenario the client-triggered design (not a DB trigger) exists to avoid
+  // during test runs -- see the header comment in useGuardPortal.ts /
+  // send-notifications/index.ts. Real on-device delivery needs the same
+  // manual confirmation Step T's original three types already got.
+  {
+    const res = await fetch(FN_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'guard_submitted', guard_id: aId, week_start: WEEK }),
+    });
+    res.status === 403 ? ok('no auth at all is rejected (403)') : bad('no auth guard_submitted', `status ${res.status}`);
+  }
+  {
+    // B's own JWT claiming to report A's event -- identity mismatch.
+    const { data: sess } = await b.auth.getSession();
+    const res = await fetch(FN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sess.session.access_token}` },
+      body: JSON.stringify({ type: 'guard_submitted', guard_id: aId, week_start: WEEK }),
+    });
+    res.status === 403 ? ok("a guard reporting a DIFFERENT guard's event is rejected (403)") : bad('spoofed guard_id', `status ${res.status}`);
+  }
+  {
+    // Even a MANAGER's own JWT gets no free pass -- the check is
+    // guard_id === caller, not is_manager().
+    const { data: sess } = await mgr.auth.getSession();
+    const res = await fetch(FN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sess.session.access_token}` },
+      body: JSON.stringify({ type: 'guard_submitted', guard_id: aId, week_start: WEEK }),
+    });
+    res.status === 403 ? ok("a manager JWT cannot report another guard's event either (403)") : bad('manager JWT spoof', `status ${res.status}`);
+  }
+  {
+    // B's own JWT, B's own guard_id, but B has no submission for WEEK --
+    // rejected server-side rather than trusted from the body.
+    const { data: sess } = await b.auth.getSession();
+    const res = await fetch(FN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sess.session.access_token}` },
+      body: JSON.stringify({ type: 'guard_submitted', guard_id: bId, week_start: WEEK }),
+    });
+    res.status === 400 ? ok('guard_submitted with no actual submission row is rejected (400)') : bad('guard_submitted no row', `status ${res.status}`);
+  }
+  {
+    // A's own JWT, A's own guard_id, guard_cancelled -- but A still HAS a
+    // submission (setup never cancelled it) -- rejected.
+    const { data: sess } = await a.auth.getSession();
+    const res = await fetch(FN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sess.session.access_token}` },
+      body: JSON.stringify({ type: 'guard_cancelled', guard_id: aId, week_start: WEEK }),
+    });
+    res.status === 400 ? ok('guard_cancelled while a submission still exists is rejected (400)') : bad('guard_cancelled row exists', `status ${res.status}`);
+  }
+
   await cleanup();
   console.log(`\n\x1b[1mResult:\x1b[0m \x1b[32m${passed} passed\x1b[0m, ` +
     (failures.length ? `\x1b[31m${failures.length} failed\x1b[0m` : '0 failed'));

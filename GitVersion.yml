@@ -10,11 +10,12 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.14.0: manual
-# "roster published" broadcast button (migration 43-44) -- a manager-gated,
-# repeatable-per-week notification type on send-notifications, plus a real
-# publish_roster RPC replacing three non-atomic client writes.
-next-version: 2.14.0
+# version (see BACKLOG.md's Versioning section). Currently 2.15.0: manager
+# gets notified when a guard submits, edits, or cancels their availability
+# (migration 45) -- client-triggered (not a DB trigger, to keep test:cloud
+# from paging the real manager on every run), guard-identity verified
+# server-side, targeting a new role-based manager_targets() function.
+next-version: 2.15.0
 mode: Mainline
 branches:
   main:

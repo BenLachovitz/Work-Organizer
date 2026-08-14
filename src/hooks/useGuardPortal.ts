@@ -20,6 +20,38 @@ export const guardKeys = {
   week: (guardId: string, weekStart: DateKey) => ['guardWeek', guardId, weekStart] as const,
 };
 
+/**
+ * Fire-and-forget: tells the manager a guard just submitted, edited, or
+ * cancelled. Deliberately never awaited by its caller and never throws --
+ * the guard's own save/cancel already succeeded server-side by the time this
+ * runs, and a failed "FYI" push to the manager is not a reason to make the
+ * guard's action look like it failed.
+ *
+ * This is what makes guard_submitted/guard_cancelled client-triggered rather
+ * than a database trigger (see send-notifications' own header comment): only
+ * a real guard using the real app reaches this function. Test scripts call
+ * save_week_preferences/delete_week_submission directly over supabase-js,
+ * never through React, so they never invoke it -- avoiding a real push to
+ * the real manager's phone on every test run.
+ */
+function notifyManagerOfSubmissionChange(args: {
+  guardId: string;
+  weekStart: DateKey;
+  type: 'guard_submitted' | 'guard_cancelled';
+  event?: 'new' | 'edited';
+}) {
+  requireSupabase()
+    .functions.invoke('send-notifications', {
+      body: {
+        type: args.type,
+        guard_id: args.guardId,
+        week_start: args.weekStart,
+        ...(args.event ? { event: args.event } : {}),
+      },
+    })
+    .catch((e) => console.warn('notifyManagerOfSubmissionChange failed (non-fatal):', e));
+}
+
 export interface GuardWeekData {
   submission: WeeklySubmission | null;
   preferences: WishPreference[];
@@ -106,6 +138,12 @@ export function useSavePreferences() {
 
   return useMutation({
     mutationFn: async (input: SavePreferencesInput) => {
+      // Read BEFORE the save so "was this a new submission or an edit" isn't
+      // guessed after the fact -- the cache still reflects pre-save state
+      // here, since nothing has invalidated it yet.
+      const before = queryClient.getQueryData<GuardWeekData>(guardKeys.week(guardId, input.weekStart));
+      const wasNew = !before?.hasSubmitted;
+
       const { error } = await requireSupabase().rpc('save_week_preferences', {
         p_week_start: input.weekStart,
         p_slots: input.slots,
@@ -120,11 +158,18 @@ export function useSavePreferences() {
         }
         throw new Error(error.message);
       }
+      return { wasNew };
     },
-    onSuccess: (_data, input) => {
+    onSuccess: ({ wasNew }, input) => {
       void queryClient.invalidateQueries({
         queryKey: guardKeys.week(guardId, input.weekStart),
       });
+      if (guardId) {
+        notifyManagerOfSubmissionChange({
+          guardId, weekStart: input.weekStart, type: 'guard_submitted',
+          event: wasNew ? 'new' : 'edited',
+        });
+      }
     },
   });
 }
@@ -157,6 +202,9 @@ export function useDeleteSubmission() {
     },
     onSuccess: (_data, weekStart) => {
       void queryClient.invalidateQueries({ queryKey: guardKeys.week(guardId, weekStart) });
+      if (guardId) {
+        notifyManagerOfSubmissionChange({ guardId, weekStart, type: 'guard_cancelled' });
+      }
     },
   });
 }
