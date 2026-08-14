@@ -201,13 +201,24 @@ Deno.serve(async (req: Request) => {
         global: { headers: { Authorization: authHeader } },
         auth: { persistSession: false },
       });
-      if (type === 'roster_published') {
-        const { data } = await asCaller.rpc('is_manager');
-        authorized = data === true;
-      } else if (type === 'guard_submitted' || type === 'guard_cancelled') {
-        // Any guard may report THEIR OWN event -- never someone else's.
-        const { data } = await asCaller.auth.getUser();
-        authorized = Boolean(data.user) && data.user!.id === payload.guard_id;
+      try {
+        if (type === 'roster_published') {
+          const { data } = await asCaller.rpc('is_manager');
+          authorized = data === true;
+        } else if (type === 'guard_submitted' || type === 'guard_cancelled') {
+          // Any guard may report THEIR OWN event -- never someone else's.
+          // getUser() needs the token passed explicitly -- unlike .rpc()/.from(),
+          // which pick up the global Authorization header on their own, the auth
+          // client has no session of its own to resolve it from otherwise (it
+          // was constructed with persistSession: false and nothing ever signed
+          // in). A malformed/expired token throws rather than returning no
+          // user, so this is authorization-fails-closed, not a crash.
+          const token = authHeader.replace(/^Bearer\s+/i, '');
+          const { data } = await asCaller.auth.getUser(token);
+          authorized = Boolean(data.user) && data.user!.id === payload.guard_id;
+        }
+      } catch {
+        authorized = false;
       }
     }
   }
