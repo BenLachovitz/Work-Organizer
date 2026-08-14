@@ -8,7 +8,14 @@ import {
   type ReactNode,
 } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { codeToEmail, getHasPasskey, isSupabaseConfigured, supabase } from '@/lib/supabase';
+import {
+  codeToEmail,
+  getPasskeyGuardId,
+  isSupabaseConfigured,
+  setPasskeyGuardId,
+  supabase,
+} from '@/lib/supabase';
+import { signInWithPasskeyDevice } from '@/lib/webauthn';
 import type { Profile } from '@/types/database';
 
 export type AuthStatus = 'loading' | 'signedOut' | 'locked' | 'signedIn';
@@ -137,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // app load rather than silently resuming an old session -- the session
       // itself is left untouched (still refreshable) so signInWithPasskey()
       // below can replace it on success without ever needing to read it back.
-      if (data.session && getHasPasskey()) {
+      if (data.session && getPasskeyGuardId()) {
         setStatus('locked');
         return;
       }
@@ -202,6 +209,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password: pin,
       });
       if (error) throw new Error('קוד או סיסמה שגויים');
+      // A shared-device edge case: a stale passkey hint from a PREVIOUS guard
+      // on this device must not gate the app-restart lock screen behind an
+      // identity this guard has no way to satisfy.
+      const existingHint = getPasskeyGuardId();
+      if (existingHint && existingHint !== data.user.id) setPasskeyGuardId(null);
       setSession(data.session);
       setProfile(await loadProfile(data.user.id));
       setStatus('signedIn');
@@ -211,8 +223,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithPasskey = useCallback(async () => {
     if (demoMode) throw new Error('אימות ביומטרי אינו זמין במצב הדגמה');
-    const { data, error } = await supabase!.auth.signInWithPasskey();
-    if (error || !data?.session || !data.user) {
+    const guardId = getPasskeyGuardId();
+    if (!guardId) throw new Error('לא נמצא אימות ביומטרי רשום למכשיר זה');
+    const { access_token, refresh_token } = await signInWithPasskeyDevice(guardId);
+    const { data, error } = await supabase!.auth.setSession({ access_token, refresh_token });
+    if (error || !data.session || !data.user) {
       throw new Error(error?.message ?? 'האימות הביומטרי נכשל');
     }
     setSession(data.session);

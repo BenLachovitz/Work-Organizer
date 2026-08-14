@@ -1,7 +1,7 @@
 {
   "name": "work-orgenizer",
   "private": true,
-  "version": "2.16.0",
+  "version": "2.17.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,7 +16,7 @@
     "db:bundle": "node supabase/apply.mjs --bundle",
     "test:auth": "node supabase/tests/auth.cloud.test.mjs",
     "test:client": "node supabase/tests/client.cloud.test.mjs",
-    "test:cloud": "node supabase/tests/rls.cloud.test.mjs && node supabase/tests/auth.cloud.test.mjs && node supabase/tests/client.cloud.test.mjs && node supabase/tests/preferences.cloud.test.mjs && node supabase/tests/manager.cloud.test.mjs && node --experimental-strip-types supabase/tests/generate.cloud.test.mjs && node supabase/tests/edit.cloud.test.mjs && node supabase/tests/realtime.cloud.test.mjs && node supabase/tests/notifications.cloud.test.mjs",
+    "test:cloud": "node supabase/tests/rls.cloud.test.mjs && node supabase/tests/auth.cloud.test.mjs && node supabase/tests/client.cloud.test.mjs && node supabase/tests/preferences.cloud.test.mjs && node supabase/tests/manager.cloud.test.mjs && node --experimental-strip-types supabase/tests/generate.cloud.test.mjs && node supabase/tests/edit.cloud.test.mjs && node supabase/tests/realtime.cloud.test.mjs && node supabase/tests/notifications.cloud.test.mjs && node supabase/tests/webauthn.cloud.test.mjs",
     "test:prefs": "node supabase/tests/preferences.cloud.test.mjs",
     "test:manager": "node supabase/tests/manager.cloud.test.mjs",
     "test:fixtures": "node --experimental-strip-types solver/tests/run-fixtures.mjs",
@@ -28,9 +28,11 @@
     "preview:cpsat": "solver/.venv/Scripts/python solver/tests/preview_cpsat.py solver/tests/realweek.json",
     "test:edit": "node supabase/tests/edit.cloud.test.mjs",
     "test:realtime": "node supabase/tests/realtime.cloud.test.mjs",
-    "test:notifications": "node supabase/tests/notifications.cloud.test.mjs"
+    "test:notifications": "node supabase/tests/notifications.cloud.test.mjs",
+    "test:webauthn": "node supabase/tests/webauthn.cloud.test.mjs"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^13.3.0",
     "@supabase/supabase-js": "^2.112.2",
     "@tanstack/react-query": "^5.101.4",
     "react": "^19.2.8",

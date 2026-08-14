@@ -7,6 +7,7 @@ import {
   type PreferenceFormValue,
 } from '@/components/guard/WeeklyPreferenceForm';
 import { Alert, Button, Card, Spinner, Toggle } from '@/components/ui';
+import { useAuth } from '@/contexts/AuthContext';
 import { useActiveWeek } from '@/hooks/useWeeks';
 import { useDeleteSubmission, useGuardWeek, useSavePreferences } from '@/hooks/useGuardPortal';
 import { usePasskey } from '@/hooks/usePasskey';
@@ -18,7 +19,8 @@ import { getRememberMe, setRememberMe } from '@/lib/supabase';
  *  live as a header icon in AppShell instead, since this needs more room:
  *  an explanatory description and a per-passkey list). */
 function DeviceSecuritySection() {
-  const { supported, loading, passkeys, busy, error, register, remove } = usePasskey();
+  const { profile } = useAuth();
+  const { supported, loading, passkeys, busy, error, register, remove } = usePasskey(profile?.id);
   const [rememberMe, setRememberMeState] = useState(getRememberMe());
 
   const toggleRememberMe = (value: boolean) => {

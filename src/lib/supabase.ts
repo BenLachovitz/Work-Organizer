@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 const REMEMBER_ME_KEY = 'wo.rememberMe';
-const HAS_PASSKEY_KEY = 'wo.hasPasskey';
+const PASSKEY_GUARD_ID_KEY = 'wo.webauthnGuardId';
 const SESSION_KEY = 'sb-work-orgenizer-auth-token';
 
 /**
@@ -28,16 +28,25 @@ export function setRememberMe(remember: boolean): void {
   localStorage.setItem(REMEMBER_ME_KEY, remember ? '1' : '0');
 }
 
-/** Set on this device right after a passkey is registered; cleared when the
- *  guard's last passkey is removed. Drives the app-restart lock gate -- see
- *  AuthContext's bootstrap effect. */
-export function getHasPasskey(): boolean {
-  return localStorage.getItem(HAS_PASSKEY_KEY) === '1';
+/**
+ * The guard whose app-scoped WebAuthn credential lives on THIS device, or
+ * null. Set right after a successful registration; cleared when the guard's
+ * last passkey is removed, or when a different guard signs in on the same
+ * (shared) device. Drives the app-restart lock gate -- see AuthContext's
+ * bootstrap effect -- and is sent as a plain hint to the webauthn Edge
+ * Function so it knows which credential to challenge (the credential is
+ * non-discoverable/non-resident, so unlike a true synced passkey, the
+ * browser cannot show a blind "pick your passkey" picker). Not a trust
+ * boundary: the real authorization is the cryptographic signature verified
+ * server-side against that specific guard's stored public key.
+ */
+export function getPasskeyGuardId(): string | null {
+  return localStorage.getItem(PASSKEY_GUARD_ID_KEY);
 }
 
-export function setHasPasskey(has: boolean): void {
-  if (has) localStorage.setItem(HAS_PASSKEY_KEY, '1');
-  else localStorage.removeItem(HAS_PASSKEY_KEY);
+export function setPasskeyGuardId(guardId: string | null): void {
+  if (guardId) localStorage.setItem(PASSKEY_GUARD_ID_KEY, guardId);
+  else localStorage.removeItem(PASSKEY_GUARD_ID_KEY);
 }
 
 /**
@@ -78,7 +87,6 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
         detectSessionInUrl: false, // no OAuth redirects: badge code + PIN only
         storageKey: SESSION_KEY,
         storage: switchableStorage,
-        experimental: { passkey: true },
       },
     })
   : null;

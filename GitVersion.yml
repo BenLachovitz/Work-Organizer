@@ -10,11 +10,12 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.16.0: passkey
-# (Face ID / fingerprint) login via Supabase Auth's native experimental
-# WebAuthn API, plus a device-scoped remember-me toggle for guards without
-# a passkey.
-next-version: 2.16.0
+# version (see BACKLOG.md's Versioning section). Currently 2.17.0: replaces
+# v2.16.0's use of Supabase Auth's native Passkey API (a true, OS-synced
+# passkey) with a from-scratch, app-scoped WebAuthn implementation
+# (residentKey: 'discouraged') after real-device testing showed the native
+# API wasn't what was wanted.
+next-version: 2.17.0
 mode: Mainline
 branches:
   main:

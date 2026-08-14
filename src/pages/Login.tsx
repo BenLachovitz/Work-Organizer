@@ -3,7 +3,12 @@ import { CodeInput } from '@/components/auth/CodeInput';
 import { Alert, Button, Card } from '@/components/ui';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePasskeySupport } from '@/hooks/usePasskey';
-import { EMPLOYEE_CODE_LENGTH, PIN_MIN_LENGTH, isValidEmployeeCode } from '@/lib/supabase';
+import {
+  EMPLOYEE_CODE_LENGTH,
+  PIN_MIN_LENGTH,
+  getPasskeyGuardId,
+  isValidEmployeeCode,
+} from '@/lib/supabase';
 
 type Step = 'code' | 'pin' | 'setPin';
 
@@ -50,7 +55,12 @@ function PasskeyLockScreen() {
 
 export function Login() {
   const { status: authStatus, lookupCode, signIn, claim, signInWithPasskey, demoMode } = useAuth();
-  const passkeySupported = usePasskeySupport();
+  // Gated on this device having actually registered a passkey before, not just
+  // hardware capability -- a bare capability check would offer this button to
+  // every guard on every compatible phone, including on their very first visit
+  // with nothing registered yet, where sign-in is guaranteed to fail with a
+  // confusing "no passkey for this device" system prompt.
+  const passkeySupported = usePasskeySupport() && Boolean(getPasskeyGuardId());
 
   const [step, setStep] = useState<Step>('code');
   const [code, setCode] = useState('');

@@ -230,14 +230,78 @@ has no frontend test runner, and WebAuthn ceremonies can't be scripted headlessl
 authenticator, which is a bigger addition than this feature justifies right now. Shipped,
 `package.json`/`GitVersion.yml` bumped to 2.16.0, tagged `v2.16.0`.
 
+**Step X revised, same day — real-device testing changed the design.** Registering a passkey on
+Ben's Android phone worked exactly as coded, but exposed what the native Supabase Passkey API
+actually is: a true, **discoverable, OS-synced passkey**, shown in the phone's system "Passwords &
+passkeys" list and eligible to sync to Ben's Google account — not the app-scoped, device-only
+credential this was meant to be. WebAuthn supports that directly (`residentKey: 'discouraged'`
+produces a non-resident credential that doesn't sync and isn't offered through the OS account-picker
+UI), but Supabase's native Passkey API doesn't expose that option — it's deliberately built only for
+true discoverable passkeys. **v2.16.0's mechanism was replaced wholesale** with a from-scratch
+WebAuthn implementation (`@simplewebauthn/browser` client-side, `@simplewebauthn/server` in a new
+`webauthn` Edge Function, migration 46's `webauthn_credentials`/`webauthn_challenges` tables) —
+undoing the "zero backend code" property v2.16.0 had, which was always the trade-off for using
+Supabase's native API in the first place. The UX already validated in v2.16.0 (restart-only lock
+gate, additive-never-a-lockout, default-on remember-me for guards without a passkey) carried over
+unchanged; only the credential mechanism underneath it changed.
+
+The one real design consequence: a non-discoverable credential means the server must know which
+credential to challenge before the WebAuthn ceremony starts, so sign-in lost the "no username
+needed" property true passkeys have. Solved with a local-only `wo.webauthnGuardId` (renamed from
+`wo.hasPasskey`) that identifies which guard registered on this specific device — sent to the new
+Edge Function only as a hint for building `allowCredentials`, never as a trust boundary; the actual
+authorization is the cryptographic signature checked server-side against that guard's stored public
+key. `register-*` actions verify the caller's own identity from their own JWT using the exact
+`asCaller` + `getUser(token)` pattern `send-notifications` already established (and the exact lesson
+v2.15.1 had to learn the hard way about `getUser()` needing its token passed explicitly). A
+successful sign-in mints a real Supabase session with no password involved:
+`admin.generateLink({ type: 'magiclink' })` returns a token without ever sending mail, immediately
+exchanged server-side via `verifyOtp({ token_hash, type: 'magiclink' })` for a real session, whose
+tokens alone are handed back to the browser to install with `supabase.auth.setSession()`.
+
+RP ID/origin moved from a Supabase Dashboard setting (pinned to one value for the whole project) to
+a hardcoded allowlist inside the Edge Function itself, keyed off the request's `Origin` header:
+the real production origin, plus `http://localhost:5173` as a second, entirely separate RP for local
+dev testing — something the native-API approach could never offer, since a credential registered
+under one RP ID simply doesn't verify under another. The Supabase Dashboard's passkey toggle from
+earlier the same day is unused now and can be left as-is.
+
+Known, stated platform limit, not a bug: Android honours `residentKey: 'discouraged'` and never
+syncs the credential; **Apple's platform authenticator can still create a synced iCloud Keychain
+passkey even when asked for `discouraged`** — "never synced" is a strong guarantee on Android and
+only a best-effort one on iPhone. Confirmed against real WebAuthn behaviour before committing to the
+design, not assumed.
+
+New **Gate H** (`test:webauthn`, `supabase/tests/webauthn.cloud.test.mjs`, 22 assertions): RLS on
+both new tables (an owner can read/rename/delete only their own credential row; a different guard
+gets nothing; a manager can read any row; direct client `INSERT` is rejected outright — no grant
+exists, only the Edge Function's service-role client may ever create a row; `webauthn_challenges` is
+completely unreachable via PostgREST regardless of role), and the Edge Function's auth/verification
+paths — missing/malformed caller JWT, an origin outside the allowlist, a `guard_id` with no
+credentials, a malformed `guard_id`, and a bogus credential response rejected cleanly (400, not a
+crash) on both `register-verify` and `auth-verify`, including proof that a consumed challenge cannot
+be replayed. Same deliberate scope as Gate G never invoking `send-notifications` for a real push:
+a genuine end-to-end ceremony still needs a physical authenticator or a browser's virtual-
+authenticator API, neither of which this suite uses — what IS exercised for real is
+`generateRegistrationOptions()`/`generateAuthenticationOptions()` actually running against the live
+Deno Edge Function runtime and producing well-formed output, which doubles as the "confirm a new
+runtime dependency actually works before trusting it" smoke test `send-notifications` set the
+precedent for with `npm:web-push` (spec's Step T account).
+
+Full TypeScript typecheck clean, `test:cloud` all green (10 suites, 214 assertions — Gate H is new).
+Shipped, `package.json`/`GitVersion.yml` bumped to 2.17.0, tagged `v2.17.0`. **Still open, same as
+v2.16.0 left it**: real-device confirmation that registering now produces a credential which does
+*not* appear in the phone's system Passwords & passkeys list, and that the restart lock screen's
+`signInWithPasskeyDevice()` unlock actually works end to end.
+
 Nothing else mid-flight, no open branches.
 
 **Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
 different underlying mechanism.
 
-**Twelve test suites, mostly green** (`npm run test:cloud` + `test:fixtures` + `test_scheduler.py` +
+**Thirteen test suites, mostly green** (`npm run test:cloud` + `test:fixtures` + `test_scheduler.py` +
 `test:compare` — spec §14.2). Gate E's engine fixtures grew from 8 to 13 in step L/O, then to 15 in
-step P. Gate G (`test:notifications`, step T) is the newest addition. **Gate D has a known,
+step P. Gate H (`test:webauthn`, step X's revision) is the newest addition. **Gate D has a known,
 pre-existing, date-driven flake** — spec §14.2 has the full mechanics;
 short version: its dedicated test week (`2026-09-06`) now sits exactly on `ensure_roster_weeks()`'s
 sweep-window boundary, so real production traffic mid-test-run can sweep the test's own fixture row.
@@ -259,12 +323,12 @@ open. Confirmed live against the production project (roughly one `ensure_roster_
 Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
 deliberately deferred design choice, not a build gap. Five things still open, not build gaps:
 
-- **Passkey real-device registration + unlock confirmation** (Step X, spec §8) — Ben enabled Passkeys
-  on the Supabase project and set the Relying Party ID/Origins to the production domain; the ceremony
-  itself (registering a passkey on a real iPhone/Android from Preferences, then confirming the
-  app-restart lock screen and `signInWithPasskey()` unlock actually work) can only be tested against
-  the live deployment — same class of gap as the PWA/notification items below — and hasn't been done
-  yet.
+- **Passkey real-device registration + unlock confirmation** (Step X, spec §8) — now on the rebuilt
+  app-scoped WebAuthn mechanism (own `webauthn` Edge Function, not Supabase's native Passkey API; see
+  Step X's same-day revision above). Registering from Preferences on a real iPhone/Android, confirming
+  the credential does *not* show up in the phone's system Passwords & passkeys list, and confirming
+  the app-restart lock screen's unlock actually works can only be tested against the live deployment
+  — same class of gap as the PWA/notification items below — and hasn't been done yet.
 - **PWA real-device install check** (Step Q, spec §10.4) — everything checkable from a dev machine
   (manifest, service worker activation, icon resolution, `vercel.json` static-asset headers) is
   verified against both `vite preview` and production. Actually adding the app to a home screen on a
@@ -378,7 +442,7 @@ rejected the push — often a stale subscription that's already been pruned by t
 - Credentials in `.env.local` — **gitignored**, never committed
 - ⚠️ Outbound Postgres ports (5432/6543) are **firewalled on this machine**. `DATABASE_URL` will not
   work; migrations go over HTTPS through the Supabase Management API via `npm run db:apply`.
-- Edge Functions `claim-code`, `generate-schedule`, and `send-notifications` are deployed
+- Edge Functions `claim-code`, `generate-schedule`, `send-notifications`, and `webauthn` are deployed
 - Solver live at `https://guard-solver.onrender.com`; `SOLVER_URL` and `SOLVER_SECRET` are set as
   Supabase Edge Function secrets
 - `pg_cron`/`pg_net` enabled (first use in this project, spec §12.10); one job, `notification_tick`,
@@ -386,7 +450,7 @@ rejected the push — often a stale subscription that's already been pruned by t
   `VAPID_SUBJECT` are set as Supabase Edge Function secrets; the matching `notify_url`/`cron_secret`
   pair lives in the `notification_secrets` table (not a GUC — see spec §12.10 for why), set via a
   plain `UPDATE`, not committed anywhere
-- 45 migrations applied, tracked in a `schema_migrations` ledger
+- 46 migrations applied, tracked in a `schema_migrations` ledger
 
 ### Current database contents
 
@@ -413,8 +477,9 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.16.0**
-(passkey login + remember-me), tagged `v2.16.0`.
+state that version describes), matching the spec's own version history. Currently at **2.17.0**
+(app-scoped WebAuthn passkeys, replacing v2.16.0's use of Supabase's native Passkey API), tagged
+`v2.17.0`.
 
 ## Commands
 
@@ -425,7 +490,7 @@ npm run db:verify        # RLS + reachability audit
 npm run seed:testweek    # load a week of guard availability
 npm run preview:week     # read-only: what the MOCK would produce
 npm run preview:cpsat    # the same input through CP-SAT
-npm run test:cloud       # all nine cloud suites against the live project
+npm run test:cloud       # all ten cloud suites against the live project
 npm run generate:icons   # regenerate public/icons/* from materials/Work-Organizer Icon.jpeg
 ```
 
