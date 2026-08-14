@@ -10,12 +10,13 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.17.0: replaces
-# v2.16.0's use of Supabase Auth's native Passkey API (a true, OS-synced
-# passkey) with a from-scratch, app-scoped WebAuthn implementation
-# (residentKey: 'discouraged') after real-device testing showed the native
-# API wasn't what was wanted.
-next-version: 2.17.0
+# version (see BACKLOG.md's Versioning section). Currently 2.17.1: a
+# proactive, dismissible passkey-setup nudge on GuardHome (same pattern as
+# the existing push-notification enable-prompt card) -- registering a
+# passkey needs an active session, so it can never live ON the login screen
+# itself; the previous only-reachable-from-Preferences path was too easy to
+# never discover.
+next-version: 2.17.1
 mode: Mainline
 branches:
   main:

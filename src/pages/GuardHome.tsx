@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useActiveWeek } from '@/hooks/useWeeks';
 import { useGuardWeek, useVisibleRosters } from '@/hooks/useGuardPortal';
 import { useNotifications } from '@/hooks/useNotifications';
+import { usePasskey } from '@/hooks/usePasskey';
 import { useRosterRealtime } from '@/hooks/useRosterRealtime';
 import {
   HEBREW_DAYS,
@@ -66,6 +67,7 @@ export function GuardHome() {
         )}
 
         <NotificationPrompt guardId={profile?.id} />
+        <PasskeyPrompt guardId={profile?.id} />
 
         {/* ---------------- my shifts, one card per published week ---------------- */}
         {rostersLoading ? (
@@ -230,6 +232,50 @@ function NotificationPrompt({ guardId }: { guardId: string | undefined }) {
         <div className="mt-3 flex gap-2">
           <Button size="sm" loading={busy} onClick={toggle}>
             הפעלת התראות
+          </Button>
+          <Button size="sm" variant="secondary" onClick={dismiss}>
+            לא עכשיו
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+const PASSKEY_PROMPT_DISMISSED_KEY = 'passkey-prompt-dismissed';
+
+/**
+ * One-time nudge to set up Face ID/fingerprint login, same pattern as
+ * NotificationPrompt above: shown only while the device supports it AND this
+ * guard has no passkey registered on it yet. Dismissing it just hides the
+ * card -- setting one up later is still always reachable from Preferences,
+ * which stays the permanent place to add/rename/remove a passkey (e.g. after
+ * getting a new phone), not just a first-run entry point.
+ */
+function PasskeyPrompt({ guardId }: { guardId: string | undefined }) {
+  const { supported, hasPasskey, busy, error, register } = usePasskey(guardId);
+  const [dismissed, setDismissed] = useState(
+    () => localStorage.getItem(PASSKEY_PROMPT_DISMISSED_KEY) === '1',
+  );
+
+  if (!supported || hasPasskey || dismissed) return null;
+
+  const dismiss = () => {
+    localStorage.setItem(PASSKEY_PROMPT_DISMISSED_KEY, '1');
+    setDismissed(true);
+  };
+
+  return (
+    <Card className="flex items-start gap-3">
+      <div className="min-w-0 flex-1">
+        <p className="font-bold text-slate-900 dark:text-slate-100">כניסה מהירה יותר</p>
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+          הפעל כניסה עם Face ID או טביעת אצבע במקום קוד עובד וסיסמה בפעם הבאה.
+        </p>
+        {error && <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{error}</p>}
+        <div className="mt-3 flex gap-2">
+          <Button size="sm" loading={busy} onClick={register}>
+            הפעלה
           </Button>
           <Button size="sm" variant="secondary" onClick={dismiss}>
             לא עכשיו

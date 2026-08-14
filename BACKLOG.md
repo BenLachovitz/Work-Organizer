@@ -294,6 +294,19 @@ v2.16.0 left it**: real-device confirmation that registering now produces a cred
 *not* appear in the phone's system Passwords & passkeys list, and that the restart lock screen's
 `signInWithPasskeyDevice()` unlock actually works end to end.
 
+Step X, one more revision (14 August) — **proactive passkey-setup nudge**: registering a passkey
+needs an active session (`register-options`/`register-verify` resolve the guard from their own JWT),
+so the setup step can never live ON the login screen itself — a guard has to be signed in first,
+which was the actual answer to "why does this only live in Preferences." But leaving it *only*
+reachable from Preferences meant a guard would likely never discover it at all. Added a dismissible
+`PasskeyPrompt` card to `GuardHome` (`src/pages/GuardHome.tsx`), the guard's first screen after
+login — same established pattern as the existing push-notification enable-prompt card right above
+it (`NotificationPrompt`, spec §12.10): shown only while the device supports WebAuthn and this guard
+has no passkey on it yet, "לא עכשיו" hides it for good via a localStorage flag, and Preferences
+remains the permanent place to add/rename/remove a passkey afterward (e.g. after getting a new
+phone) rather than only a first-run entry point. `package.json`/`GitVersion.yml` bumped to 2.17.1,
+tagged `v2.17.1`.
+
 Nothing else mid-flight, no open branches.
 
 **Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
@@ -477,9 +490,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.17.0**
-(app-scoped WebAuthn passkeys, replacing v2.16.0's use of Supabase's native Passkey API), tagged
-`v2.17.0`.
+state that version describes), matching the spec's own version history. Currently at **2.17.1**
+(dismissible passkey-setup nudge on GuardHome), tagged `v2.17.1`.
 
 ## Commands
 
