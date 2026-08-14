@@ -333,6 +333,39 @@ elsewhere just because one phone's grace window lapsed. `PasskeyLockScreen` and 
 escape hatch it needed are gone along with it — nothing replaces them, since the normal Login page
 already covers the same ground. `package.json`/`GitVersion.yml` bumped to 2.17.3, tagged `v2.17.3`.
 
+Step X, one more revision (14 August) — **login UX reworked per Ben's direction, and the
+Preferences management card is gone**. Three changes, all from the same conversation:
+
+1. **Remember-me moved from Preferences to the Login page itself** — under the personal PIN
+   `CodeInput` on both the `pin` and `setPin` steps (not under the badge code step, which doesn't
+   yet identify anyone). `getRememberMe()`/`setRememberMe()` (`src/lib/supabase.ts`, unchanged since
+   Step X's original build) are called the instant the toggle flips, before the guard even submits —
+   the switchable storage adapter only reads the flag at the moment a session is actually written, so
+   by the time `signIn()`/`claim()` succeeds moments later, the new session already lands in the
+   right place with no separate "apply after login" step needed.
+2. **The passkey management card dropped entirely** — Ben's view: nobody needs to *delete* a
+   passkey, so the whole list/rename/remove UI was redundant. `usePasskey.ts` and
+   `src/lib/webauthn.ts` lost `remove`/`rename` (and the now-pointless `PasskeyRow` list — replaced
+   by a single `hasRegisteredPasskey()` existence check, since nothing ever needed the actual rows
+   once nothing renders them). The DB-level RLS UPDATE/DELETE policies on `webauthn_credentials`
+   (migration 46) are untouched — self-scoped to a guard's own row regardless, so leaving them is
+   harmless — this was a UI decision, not a request to lock the table down further.
+3. **The Login page's passkey button became hybrid**, matching the pattern nearly every consumer
+   app with biometric login uses: a purely local, instant check for whether this device already has
+   a credential (`getPasskeyGuardId()`). If yes, the button runs the real sign-in ceremony exactly as
+   before. If not — which used to be impossible to reach since the button was hidden in that case —
+   it now falls through to the ordinary badge-code + PIN login and sets a one-shot
+   `wo.passkeySetupIntent` flag (`markPasskeySetupIntent()`/`consumePasskeySetupIntent()`,
+   sessionStorage, consumed at most once). `GuardHome`'s existing `PasskeyPrompt` nudge (Step X's
+   earlier revision) checks that flag on mount and force-shows itself for this one occurrence even if
+   previously dismissed — the guard just explicitly asked for it again by tapping the button, so a
+   past "not now" shouldn't stand in the way. This also closes the gap the management-card removal
+   opened: with no Preferences fallback and a nudge that dismisses forever, a guard who skipped the
+   home-screen prompt now has this button as a second, always-available way back in.
+
+Full TypeScript typecheck clean, `test:cloud` all green (unchanged, 10 suites/214 assertions — no
+backend touched by any of this). `package.json`/`GitVersion.yml` bumped to 2.18.0, tagged `v2.18.0`.
+
 Nothing else mid-flight, no open branches.
 
 **Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
@@ -516,9 +549,9 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.17.3**
-(dropped the separate passkey "locked" screen in favour of a plain local sign-out), tagged
-`v2.17.3`.
+state that version describes), matching the spec's own version history. Currently at **2.18.0**
+(login UX rework: remember-me moved to Login, passkey management card dropped, hybrid passkey
+button), tagged `v2.18.0`.
 
 ## Commands
 

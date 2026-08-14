@@ -8,13 +8,6 @@ import {
 } from '@simplewebauthn/browser';
 import { requireSupabase } from '@/lib/supabase';
 
-export interface PasskeyRow {
-  id: string;
-  friendly_name: string | null;
-  created_at: string;
-  last_used_at: string | null;
-}
-
 /**
  * Calls the webauthn Edge Function and surfaces ITS error message -- same
  * reasoning as AuthContext's invokeClaimCode: supabase-js reports any
@@ -79,28 +72,17 @@ export async function signInWithPasskeyDevice(
   });
 }
 
-/** Plain RLS-permitted read -- no Edge Function round trip needed. */
-export async function listPasskeys(): Promise<PasskeyRow[]> {
+/**
+ * Whether the CALLER already has a registered passkey -- a plain
+ * RLS-permitted read, no Edge Function round trip needed. A passkey is
+ * set-and-forget by design (no remove/rename in this app), so all any
+ * caller ever needs is this existence check, not the actual rows.
+ */
+export async function hasRegisteredPasskey(): Promise<boolean> {
   const supabase = requireSupabase();
-  const { data, error } = await supabase
+  const { count, error } = await supabase
     .from('webauthn_credentials')
-    .select('id, friendly_name, created_at, last_used_at')
-    .order('created_at', { ascending: false });
+    .select('id', { count: 'exact', head: true });
   if (error) throw new Error(error.message);
-  return (data ?? []) as PasskeyRow[];
-}
-
-export async function renamePasskey(id: string, friendlyName: string): Promise<void> {
-  const supabase = requireSupabase();
-  const { error } = await supabase
-    .from('webauthn_credentials')
-    .update({ friendly_name: friendlyName })
-    .eq('id', id);
-  if (error) throw new Error(error.message);
-}
-
-export async function removePasskey(id: string): Promise<void> {
-  const supabase = requireSupabase();
-  const { error } = await supabase.from('webauthn_credentials').delete().eq('id', id);
-  if (error) throw new Error(error.message);
+  return (count ?? 0) > 0;
 }

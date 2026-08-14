@@ -13,12 +13,8 @@ const SESSION_KEY = 'sb-work-orgenizer-auth-token';
  * would be re-prompted on every refresh. Chosen after real-device testing
  * showed a hard "every boot" gate was too naggy for a work app opened
  * throughout a shift.
- *
- * TEMP (Ben, manual test): shrunk to 1 minute so the expiry path can be
- * checked on a real device without waiting a full day. Revert to
- * 24 * 60 * 60 * 1000 once confirmed.
  */
-const PASSKEY_UNLOCK_GRACE_MS = 60 * 1000;
+const PASSKEY_UNLOCK_GRACE_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Defaults to `true` so nobody's current behaviour (always-persisted login)
@@ -85,6 +81,28 @@ export function isPasskeyUnlockFresh(): boolean {
 
 export function markPasskeyUnlocked(): void {
   localStorage.setItem(PASSKEY_UNLOCKED_AT_KEY, String(Date.now()));
+}
+
+const PASSKEY_SETUP_INTENT_KEY = 'wo.passkeySetupIntent';
+
+/**
+ * Set when a guard taps "כניסה עם Face ID / טביעת אצבע" on the Login page
+ * but this device has no passkey registered yet -- the button falls through
+ * to a normal badge-code + PIN login instead of attempting (and guaranteeing
+ * a failed) ceremony, and this flag is what tells GuardHome to surface the
+ * setup prompt immediately afterward, bypassing its usual once-ever-dismissed
+ * check for this one explicit request. sessionStorage, not localStorage: it
+ * only needs to survive the one Login -> GuardHome navigation.
+ */
+export function markPasskeySetupIntent(): void {
+  sessionStorage.setItem(PASSKEY_SETUP_INTENT_KEY, '1');
+}
+
+/** Reads AND clears the flag -- a one-shot signal, consumed at most once. */
+export function consumePasskeySetupIntent(): boolean {
+  const had = sessionStorage.getItem(PASSKEY_SETUP_INTENT_KEY) === '1';
+  if (had) sessionStorage.removeItem(PASSKEY_SETUP_INTENT_KEY);
+  return had;
 }
 
 /**

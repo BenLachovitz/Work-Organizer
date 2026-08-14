@@ -6,91 +6,10 @@ import {
   selectionToSlots,
   type PreferenceFormValue,
 } from '@/components/guard/WeeklyPreferenceForm';
-import { Alert, Button, Card, Spinner, Toggle } from '@/components/ui';
-import { useAuth } from '@/contexts/AuthContext';
+import { Alert, Card, Spinner } from '@/components/ui';
 import { useActiveWeek } from '@/hooks/useWeeks';
 import { useDeleteSubmission, useGuardWeek, useSavePreferences } from '@/hooks/useGuardPortal';
-import { usePasskey } from '@/hooks/usePasskey';
 import { formatWeekRange, submissionDeadline } from '@/lib/dates';
-import { getRememberMe, setRememberMe } from '@/lib/supabase';
-
-/** Registered-device credentials + the persistent-session toggle -- lives on
- *  Preferences alongside the other per-guard device settings (notifications
- *  live as a header icon in AppShell instead, since this needs more room:
- *  an explanatory description and a per-passkey list). */
-function DeviceSecuritySection() {
-  const { profile } = useAuth();
-  const { supported, loading, passkeys, busy, error, register, remove } = usePasskey(profile?.id);
-  const [rememberMe, setRememberMeState] = useState(getRememberMe());
-
-  const toggleRememberMe = (value: boolean) => {
-    setRememberMe(value);
-    setRememberMeState(value);
-  };
-
-  return (
-    <Card className="space-y-4">
-      <div>
-        <h2 className="font-bold text-slate-900 dark:text-slate-100">כניסה ביומטרית</h2>
-        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-          Face ID או טביעת אצבע במקום קוד עובד וסיסמה. לאחר ההרשמה, המכשיר ידרוש אימות ביומטרי בכל
-          פתיחה מחדש של האפליקציה.
-        </p>
-      </div>
-
-      {error && <Alert tone="error">{error}</Alert>}
-
-      {!loading && !supported && (
-        <Alert tone="info">המכשיר או הדפדפן הזה לא תומכים בכניסה ביומטרית.</Alert>
-      )}
-
-      {supported && (
-        <>
-          {passkeys.length > 0 && (
-            <ul className="space-y-2">
-              {passkeys.map((pk) => (
-                <li
-                  key={pk.id}
-                  className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-800"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
-                      {pk.friendly_name || 'מכשיר זה'}
-                    </p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      נוסף {new Date(pk.created_at).toLocaleDateString('he-IL')}
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    loading={busy}
-                    onClick={() => void remove(pk.id)}
-                  >
-                    הסר
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <Button variant="secondary" fullWidth loading={busy} onClick={() => void register()}>
-            הוסף Face ID / טביעת אצבע למכשיר זה
-          </Button>
-        </>
-      )}
-
-      <div className="border-t border-slate-200 pt-4 dark:border-slate-800">
-        <Toggle
-          checked={rememberMe}
-          onChange={toggleRememberMe}
-          label="הישאר מחובר במכשיר זה"
-          description="ללא כניסה ביומטרית, האפליקציה תזכור אותך גם אחרי סגירה. בטל אם זה מכשיר משותף."
-        />
-      </div>
-    </Card>
-  );
-}
 
 export function Preferences() {
   const { data: active, isLoading: weekLoading } = useActiveWeek();
@@ -161,15 +80,12 @@ export function Preferences() {
   if (!active.week) {
     return (
       <AppShell title="הגשת בקשות">
-        <div className="space-y-4">
-          <Card>
-            <p className="font-bold text-slate-900 dark:text-slate-100">אין כרגע שבוע פתוח להגשה</p>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              עדיין לא נפתח שבוע חדש להגשה, או שכל חלונות ההגשה נסגרו. נסה שוב מאוחר יותר.
-            </p>
-          </Card>
-          <DeviceSecuritySection />
-        </div>
+        <Card>
+          <p className="font-bold text-slate-900 dark:text-slate-100">אין כרגע שבוע פתוח להגשה</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            עדיין לא נפתח שבוע חדש להגשה, או שכל חלונות ההגשה נסגרו. נסה שוב מאוחר יותר.
+          </p>
+        </Card>
       </AppShell>
     );
   }
@@ -233,8 +149,6 @@ export function Preferences() {
           onDelete={handleDelete}
           deleting={del.isPending}
         />
-
-        <DeviceSecuritySection />
       </div>
     </AppShell>
   );

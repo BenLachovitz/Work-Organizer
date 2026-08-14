@@ -10,13 +10,16 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.17.3: dropped
-# the separate "locked" screen entirely -- an expired passkey grace window
-# now signs the device out locally (scope: 'local', never touching other
-# devices' sessions) and lands on the ordinary Login page instead, which
-# already offers the passkey button up front. Ben's call: wanted one
-# consistent look, not a second "unlock" UI.
-next-version: 2.17.3
+# version (see BACKLOG.md's Versioning section). Currently 2.18.0: reworked
+# the login UX per Ben's direction -- remember-me moved from a Preferences
+# card onto the Login page itself (under the personal PIN, not the badge
+# code), the passkey management card (list/rename/remove) was dropped
+# entirely as redundant, and the Login page's passkey button became hybrid:
+# signs in directly if this device already has a credential, otherwise
+# falls through to a normal badge-code + PIN login and then prompts the
+# passkey setup immediately afterward -- the common "sign in with biometrics
+# or set one up" pattern from most consumer apps.
+next-version: 2.18.0
 mode: Mainline
 branches:
   main:

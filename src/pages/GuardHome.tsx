@@ -18,6 +18,7 @@ import {
   todayInIsrael,
   weekStartOf,
 } from '@/lib/dates';
+import { consumePasskeySetupIntent } from '@/lib/supabase';
 import { SHIFTS } from '@/lib/shifts';
 
 /**
@@ -245,17 +246,21 @@ function NotificationPrompt({ guardId }: { guardId: string | undefined }) {
 const PASSKEY_PROMPT_DISMISSED_KEY = 'passkey-prompt-dismissed';
 
 /**
- * One-time nudge to set up Face ID/fingerprint login, same pattern as
+ * Nudge to set up Face ID/fingerprint login, same pattern as
  * NotificationPrompt above: shown only while the device supports it AND this
- * guard has no passkey registered on it yet. Dismissing it just hides the
- * card -- setting one up later is still always reachable from Preferences,
- * which stays the permanent place to add/rename/remove a passkey (e.g. after
- * getting a new phone), not just a first-run entry point.
+ * guard has no passkey registered on it yet. Dismissing it hides the card for
+ * good -- EXCEPT this is also the only entry point left for setting one up
+ * (the Preferences management card was removed as redundant), so a guard who
+ * explicitly taps the passkey button on Login with nothing registered yet
+ * (Login.tsx marks that intent, consumed here) gets this forced back open
+ * for that one occurrence, overriding a past dismissal -- they just asked
+ * for it again.
  */
 function PasskeyPrompt({ guardId }: { guardId: string | undefined }) {
   const { supported, hasPasskey, busy, error, register } = usePasskey(guardId);
+  const [forceOpen] = useState(() => consumePasskeySetupIntent());
   const [dismissed, setDismissed] = useState(
-    () => localStorage.getItem(PASSKEY_PROMPT_DISMISSED_KEY) === '1',
+    () => !forceOpen && localStorage.getItem(PASSKEY_PROMPT_DISMISSED_KEY) === '1',
   );
 
   if (!supported || hasPasskey || dismissed) return null;

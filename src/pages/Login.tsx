@@ -1,25 +1,25 @@
 import { useCallback, useState } from 'react';
 import { CodeInput } from '@/components/auth/CodeInput';
-import { Alert, Button, Card } from '@/components/ui';
+import { Alert, Button, Card, Toggle } from '@/components/ui';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePasskeySupport } from '@/hooks/usePasskey';
 import {
   EMPLOYEE_CODE_LENGTH,
   PIN_MIN_LENGTH,
   getPasskeyGuardId,
+  getRememberMe,
   isValidEmployeeCode,
+  markPasskeySetupIntent,
+  setRememberMe,
 } from '@/lib/supabase';
 
 type Step = 'code' | 'pin' | 'setPin';
 
 export function Login() {
   const { lookupCode, signIn, claim, signInWithPasskey, demoMode } = useAuth();
-  // Gated on this device having actually registered a passkey before, not just
-  // hardware capability -- a bare capability check would offer this button to
-  // every guard on every compatible phone, including on their very first visit
-  // with nothing registered yet, where sign-in is guaranteed to fail with a
-  // confusing "no passkey for this device" system prompt.
-  const passkeySupported = usePasskeySupport() && Boolean(getPasskeyGuardId());
+  // Hardware capability only -- the button is now hybrid (see tryPasskey), so
+  // it's shown even on a device with nothing registered yet.
+  const passkeySupported = usePasskeySupport();
 
   const [step, setStep] = useState<Step>('code');
   const [code, setCode] = useState('');
@@ -30,8 +30,29 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [passkeySetupPending, setPasskeySetupPending] = useState(false);
+  const [rememberMe, setRememberMeState] = useState(getRememberMe());
 
+  const toggleRememberMe = (value: boolean) => {
+    setRememberMe(value);
+    setRememberMeState(value);
+  };
+
+  /**
+   * Hybrid, matching what almost every app with biometric login does: a
+   * quick, purely local check for whether THIS device already has a
+   * credential. If so, run the real sign-in ceremony as before. If not,
+   * there is nothing to challenge yet -- rather than attempt a ceremony
+   * that's guaranteed to fail with a confusing system prompt, fall through
+   * to the normal badge-code + PIN login below and mark intent so GuardHome
+   * prompts the passkey setup immediately once that login succeeds.
+   */
   const tryPasskey = useCallback(async () => {
+    if (!getPasskeyGuardId()) {
+      markPasskeySetupIntent();
+      setPasskeySetupPending(true);
+      return;
+    }
     setPasskeyBusy(true);
     setPasskeyError(null);
     try {
@@ -179,6 +200,11 @@ export function Login() {
               {passkeySupported && !demoMode && (
                 <>
                   {passkeyError && <Alert tone="error">{passkeyError}</Alert>}
+                  {passkeySetupPending && (
+                    <Alert tone="info">
+                      היכנס תחילה עם קוד העובד והסיסמה שלך כדי להגדיר כניסה ביומטרית.
+                    </Alert>
+                  )}
                   <Button
                     fullWidth
                     size="lg"
@@ -245,6 +271,13 @@ export function Login() {
                 ariaLabel="סיסמה אישית"
               />
 
+              <Toggle
+                checked={rememberMe}
+                onChange={toggleRememberMe}
+                label="הישאר מחובר במכשיר זה"
+                description="ללא כך, המערכת תבקש התחברות מחדש בכל פתיחה. בטל אם זה מכשיר משותף."
+              />
+
               {error && <Alert tone="error">{error}</Alert>}
 
               <Button
@@ -307,6 +340,13 @@ export function Login() {
                   ariaLabel="אימות סיסמה"
                 />
               </div>
+
+              <Toggle
+                checked={rememberMe}
+                onChange={toggleRememberMe}
+                label="הישאר מחובר במכשיר זה"
+                description="ללא כך, המערכת תבקש התחברות מחדש בכל פתיחה. בטל אם זה מכשיר משותף."
+              />
 
               {error && <Alert tone="error">{error}</Alert>}
 

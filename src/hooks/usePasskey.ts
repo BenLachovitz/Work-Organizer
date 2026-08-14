@@ -1,12 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  listPasskeys,
-  registerPasskeyDevice,
-  removePasskey,
-  renamePasskey,
-  webauthnSupported,
-  type PasskeyRow,
-} from '@/lib/webauthn';
+import { hasRegisteredPasskey, registerPasskeyDevice, webauthnSupported } from '@/lib/webauthn';
 import { getPasskeyGuardId, markPasskeyUnlocked, setPasskeyGuardId } from '@/lib/supabase';
 
 /** Whether this device can prompt for Face ID/fingerprint/Windows Hello at
@@ -26,22 +19,23 @@ export function usePasskeySupport(): boolean {
   return supported;
 }
 
-/** Wraps the app-scoped WebAuthn flow for the Preferences management UI.
- *  Follows the same pattern as useNotifications: re-reads state after every
- *  action rather than assuming it succeeded. */
+/**
+ * Wraps the app-scoped WebAuthn flow for the GuardHome setup nudge. There is
+ * deliberately no remove/rename here -- a passkey is set-and-forget by
+ * design, not something guards are expected to manage day to day. On mount,
+ * re-checks the real server-side row count rather than trusting the local
+ * wo.webauthnGuardId flag blindly, so it stays truthful even if a credential
+ * was removed directly (e.g. by Ben, via the SQL editor).
+ */
 export function usePasskey(guardId: string | undefined) {
   const [supported, setSupported] = useState(false);
-  const [passkeys, setPasskeys] = useState<PasskeyRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     void webauthnSupported().then((available) => {
-      if (cancelled) return;
-      setSupported(available);
-      setLoading(false);
+      if (!cancelled) setSupported(available);
     });
     return () => {
       cancelled = true;
@@ -50,9 +44,8 @@ export function usePasskey(guardId: string | undefined) {
 
   const refresh = useCallback(async () => {
     try {
-      const rows = await listPasskeys();
-      setPasskeys(rows);
-      setPasskeyGuardId(rows.length > 0 && guardId ? guardId : null);
+      const has = await hasRegisteredPasskey();
+      setPasskeyGuardId(has && guardId ? guardId : null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'שגיאה בטעינת אמצעי האימות');
     }
@@ -76,44 +69,11 @@ export function usePasskey(guardId: string | undefined) {
     }
   }, [refresh]);
 
-  const remove = useCallback(
-    async (id: string) => {
-      setBusy(true);
-      setError(null);
-      try {
-        await removePasskey(id);
-        await refresh();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'מחיקת האימות הביומטרי נכשלה');
-      } finally {
-        setBusy(false);
-      }
-    },
-    [refresh],
-  );
-
-  const rename = useCallback(
-    async (id: string, friendlyName: string) => {
-      setError(null);
-      try {
-        await renamePasskey(id, friendlyName);
-        await refresh();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'שינוי השם נכשל');
-      }
-    },
-    [refresh],
-  );
-
   return {
     supported,
-    loading,
-    passkeys,
     hasPasskey: getPasskeyGuardId() !== null,
     busy,
     error,
     register,
-    remove,
-    rename,
   };
 }
