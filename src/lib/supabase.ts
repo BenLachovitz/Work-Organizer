@@ -2,7 +2,19 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 const REMEMBER_ME_KEY = 'wo.rememberMe';
 const PASSKEY_GUARD_ID_KEY = 'wo.webauthnGuardId';
+const PASSKEY_UNLOCKED_AT_KEY = 'wo.webauthnUnlockedAt';
 const SESSION_KEY = 'sb-work-orgenizer-auth-token';
+
+/**
+ * How long a real biometric verification is trusted before the app-restart
+ * lock screen asks for another one. Every JS boot -- including a plain
+ * browser refresh, not just genuinely reopening the installed PWA -- looks
+ * identical from AuthContext's bootstrap effect, so without this a guard
+ * would be re-prompted on every refresh. Chosen after real-device testing
+ * showed a hard "every boot" gate was too naggy for a work app opened
+ * throughout a shift.
+ */
+const PASSKEY_UNLOCK_GRACE_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Defaults to `true` so nobody's current behaviour (always-persisted login)
@@ -46,7 +58,29 @@ export function getPasskeyGuardId(): string | null {
 
 export function setPasskeyGuardId(guardId: string | null): void {
   if (guardId) localStorage.setItem(PASSKEY_GUARD_ID_KEY, guardId);
-  else localStorage.removeItem(PASSKEY_GUARD_ID_KEY);
+  else {
+    localStorage.removeItem(PASSKEY_GUARD_ID_KEY);
+    localStorage.removeItem(PASSKEY_UNLOCKED_AT_KEY);
+  }
+}
+
+/**
+ * Whether a real signInWithPasskey() ceremony succeeded recently enough
+ * (PASSKEY_UNLOCK_GRACE_MS) that the lock screen can be skipped on this
+ * boot. Deliberately only ever set by an actual biometric verification
+ * (never extended by a mere silent resume) -- otherwise a device left
+ * unattended but opened once a day would never need to re-verify at all,
+ * which would defeat the point of gating it in the first place.
+ */
+export function isPasskeyUnlockFresh(): boolean {
+  const raw = localStorage.getItem(PASSKEY_UNLOCKED_AT_KEY);
+  if (!raw) return false;
+  const at = Number(raw);
+  return Number.isFinite(at) && Date.now() - at < PASSKEY_UNLOCK_GRACE_MS;
+}
+
+export function markPasskeyUnlocked(): void {
+  localStorage.setItem(PASSKEY_UNLOCKED_AT_KEY, String(Date.now()));
 }
 
 /**

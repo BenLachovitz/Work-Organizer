@@ -11,7 +11,9 @@ import type { Session } from '@supabase/supabase-js';
 import {
   codeToEmail,
   getPasskeyGuardId,
+  isPasskeyUnlockFresh,
   isSupabaseConfigured,
+  markPasskeyUnlocked,
   setPasskeyGuardId,
   supabase,
 } from '@/lib/supabase';
@@ -141,10 +143,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data } = await supabase!.auth.getSession();
       if (cancelled) return;
       // A device with a registered passkey is gated behind it on every fresh
-      // app load rather than silently resuming an old session -- the session
-      // itself is left untouched (still refreshable) so signInWithPasskey()
-      // below can replace it on success without ever needing to read it back.
-      if (data.session && getPasskeyGuardId()) {
+      // app load, UNLESS a real biometric verification already happened
+      // recently enough (isPasskeyUnlockFresh) -- every JS boot, including a
+      // plain browser refresh, looks identical from here, so without the
+      // grace window this would re-prompt on every refresh, not just a
+      // genuine reopen after time away. The session itself is left untouched
+      // (still refreshable) so signInWithPasskey() below can replace it on
+      // success without ever needing to read it back.
+      if (data.session && getPasskeyGuardId() && !isPasskeyUnlockFresh()) {
         setStatus('locked');
         return;
       }
@@ -230,6 +236,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error || !data.session || !data.user) {
       throw new Error(error?.message ?? 'האימות הביומטרי נכשל');
     }
+    markPasskeyUnlocked();
     setSession(data.session);
     setProfile(await loadProfile(data.user.id));
     setStatus('signedIn');

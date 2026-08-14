@@ -7,7 +7,7 @@ import {
   webauthnSupported,
   type PasskeyRow,
 } from '@/lib/webauthn';
-import { getPasskeyGuardId, setPasskeyGuardId } from '@/lib/supabase';
+import { getPasskeyGuardId, markPasskeyUnlocked, setPasskeyGuardId } from '@/lib/supabase';
 
 /** Whether this device can prompt for Face ID/fingerprint/Windows Hello at
  *  all -- no session required, safe to use from the (signed-out) Login
@@ -67,6 +67,7 @@ export function usePasskey(guardId: string | undefined) {
     setError(null);
     try {
       await registerPasskeyDevice();
+      markPasskeyUnlocked();
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'הרשמת האימות הביומטרי נכשלה');

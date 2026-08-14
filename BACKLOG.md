@@ -307,6 +307,20 @@ remains the permanent place to add/rename/remove a passkey afterward (e.g. after
 phone) rather than only a first-run entry point. `package.json`/`GitVersion.yml` bumped to 2.17.1,
 tagged `v2.17.1`.
 
+Step X, one more revision (14 August) — **24-hour grace window on the restart-lock gate**. Real-
+device testing found the gate far too aggressive: every JS boot, including a plain browser refresh,
+looks identical to `AuthContext`'s bootstrap effect — there is no lighter-weight signal for "genuine
+reopen after time away" versus "same session, page just reloaded," so gating on *every* boot meant
+re-prompting on every refresh, not just an actual restart days later. Fixed with a new
+`wo.webauthnUnlockedAt` timestamp (`src/lib/supabase.ts`): the lock screen is skipped whenever a real
+`signInWithPasskey()` (or a fresh registration) succeeded within the last 24 hours, and shown
+otherwise. Deliberately **only** ever set by an actual biometric verification, never extended by a
+mere silent resume — a device opened once a day without ever needing to unlock again would defeat
+the point of gating it at all. 24h chosen over a 7-day or "only on session loss" alternative — Ben's
+call, weighed as balancing routine daily use against how long a lost/stolen phone would stay
+unlockable on the persisted session alone before the biometric check matters again.
+`package.json`/`GitVersion.yml` bumped to 2.17.2, tagged `v2.17.2`.
+
 Nothing else mid-flight, no open branches.
 
 **Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
@@ -490,8 +504,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.17.1**
-(dismissible passkey-setup nudge on GuardHome), tagged `v2.17.1`.
+state that version describes), matching the spec's own version history. Currently at **2.17.2**
+(24-hour grace window on the passkey restart-lock gate), tagged `v2.17.2`.
 
 ## Commands
 
