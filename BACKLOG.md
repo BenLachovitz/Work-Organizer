@@ -39,7 +39,7 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–W complete, live and in daily use
+## State: build steps A–X complete, live and in daily use
 
 Full list in spec §14.1; changelog for every step is spec §1.1–§1.14. Step P (11 August) — per-day
 morning target override, a morning-priority coverage weight, the roster view stacking every
@@ -192,6 +192,44 @@ test): a safe validation path correctly reached 400, and a full send-path run de
 confirmed real on-device delivery, found via exactly the kind of manual test those steps were still
 waiting on.
 
+Step X (14 August) — **passkey (Face ID / fingerprint) login + remember-me** (spec §8): guards can
+now register a device passkey from Preferences and use it instead of typing their badge code + PIN.
+Built entirely on `@supabase/supabase-js`'s **native, experimental Passkey/WebAuthn API**
+(`registerPasskey()`, `signInWithPasskey()`, `auth.passkey.{list,update,delete}`) discovered mid-plan
+in the already-installed `^2.112.2` — GoTrue does the whole ceremony and stores credentials itself,
+so unlike every other feature in this project's history, **this one needed zero new migrations and
+zero new Edge Functions**, just `experimental: { passkey: true }` on the client and UI wiring.
+
+A device with a registered passkey is gated behind it on every fresh app load (not on every
+background/foreground cycle — Ben's call): a local-only `wo.hasPasskey` flag, set after a successful
+`registerPasskey()` on that device, makes `AuthContext`'s bootstrap effect skip silently resuming the
+persisted session and instead surface a new `'locked'` status, which `Login.tsx` renders as an unlock
+screen calling `signInWithPasskey()`. The underlying session is left untouched until that succeeds,
+so a cancelled/failed ceremony always falls back to normal badge-code + PIN — passkey is additive,
+never a lockout. Guards *without* a passkey get the persistence the badge-code flow already had
+implicitly (`persistSession: true` was always-on, no toggle) made explicit and controllable: a new
+`wo.rememberMe` flag (default on, so nobody's current behaviour changes unless they opt out) drives a
+custom switchable storage adapter in `src/lib/supabase.ts` that delegates to `localStorage` or
+`sessionStorage` per call, with a Preferences toggle that migrates the live session between the two
+immediately rather than forcing a logout.
+
+**One planning assumption corrected before shipping**: the plan initially expected `http://localhost:5173`
+could sit alongside the production origin in Supabase's Relying Party Origins list for local testing.
+It can't — WebAuthn's same-origin/domain-suffix check is enforced by the *browser*, not just
+Supabase's server, so a `localhost` origin is simply incompatible with a production RP ID, and a
+non-`localhost` LAN IP (what a phone actually hits against `npm run dev`) fails WebAuthn's HTTPS
+requirement regardless. RP ID was set to the real production domain
+(`work-organizer-iota.vercel.app`) with no localhost origin — the passkey ceremony itself can only be
+verified against the live deployment, the same class of real-device-only check as the PWA install
+verification (Step Q) and push notifications (Steps T/V/W).
+
+Full TypeScript typecheck clean and `test:cloud` all green (192 assertions, unchanged from before this
+step) — expected, since nothing backend changed; this is a pure regression check, not real coverage of
+the new code. **There is no automated coverage of the passkey/remember-me code itself**: this project
+has no frontend test runner, and WebAuthn ceremonies can't be scripted headlessly without a virtual
+authenticator, which is a bigger addition than this feature justifies right now. Shipped,
+`package.json`/`GitVersion.yml` bumped to 2.16.0, tagged `v2.16.0`.
+
 Nothing else mid-flight, no open branches.
 
 **Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
@@ -219,8 +257,14 @@ open. Confirmed live against the production project (roughly one `ensure_roster_
 ## What is left
 
 Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
-deliberately deferred design choice, not a build gap. Four things still open, not build gaps:
+deliberately deferred design choice, not a build gap. Five things still open, not build gaps:
 
+- **Passkey real-device registration + unlock confirmation** (Step X, spec §8) — Ben enabled Passkeys
+  on the Supabase project and set the Relying Party ID/Origins to the production domain; the ceremony
+  itself (registering a passkey on a real iPhone/Android from Preferences, then confirming the
+  app-restart lock screen and `signInWithPasskey()` unlock actually work) can only be tested against
+  the live deployment — same class of gap as the PWA/notification items below — and hasn't been done
+  yet.
 - **PWA real-device install check** (Step Q, spec §10.4) — everything checkable from a dev machine
   (manifest, service worker activation, icon resolution, `vercel.json` static-asset headers) is
   verified against both `vite preview` and production. Actually adding the app to a home screen on a
@@ -369,9 +413,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.15.1**
-(fix: guard_submitted/guard_cancelled auth was silently failing for every real guard), tagged
-`v2.15.1`.
+state that version describes), matching the spec's own version history. Currently at **2.16.0**
+(passkey login + remember-me), tagged `v2.16.0`.
 
 ## Commands
 

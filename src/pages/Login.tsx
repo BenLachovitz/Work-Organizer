@@ -2,12 +2,55 @@ import { useCallback, useState } from 'react';
 import { CodeInput } from '@/components/auth/CodeInput';
 import { Alert, Button, Card } from '@/components/ui';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePasskeySupport } from '@/hooks/usePasskey';
 import { EMPLOYEE_CODE_LENGTH, PIN_MIN_LENGTH, isValidEmployeeCode } from '@/lib/supabase';
 
 type Step = 'code' | 'pin' | 'setPin';
 
+/** Shown on app restart when this device has a registered passkey (see
+ *  AuthContext's bootstrap effect) -- the badge-code session underneath is
+ *  left untouched until this ceremony succeeds. */
+function PasskeyLockScreen() {
+  const { signInWithPasskey, useCodeInstead } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const unlock = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await signInWithPasskey();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'האימות הביומטרי נכשל');
+    } finally {
+      setBusy(false);
+    }
+  }, [signInWithPasskey]);
+
+  return (
+    <Card className="space-y-5 text-center">
+      <div>
+        <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">נעול</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          אמת את זהותך עם Face ID או טביעת אצבע כדי להמשיך
+        </p>
+      </div>
+
+      {error && <Alert tone="error">{error}</Alert>}
+
+      <Button fullWidth size="lg" loading={busy} onClick={() => void unlock()}>
+        בטל נעילה
+      </Button>
+      <Button variant="ghost" fullWidth size="sm" onClick={useCodeInstead}>
+        כניסה עם קוד עובד
+      </Button>
+    </Card>
+  );
+}
+
 export function Login() {
-  const { lookupCode, signIn, claim, demoMode } = useAuth();
+  const { status: authStatus, lookupCode, signIn, claim, signInWithPasskey, demoMode } = useAuth();
+  const passkeySupported = usePasskeySupport();
 
   const [step, setStep] = useState<Step>('code');
   const [code, setCode] = useState('');
@@ -16,6 +59,20 @@ export function Login() {
   const [pinConfirm, setPinConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+
+  const tryPasskey = useCallback(async () => {
+    setPasskeyBusy(true);
+    setPasskeyError(null);
+    try {
+      await signInWithPasskey();
+    } catch (e) {
+      setPasskeyError(e instanceof Error ? e.message : 'האימות הביומטרי נכשל');
+    } finally {
+      setPasskeyBusy(false);
+    }
+  }, [signInWithPasskey]);
 
   const reset = () => {
     setStep('code');
@@ -130,6 +187,9 @@ export function Login() {
           <p className="mt-1 text-sm text-slate-400">מערכת שיבוץ אוטומטית לצוות האבטחה</p>
         </div>
 
+        {authStatus === 'locked' ? (
+          <PasskeyLockScreen />
+        ) : (
         <Card className="space-y-5">
           {demoMode && (
             <Alert tone="warn" title="מצב הדגמה">
@@ -149,6 +209,26 @@ export function Login() {
                   הזן את קוד העובד בן 6 הספרות
                 </p>
               </div>
+
+              {passkeySupported && !demoMode && (
+                <>
+                  {passkeyError && <Alert tone="error">{passkeyError}</Alert>}
+                  <Button
+                    fullWidth
+                    size="lg"
+                    variant="secondary"
+                    loading={passkeyBusy}
+                    onClick={() => void tryPasskey()}
+                  >
+                    כניסה עם Face ID / טביעת אצבע
+                  </Button>
+                  <div className="flex items-center gap-3 text-xs text-slate-400">
+                    <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+                    או
+                    <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+                  </div>
+                </>
+              )}
 
               <CodeInput
                 value={code}
@@ -279,6 +359,7 @@ export function Login() {
             </>
           )}
         </Card>
+        )}
 
         <p className="mt-6 text-center text-xs text-slate-500">
           בעיה בהתחברות? פנה למנהל המשמרת.

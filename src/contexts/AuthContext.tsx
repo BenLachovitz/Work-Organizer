@@ -8,10 +8,10 @@ import {
   type ReactNode,
 } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { codeToEmail, isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { codeToEmail, getHasPasskey, isSupabaseConfigured, supabase } from '@/lib/supabase';
 import type { Profile } from '@/types/database';
 
-export type AuthStatus = 'loading' | 'signedOut' | 'signedIn';
+export type AuthStatus = 'loading' | 'signedOut' | 'locked' | 'signedIn';
 
 /** What the login screen needs to know about a badge code before asking for a PIN. */
 export interface CodeStatus {
@@ -30,6 +30,10 @@ interface AuthValue {
   lookupCode: (employeeCode: string) => Promise<CodeStatus>;
   signIn: (employeeCode: string, pin: string) => Promise<void>;
   claim: (employeeCode: string, pin: string) => Promise<void>;
+  signInWithPasskey: () => Promise<void>;
+  /** Abandons the passkey unlock gate for this app load, falling back to the
+   *  normal badge-code + PIN screen. */
+  useCodeInstead: () => void;
   signOut: () => Promise<void>;
 }
 
@@ -129,6 +133,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void (async () => {
       const { data } = await supabase!.auth.getSession();
       if (cancelled) return;
+      // A device with a registered passkey is gated behind it on every fresh
+      // app load rather than silently resuming an old session -- the session
+      // itself is left untouched (still refreshable) so signInWithPasskey()
+      // below can replace it on success without ever needing to read it back.
+      if (data.session && getHasPasskey()) {
+        setStatus('locked');
+        return;
+      }
       if (data.session) {
         setSession(data.session);
         try {
@@ -197,6 +209,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [demoMode, loadProfile, makeDemoProfile],
   );
 
+  const signInWithPasskey = useCallback(async () => {
+    if (demoMode) throw new Error('אימות ביומטרי אינו זמין במצב הדגמה');
+    const { data, error } = await supabase!.auth.signInWithPasskey();
+    if (error || !data?.session || !data.user) {
+      throw new Error(error?.message ?? 'האימות הביומטרי נכשל');
+    }
+    setSession(data.session);
+    setProfile(await loadProfile(data.user.id));
+    setStatus('signedIn');
+  }, [demoMode, loadProfile]);
+
+  const useCodeInstead = useCallback(() => {
+    setStatus('signedOut');
+  }, []);
+
   const claim = useCallback(
     async (employeeCode: string, pin: string) => {
       if (demoMode) return signIn(employeeCode, pin);
@@ -227,9 +254,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       lookupCode,
       signIn,
       claim,
+      signInWithPasskey,
+      useCodeInstead,
       signOut,
     }),
-    [status, session, profile, demoMode, lookupCode, signIn, claim, signOut],
+    [
+      status,
+      session,
+      profile,
+      demoMode,
+      lookupCode,
+      signIn,
+      claim,
+      signInWithPasskey,
+      useCodeInstead,
+      signOut,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

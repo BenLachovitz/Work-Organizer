@@ -10,12 +10,11 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.15.1: fixes
-# guard_submitted/guard_cancelled's identity check, which was silently
-# failing for every real guard (asCaller.auth.getUser() needs its token
-# passed explicitly -- unlike .rpc()/.from(), the auth client has no session
-# of its own to pick up the injected Authorization header from).
-next-version: 2.15.1
+# version (see BACKLOG.md's Versioning section). Currently 2.16.0: passkey
+# (Face ID / fingerprint) login via Supabase Auth's native experimental
+# WebAuthn API, plus a device-scoped remember-me toggle for guards without
+# a passkey.
+next-version: 2.16.0
 mode: Mainline
 branches:
   main:
