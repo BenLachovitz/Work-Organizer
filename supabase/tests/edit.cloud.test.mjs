@@ -169,6 +169,49 @@ console.log('Placeholder (guard-less) assignment rows (§12.9, migration 39)');
 }
 
 console.log('');
+console.log('publish_roster (migration 43) -- atomic publish, single-run-per-week enforcement');
+const RUN2 = 'dddddddd-0000-0000-0000-000000000002';
+{
+  await sql(`INSERT INTO schedule_runs (id,week_start,version,solver_status)
+             VALUES ('${RUN2}','${WEEK}',2,'OPTIMAL');`);
+}
+{
+  const { error } = await g1.rpc('publish_roster',{p_run_id:RUN});
+  error ? ok('a guard cannot publish a roster') : bad('guard publish','succeeded');
+}
+{
+  const { error } = await mgr.rpc('publish_roster',{p_run_id:RUN});
+  error ? bad('manager publishes RUN',error.message) : ok('manager publishes a draft via publish_roster');
+}
+{
+  const r=await sql(`SELECT is_published p, (published_at IS NOT NULL) has_ts FROM schedule_runs WHERE id='${RUN}'`);
+  const w=await sql(`SELECT status::text s FROM roster_weeks WHERE week_start='${WEEK}'`);
+  r[0].p===true && r[0].has_ts===true && w[0].s==='published'
+    ? ok('is_published, published_at, and the week status all flip together, in one call')
+    : bad('publish_roster effects',JSON.stringify({r,w}));
+}
+{
+  // Publishing a second run for the same week must unpublish the first --
+  // the partial unique index one_published_run_per_week only allows this
+  // atomically, which is the whole reason to wrap it in an RPC.
+  const { error } = await mgr.rpc('publish_roster',{p_run_id:RUN2});
+  const r=await sql(`SELECT id, is_published p FROM schedule_runs WHERE week_start='${WEEK}' ORDER BY version`);
+  const runRow=r.find(x=>x.id===RUN), run2Row=r.find(x=>x.id===RUN2);
+  !error && runRow?.p===false && run2Row?.p===true
+    ? ok('publishing a second run atomically unpublishes the first')
+    : bad('single published run per week',JSON.stringify({error:error?.message,r}));
+}
+{
+  const { error } = await mgr.rpc('publish_roster',{p_run_id:'00000000-0000-0000-0000-000000000000'});
+  error ? ok('publishing an unknown run id is rejected') : bad('unknown run','succeeded');
+}
+{
+  // RUN2 was only needed to prove the single-published-run switch above; the
+  // rest of this file's assertions assume exactly one run (RUN) exists.
+  await sql(`DELETE FROM schedule_runs WHERE id='${RUN2}';`);
+}
+
+console.log('');
 console.log('A published roster stays under the manager control');
 {
   await sql(`UPDATE schedule_runs SET is_published=TRUE WHERE id='${RUN}';

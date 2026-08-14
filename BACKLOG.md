@@ -6,7 +6,7 @@ build status and roadmap, §1.14 is the changelog for everything since v2.9. Thi
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
-*Last updated: 13 August 2026*
+*Last updated: 14 August 2026*
 
 ---
 
@@ -125,6 +125,36 @@ so all three should land there. Carried in the push payload's `url` field, read 
 worker's `notificationclick` handler; not hardcoded, so a future notification type pointing
 elsewhere needs no new client code. `send-notifications` redeployed with the change.
 
+Step V (14 August) — **manual "roster published" broadcast** (spec §12.10, migrations 43–44):
+a manager-only button next to the JPEG export announces a published week to every guard on
+demand, via a new `roster_published` push type — deliberately separate from publishing itself,
+since a manager sometimes publishes just to check the layout, not to ship it. Unlike the three
+cron-driven types, this one can be pressed more than once per week (e.g. after republishing a
+correction): `notification_log_sent_once`'s partial unique index was narrowed to exclude it,
+keeping the strict once-ever guarantee for the automatic broadcast/reminders unchanged.
+`send-notifications` gained a second auth path — a manager's own JWT, checked server-side via
+`is_manager()` (never trusting the client), scoped to this one type only, alongside the existing
+cron-secret path a browser cannot use. Also shipped in the same migration: `publish_roster(p_run_id)`,
+a real RPC replacing the three separate, non-atomic client writes publishing used to do — the one
+manager action of its kind that never got the same RPC treatment as its siblings
+(`unpublish_run`/`delete_schedule_run`) — and which finally sets `published_at`, a column that
+existed on `schedule_runs` from the start but was never once written. One real bug caught by
+`test:cloud` before this shipped: narrowing the unique index's predicate silently broke
+`claim_notification_send`'s `ON CONFLICT` arbiter for the three existing cron types (`42P10`),
+fixed in a same-day follow-up migration (44) rather than editing the already-applied migration 43.
+Migrations applied to the live database, `send-notifications` redeployed, full TypeScript typecheck
+clean, and `test:cloud` (new Gate G + Gate E assertions) + `test:fixtures` + `test:rls` all green.
+Shipped, `package.json`/`GitVersion.yml` bumped to 2.14.0, tagged `v2.14.0`. **One thing still
+open**: real on-device push delivery for the new `roster_published` type hasn't been confirmed the
+way Step T's three original types were (§12.10) — the automated suite deliberately only exercises
+the auth-rejection paths (403/400), for the same reason Gate G never invokes the real function for
+a success case: it would broadcast to every real subscribed guard, including Ben's own phone, on
+every test run. Do this manually before considering Step V fully done.
+
+A second, related feature — a manager-facing notification when a guard submits, edits, or cancels
+their availability — was scoped and planned alongside this one but is deliberately **not** part of
+Step V; it ships as its own step, per Ben's explicit direction to keep the two efforts separate.
+
 Nothing else mid-flight, no open branches.
 
 **Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
@@ -161,6 +191,10 @@ deliberately deferred design choice, not a build gap. Four things still open, no
 - **Notification click routing confirmation** (Step U, spec §12.10) — the push-send path itself is
   confirmed live (Step T), but tapping a notification and landing on `/preferences` specifically is
   new with this step and hasn't been tapped on a real device yet.
+- **`roster_published` real-device delivery confirmation** (Step V, spec §12.10) — same class of gap
+  as the two items above: everything checkable without pushing to a real phone (auth paths, schema,
+  idempotency) is covered by `test:cloud`; actually pressing the button and confirming it arrives on
+  Ben's installed PWA still needs Ben to do it himself.
 - Whether `configured_kamut` itself should act as a soft *ceiling* for **every** guard (not just a
   floor) — surfaced once in v2.4 testing but the segment-weighting fix alone independently resolved
   the case that raised it, so never pursued as a general policy. A related, narrower question is now
@@ -295,8 +329,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.13.0**
-(Step U, notification click routing), tagged `v2.13.0`.
+state that version describes), matching the spec's own version history. Currently at **2.14.0**
+(Step V, manual roster-published broadcast), tagged `v2.14.0`.
 
 ## Commands
 

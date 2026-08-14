@@ -8,6 +8,7 @@ import { DefaultMorningTargetSettings } from '@/components/manager/DefaultMornin
 import { RosterGrid } from '@/components/RosterGrid';
 import { RosterEditor } from '@/components/manager/RosterEditor';
 import { RosterExport } from '@/components/manager/RosterExport';
+import { RosterPublishNotify } from '@/components/manager/RosterPublishNotify';
 import { CoverageReportPanel } from '@/components/manager/CoverageReportPanel';
 import { RunVersions } from '@/components/manager/RunVersions';
 import { Alert, Button, ButtonLink, Card, Spinner } from '@/components/ui';
@@ -364,6 +365,11 @@ export function ManagerDashboard() {
                     guards={data?.guards ?? []}
                   />
                 )}
+
+                {/* Same gate as RosterExport just above -- announcing a draft
+                    makes no sense, and mid-edit the "published" roster on
+                    screen may not match what is actually live. */}
+                {latestRun.is_published && !editing && <RosterPublishNotify weekStart={selected} />}
 
                 {(publish.isError ||
                   saveEdits.isError ||

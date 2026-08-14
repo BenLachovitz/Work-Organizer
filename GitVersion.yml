@@ -10,10 +10,11 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.13.0: Step U,
-# notification click routing -- tapping a push notification now opens or
-# navigates straight to /preferences, spec section 12.10.
-next-version: 2.13.0
+# version (see BACKLOG.md's Versioning section). Currently 2.14.0: manual
+# "roster published" broadcast button (migration 43-44) -- a manager-gated,
+# repeatable-per-week notification type on send-notifications, plus a real
+# publish_roster RPC replacing three non-atomic client writes.
+next-version: 2.14.0
 mode: Mainline
 branches:
   main:

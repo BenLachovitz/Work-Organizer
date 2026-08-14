@@ -1,29 +1,56 @@
 /**
- * send-notifications -- fires the weekly broadcast and the two deadline
- * reminders (spec 12.10). Invoked exclusively by pg_cron's notification_tick
- * (via pg_net), never by a browser.
+ * send-notifications -- fires the weekly broadcast, the two deadline
+ * reminders, and a manager-triggered "roster published" broadcast
+ * (spec 12.10, migration 43).
  *
- * Deployed with --no-verify-jwt (same reasoning as claim-code) -- there is no
- * end-user session to check. In its place: a shared secret in a custom
- * header, compared against an Edge Function secret only notification_tick's
- * stored GUCs and this function know.
+ * The first three types are invoked exclusively by pg_cron's
+ * notification_tick (via pg_net), authenticated by a shared secret in a
+ * custom header -- there is no end-user session to check for a cron job.
+ * roster_published is different: a manager presses a real button in their
+ * browser, so it is ALSO reachable with a valid manager JWT, re-checked
+ * server-side via is_manager() (same pattern as generate-schedule) -- never
+ * trusting the client's own opinion of its role. A manager JWT unlocks ONLY
+ * roster_published; the cron-only types stay cron-secret-only even for a
+ * manager's own browser session.
  *
- * Every branch is idempotent (claim_notification_send, migration 40) and
- * every outcome is logged to notification_log -- sent, or one of several
- * distinct skip reasons -- so "what fired and when" is answerable from the
- * SQL editor without touching this function's own logs.
+ * The three cron types are idempotent (claim_notification_send, migration
+ * 40) and deduped to one 'sent' row per (type, week, guard) ever.
+ * roster_published is deliberately NOT deduped that way -- a manager who
+ * republishes a correction later in the same week may want to announce
+ * again -- see migration 43's narrowed partial unique index. Every outcome,
+ * for every type, is still logged to notification_log.
  */
-import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import webpush from 'npm:web-push@3.6.7';
 
-type NotificationType = 'broadcast' | 'reminder_24h' | 'reminder_2h';
+type NotificationType = 'broadcast' | 'reminder_24h' | 'reminder_2h' | 'roster_published';
 const OFFSET_HOURS: Record<'reminder_24h' | 'reminder_2h', number> = {
   reminder_24h: 24,
   reminder_2h: 2,
 };
 
+// All three cron types exist to get a guard to submit, so they click
+// straight through to the submission form. roster_published sensibly points
+// at the roster instead. Carried in the payload (not hardcoded in the
+// service worker) so a future type needs no new client-side branch.
+const TARGET_URL: Record<NotificationType, string> = {
+  broadcast: '/preferences',
+  reminder_24h: '/preferences',
+  reminder_2h: '/preferences',
+  roster_published: '/roster',
+};
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
 function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS, 'Content-Type': 'application/json' },
+  });
 }
 
 const HEBREW_WEEKDAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -44,36 +71,158 @@ function formatIsraelParts(iso: string) {
   return { weekday: HEBREW_WEEKDAYS[idx] ?? weekdayShort, time: `${hour}:${minute}` };
 }
 
-Deno.serve(async (req: Request) => {
-  if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405);
+/**
+ * Sends one push payload to every subscription a guard/manager has, prunes
+ * dead ones (404/410), and records the outcome against an already-claimed
+ * (or already-inserted) notification_log row. Shared by every type so the
+ * webpush/prune/log-outcome logic exists exactly once.
+ */
+async function sendToTarget(
+  admin: SupabaseClient,
+  targetId: string,
+  title: string,
+  bodyText: string,
+  tag: string,
+  targetUrl: string,
+  logId: number,
+): Promise<boolean> {
+  const { data: subs } = await admin
+    .from('push_subscriptions')
+    .select('id, endpoint, p256dh, auth')
+    .eq('guard_id', targetId);
 
-  const cronSecret = Deno.env.get('CRON_SHARED_SECRET');
-  if (!cronSecret || req.headers.get('x-cron-secret') !== cronSecret) {
-    return json({ error: 'forbidden' }, 403);
+  if (!subs || subs.length === 0) {
+    await admin.from('notification_log').update({ status: 'skipped_no_subscription' }).eq('id', logId);
+    return false;
   }
+
+  let delivered = false;
+  for (const sub of subs) {
+    try {
+      await webpush.sendNotification(
+        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+        JSON.stringify({ title, body: bodyText, tag, url: targetUrl }),
+        { TTL: 3600 },
+      );
+      delivered = true;
+    } catch (e) {
+      const statusCode = (e as { statusCode?: number }).statusCode;
+      if (statusCode === 404 || statusCode === 410) {
+        // Dead subscription -- the browser/device is gone or unsubscribed.
+        await admin.from('push_subscriptions').delete().eq('id', sub.id);
+      }
+      // One dead device among several shouldn't sink the whole target's send.
+    }
+  }
+
+  if (!delivered) {
+    await admin.from('notification_log')
+      .update({ status: 'failed', detail: 'all subscriptions failed or were pruned' })
+      .eq('id', logId);
+  }
+  return delivered;
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405);
 
   const url = Deno.env.get('SUPABASE_URL');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_SECRET_KEY');
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? Deno.env.get('SUPABASE_PUBLISHABLE_KEY');
   const vapidPublic = Deno.env.get('VAPID_PUBLIC_KEY');
   const vapidPrivate = Deno.env.get('VAPID_PRIVATE_KEY');
   const vapidSubject = Deno.env.get('VAPID_SUBJECT');
-  if (!url || !serviceKey || !vapidPublic || !vapidPrivate || !vapidSubject) {
+  if (!url || !serviceKey || !anonKey || !vapidPublic || !vapidPrivate || !vapidSubject) {
     return json({ error: 'server misconfigured' }, 500);
   }
   webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
 
-  const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
-
-  let payload: { type?: NotificationType };
+  let payload: { type?: NotificationType; week_start?: string };
   try {
     payload = await req.json();
   } catch {
     return json({ error: 'invalid JSON' }, 400);
   }
   const type = payload.type;
-  if (type !== 'broadcast' && type !== 'reminder_24h' && type !== 'reminder_2h') {
+  if (type !== 'broadcast' && type !== 'reminder_24h' && type !== 'reminder_2h' && type !== 'roster_published') {
     return json({ error: 'unknown type' }, 400);
   }
+
+  // --- authorise --------------------------------------------------------
+  const cronSecret = Deno.env.get('CRON_SHARED_SECRET');
+  const hasCronAuth = Boolean(cronSecret) && req.headers.get('x-cron-secret') === cronSecret;
+
+  let isManagerCaller = false;
+  if (!hasCronAuth) {
+    const authHeader = req.headers.get('Authorization') ?? '';
+    if (authHeader) {
+      // Runs as the CALLER, so is_manager() applies exactly as it would for
+      // a direct query -- a forged role claim in the request body is
+      // irrelevant, since the role is read from the database using the
+      // caller's own JWT (same pattern as generate-schedule).
+      const asCaller = createClient(url, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+        auth: { persistSession: false },
+      });
+      const { data } = await asCaller.rpc('is_manager');
+      isManagerCaller = data === true;
+    }
+  }
+
+  // The cron secret authorises every type. A manager JWT authorises ONLY
+  // roster_published -- a manager's own logged-in browser must not be able
+  // to manually fire the deadline reminders just by having a valid session.
+  if (!hasCronAuth && !(isManagerCaller && type === 'roster_published')) {
+    return json({ error: 'forbidden' }, 403);
+  }
+
+  const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+
+  // ==========================================================================
+  // roster_published -- a manager-chosen, already-published week, not "the
+  // open week" the three cron types resolve for themselves.
+  // ==========================================================================
+  if (type === 'roster_published') {
+    const weekStart = payload.week_start;
+    if (!weekStart) return json({ error: 'week_start required' }, 400);
+
+    const { data: isPublished } = await admin.rpc('is_week_published', { p_week_start: weekStart });
+    if (!isPublished) return json({ error: 'week is not published' }, 400);
+
+    const title = 'הסידור פורסם';
+    const bodyText = 'סידור המשמרות עודכן ופורסם, אפשר לצפות בו באפליקציה.';
+    const targetUrl = TARGET_URL.roster_published;
+
+    const { data: targets } = await admin.rpc('broadcast_targets');
+
+    let sent = 0;
+    for (const row of targets ?? []) {
+      const guardId = row.guard_id as string;
+
+      // No claim_notification_send here, deliberately -- a manager can press
+      // this again after republishing a correction, and each press is a
+      // genuine, distinct decision, not a duplicate to suppress (migration 43
+      // narrowed the unique index to allow it).
+      const { data: logRow } = await admin
+        .from('notification_log')
+        .insert({
+          notification_type: type, week_start: weekStart, guard_id: guardId,
+          status: 'sent', sent_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+      if (!logRow) continue; // unexpected insert failure -- skip rather than crash the whole run
+
+      if (await sendToTarget(admin, guardId, title, bodyText, type, targetUrl, logRow.id as number)) sent++;
+    }
+
+    return json({ ok: true, sent, targets: (targets ?? []).length });
+  }
+
+  // ==========================================================================
+  // The three cron-driven types (unchanged from before migration 43).
+  // ==========================================================================
 
   // Find the target week. Deliberately NOT .maybeSingle(): "exactly one open
   // week" is a design intent, not a DB-enforced invariant -- a manager's
@@ -134,9 +283,7 @@ Deno.serve(async (req: Request) => {
     title = 'תזכורת: מועד הגשה מתקרב';
     bodyText = `נותרו כ-${hoursLeft} להגשת אילוצים לשבוע הקרוב`;
   }
-  // All three types exist to get a guard to submit, so all three click
-  // straight through to the submission form -- not just open the app.
-  const targetUrl = '/preferences';
+  const targetUrl = TARGET_URL[type];
 
   const { data: targets } = type === 'broadcast'
     ? await admin.rpc('broadcast_targets')
@@ -158,42 +305,7 @@ Deno.serve(async (req: Request) => {
     }
     const logId = claimed.data as number;
 
-    const { data: subs } = await admin
-      .from('push_subscriptions')
-      .select('id, endpoint, p256dh, auth')
-      .eq('guard_id', guardId);
-
-    if (!subs || subs.length === 0) {
-      await admin.from('notification_log').update({ status: 'skipped_no_subscription' }).eq('id', logId);
-      continue;
-    }
-
-    let delivered = false;
-    for (const sub of subs) {
-      try {
-        await webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          JSON.stringify({ title, body: bodyText, tag: type, url: targetUrl }),
-          { TTL: 3600 },
-        );
-        delivered = true;
-      } catch (e) {
-        const statusCode = (e as { statusCode?: number }).statusCode;
-        if (statusCode === 404 || statusCode === 410) {
-          // Dead subscription -- the browser/device is gone or unsubscribed.
-          await admin.from('push_subscriptions').delete().eq('id', sub.id);
-        }
-        // One dead device among several shouldn't sink the whole guard's send.
-      }
-    }
-
-    if (delivered) {
-      sent++;
-    } else {
-      await admin.from('notification_log')
-        .update({ status: 'failed', detail: 'all subscriptions failed or were pruned' })
-        .eq('id', logId);
-    }
+    if (await sendToTarget(admin, guardId, title, bodyText, type, targetUrl, logId)) sent++;
   }
 
   return json({ ok: true, sent, targets: (targets ?? []).length });

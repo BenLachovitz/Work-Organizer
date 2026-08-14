@@ -403,35 +403,66 @@ export function useUnpublishRun() {
   });
 }
 
-/** Publishes a draft. The partial unique index guarantees one per week. */
+/**
+ * Publishes a draft, via publish_roster (migration 43). Unpublishing the
+ * previous run, publishing this one, and flipping the week's status all
+ * happen inside one transaction now, instead of three separate client round
+ * trips -- a network drop used to be able to leave the week half-published.
+ */
 export function usePublishRun() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (args: { runId: string; weekStart: DateKey }) => {
-      const db = requireSupabase();
-
-      // Unpublish any existing published run for the week first: the partial
-      // unique index would otherwise reject the second publication outright.
-      await db
-        .from('schedule_runs')
-        .update({ is_published: false })
-        .eq('week_start', args.weekStart)
-        .eq('is_published', true);
-
-      const { error } = await db
-        .from('schedule_runs')
-        .update({ is_published: true })
-        .eq('id', args.runId);
+      const { error } = await requireSupabase().rpc('publish_roster', { p_run_id: args.runId });
       if (error) throw new Error(error.message);
-
-      await db
-        .from('roster_weeks')
-        .update({ status: 'published' })
-        .eq('week_start', args.weekStart);
     },
     onSuccess: (_r, args) => {
       void qc.invalidateQueries({ queryKey: runKeys.forWeek(args.weekStart) });
       void qc.invalidateQueries({ queryKey: ['roster_weeks'] });
+    },
+  });
+}
+
+/**
+ * Manually announces a published roster to the whole team, via
+ * send-notifications' roster_published type (migration 43). Deliberately
+ * separate from publishing itself -- a manager sometimes publishes just to
+ * check the layout, not to ship it, so the notification is an explicit,
+ * repeatable second action rather than something publish does automatically.
+ */
+export function useNotifyRosterPublished() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { weekStart: DateKey }) => {
+      const { data, error } = await requireSupabase().functions.invoke('send-notifications', {
+        body: { type: 'roster_published', week_start: args.weekStart },
+      });
+      if (error) throw new Error(error.message);
+      return data as { ok: boolean; sent: number; targets: number };
+    },
+    onSuccess: (_r, args) => {
+      void qc.invalidateQueries({ queryKey: ['lastPublishNotification', args.weekStart] });
+    },
+  });
+}
+
+/** Most recent successful roster_published send for a week, if any -- shown next to the button so pressing it twice is an informed choice, not a guess. */
+export function useLastPublishNotification(weekStart: DateKey) {
+  return useQuery({
+    queryKey: ['lastPublishNotification', weekStart],
+    enabled: Boolean(weekStart),
+    queryFn: async () => {
+      const { data, error } = await requireSupabase()
+        .from('notification_log')
+        .select('sent_at')
+        .eq('notification_type', 'roster_published')
+        .eq('week_start', weekStart)
+        .eq('status', 'sent')
+        .order('sent_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      return (data?.sent_at as string | undefined) ?? null;
     },
   });
 }

@@ -203,6 +203,92 @@ async function run() {
       : bad('two open weeks', JSON.stringify(rows));
   }
 
+  console.log('\n\x1b[1m7. roster_published (migration 43) -- is_week_published() + narrowed idempotency\x1b[0m');
+  const RUN = 'ffffffff-0000-0000-0000-000000000001';
+  {
+    await sql(`INSERT INTO schedule_runs (id, week_start, version, solver_status, is_published)
+               VALUES ('${RUN}', '${WEEK}', 1, 'OPTIMAL', TRUE);`);
+    const rows = await sql(`SELECT public.is_week_published('${WEEK}') AS p, public.is_week_published('${WEEK2}') AS p2`);
+    rows[0].p === true && rows[0].p2 === false
+      ? ok('is_week_published() is true only for a week with a published run')
+      : bad('is_week_published', JSON.stringify(rows));
+  }
+  {
+    // roster_published is deliberately excluded from the once-ever dedup: two
+    // 'sent' rows for the same (type, week, guard) must both be allowed.
+    await sql(`INSERT INTO notification_log (notification_type, week_start, guard_id, status, sent_at)
+               VALUES ('roster_published', '${WEEK}', '${bId}', 'sent', NOW());`);
+    let secondFailed = false;
+    try {
+      await sql(`INSERT INTO notification_log (notification_type, week_start, guard_id, status, sent_at)
+                 VALUES ('roster_published', '${WEEK}', '${bId}', 'sent', NOW());`);
+    } catch { secondFailed = true; }
+    !secondFailed
+      ? ok('a second roster_published sent row for the same (week, guard) is allowed')
+      : bad('roster_published repeat send', 'second insert was unexpectedly rejected');
+  }
+  {
+    // Regression guard: the three original types keep their strict once-ever
+    // guarantee -- this is the property migration 43 must NOT loosen.
+    await sql(`INSERT INTO notification_log (notification_type, week_start, guard_id, status, sent_at)
+               VALUES ('broadcast', '${WEEK}', '${bId}', 'sent', NOW());`);
+    let secondFailed = false;
+    try {
+      await sql(`INSERT INTO notification_log (notification_type, week_start, guard_id, status, sent_at)
+                 VALUES ('broadcast', '${WEEK}', '${bId}', 'sent', NOW());`);
+    } catch { secondFailed = true; }
+    secondFailed
+      ? ok('broadcast still allows only one sent row per (week, guard), unchanged')
+      : bad('broadcast dedup regression', 'second insert unexpectedly succeeded');
+  }
+
+  console.log('\n\x1b[1m8. send-notifications auth for roster_published -- safe paths only\x1b[0m');
+  // Deliberately limited to paths that 403/400 before any targeting or send
+  // happens (same reasoning as the file header: a "success" call here would
+  // loop over broadcast_targets() -- every real active guard, including
+  // Ben's own phone -- on every test run). The actual on-device delivery for
+  // roster_published needs the same manual confirmation Step T's three
+  // original types already got -- see BACKLOG.md.
+  const FN_URL = `${env.VITE_SUPABASE_URL.replace(/\/$/, '')}/functions/v1/send-notifications`;
+  {
+    const res = await fetch(FN_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'roster_published', week_start: WEEK }),
+    });
+    res.status === 403 ? ok('no auth at all is rejected (403)') : bad('no auth', `status ${res.status}`);
+  }
+  {
+    const { data: sess } = await b.auth.getSession();
+    const res = await fetch(FN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sess.session.access_token}` },
+      body: JSON.stringify({ type: 'roster_published', week_start: WEEK }),
+    });
+    res.status === 403 ? ok('a non-manager guard JWT is rejected (403)') : bad('guard JWT', `status ${res.status}`);
+  }
+  {
+    // A manager JWT must not unlock a CRON-ONLY type -- roster_published is
+    // the only type a browser session may ever trigger.
+    const { data: sess } = await mgr.auth.getSession();
+    const res = await fetch(FN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sess.session.access_token}` },
+      body: JSON.stringify({ type: 'broadcast' }),
+    });
+    res.status === 403 ? ok('a manager JWT cannot trigger a cron-only type (403)') : bad('manager JWT on cron type', `status ${res.status}`);
+  }
+  {
+    // A manager JWT for roster_published on a week with NO published run --
+    // rejected by is_week_published() before any targeting/send happens.
+    const { data: sess } = await mgr.auth.getSession();
+    const res = await fetch(FN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sess.session.access_token}` },
+      body: JSON.stringify({ type: 'roster_published', week_start: WEEK2 }),
+    });
+    res.status === 400 ? ok('an unpublished week is rejected (400), before any send') : bad('unpublished week', `status ${res.status}`);
+  }
+
   await cleanup();
   console.log(`\n\x1b[1mResult:\x1b[0m \x1b[32m${passed} passed\x1b[0m, ` +
     (failures.length ? `\x1b[31m${failures.length} failed\x1b[0m` : '0 failed'));
