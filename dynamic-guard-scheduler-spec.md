@@ -1,6 +1,6 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.15 (build steps A–W complete; live and in daily use; deployed to production)
+**Version:** 2.18.1 (build steps A–X complete; live and in daily use; deployed to production)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 14 August 2026
@@ -161,6 +161,21 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 66  | **Manager notified on guard submit/edit/cancel** (migration 45, §12.10) — two new push types, `guard_submitted` (new submission or an edit, distinguished in the copy) and `guard_cancelled`, sent to every `manager_targets()` row (role IN manager/admin, not a hardcoded id) whenever a guard saves or cancels their own availability | The manager had no signal that a guard had submitted except opening the dashboard and looking. Deliberately **client-triggered** (fired from `useSavePreferences`/`useDeleteSubmission`'s `onSuccess`), not a database trigger on `weekly_submissions` — `test:cloud` calls `save_week_preferences`/`delete_week_submission` directly, dozens of times per run, against the live project (no separate test database exists here); a table-level trigger would have paged the real manager on every future test run. Firing from the client means test scripts, which never go through React, never reach the code that sends it — and incidentally also means the manager's own edit-on-behalf-of path (`manager_save_week_preferences`, a different hook entirely) is excluded for free, with no `auth.uid()` guard needed |
 | 67  | **Server-side event verification** — `send-notifications` re-checks that a `weekly_submissions` row actually exists (submit/edit) or actually does not (cancel) before sending, and that the caller's own JWT resolves to the `guard_id` being reported, rather than trusting either claim from the request body | Same discipline as `roster_published`'s `is_week_published()` check (migration 43) and `generate-schedule`'s server-side role re-check — a guard's browser is not trusted to assert facts about itself. Neither new type is deduped by `notification_log_sent_once` (already narrowed to the three cron types in migration 43) — each real submit, edit, or cancel is its own distinct, reviewable event |
+
+### 1.17 Changes in Version 2.16–2.17
+
+| #   | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Rationale                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 68  | **Passkey (Face ID / fingerprint) login, v2.16** — shipped first on `@supabase/supabase-js`'s native experimental Passkey API (`registerPasskey()`/`signInWithPasskey()`), needing zero new migrations or Edge Functions. **Superseded the same day (v2.16→2.17, §8, §12.11)**: real-device testing showed that API only issues true, OS-synced passkeys (visible in the phone's system Passwords & passkeys list, eligible to sync to the guard's Google/Apple account) — not the app-scoped, device-only credential intended. Rebuilt from scratch on `@simplewebauthn/browser`/`@simplewebauthn/server` (`residentKey: 'discouraged'`) in a new `webauthn` Edge Function, storing credentials in two new tables (migration 46, §6.2) instead of GoTrue's own passkey store | A guard's phone is usually personal, but the credential still shouldn't be something the OS offers to sync or restore through its general password manager — that's a materially different trust boundary than "unlocks this app on this phone." Full account of the pivot, the session-minting trick (`admin.generateLink` + `verifyOtp`, no password involved), and the RP-ID-as-per-request-allowlist design in §12.11 |
+| 69  | **Remember-me toggle** (`src/lib/supabase.ts`) — a switchable `localStorage`/`sessionStorage` adapter, default **on** so no guard's existing always-persisted session changes unless they opt out. Moved from an initial Preferences card (v2.16) onto the Login page itself in v2.18 (item 71) after Ben's review                                                                                                                                                                                                                                          | Persistence was already unconditional before this (`persistSession: true`, no toggle) — this makes it explicit and reversible for a guard on a shared device, without changing the default anyone already relies on                                                                                                                                                                                                                                                                                          |
+| 70  | **App-restart lock gate with a 24h grace window** — a device with a registered passkey re-verifies on a fresh app load rather than silently resuming, UNLESS a real biometric verification succeeded within the last 24 hours (`wo.webauthnUnlockedAt`, only ever set by an actual ceremony, never extended by a mere resume). An expired window now performs a plain, **local-only** sign-out (`supabase.auth.signOut({ scope: 'local' })`) landing on the ordinary Login page, rather than a separate "locked" screen shipped and then removed the same day | Every JS boot — including a plain browser refresh — looks identical to a genuine reopen days later; gating on literal every boot re-prompted on every refresh. `scope: 'local'` matters: an automatic per-device timeout must never revoke a session the same guard has active on another device. The separate lock screen it first shipped with was dropped for feeling inconsistent with the rest of the app — one Login page for everyone, not a second identity |
+
+### 1.18 Changes in Version 2.18
+
+| #   | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Rationale                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 71  | **Login UX rework, per Ben's review of the shipped feature** — the Preferences passkey-management card (list/rename/remove) was dropped entirely as redundant (a passkey is set-and-forget; nobody needs to delete one), the remember-me toggle (item 69) moved onto the Login page itself under the personal PIN step, and the Login page's passkey button became **hybrid**: it runs the real sign-in ceremony if this device already has a credential, otherwise falls through to an ordinary badge-code + PIN login | Matches the "sign in with biometrics or set one up" pattern most consumer apps with passkey login use, and closes the gap the management-card removal opened — the hybrid button is now the permanent way back in for a guard who skipped the one-time home-screen setup nudge (§12.11) |
+| 72  | **Hybrid flow fluency fix, same day** — the passkey button's no-credential branch now imperatively focuses the code input (`CodeInput` gained a `forwardRef`/`useImperativeHandle` handle) instead of relying on a mount-time `autoFocus` that never refires on a re-render and that mobile browsers mostly ignore outside a real user gesture anyway; and passkey registration now fires directly from the PIN-submit handler immediately after a successful login — same click's async chain — instead of being deferred to a flag `GuardHome` picked up on its next mount, a full navigation away from any usable browser "user gesture" window for `navigator.credentials.create()` | Real-device testing of item 71's first cut found both gaps: the keyboard never visibly opened, and setup only ever started if the guard found and tapped the separate home-screen nudge a second time. Best-effort either way — a failure or cancellation is swallowed silently, since the passive nudge card remains as a fallback |
 
 ---
 
@@ -998,6 +1013,37 @@ CREATE TABLE notification_secrets (
   notify_url  TEXT,
   cron_secret TEXT
 );
+
+-- 12. App-scoped WebAuthn credentials (§8, §12.11, migration 46). One row per
+-- registered device; guard-owned (read/rename/delete their own row), but NO
+-- insert grant to `authenticated` at all -- only the webauthn Edge
+-- Function's service-role client may ever create one, after a verified
+-- ceremony, never forged directly by a guard's own client.
+CREATE TABLE webauthn_credentials (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  guard_id      UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  credential_id TEXT NOT NULL UNIQUE,
+  public_key    BYTEA NOT NULL,
+  counter       BIGINT NOT NULL DEFAULT 0,
+  device_type   TEXT,
+  backed_up     BOOLEAN NOT NULL DEFAULT FALSE,
+  transports    TEXT[],
+  friendly_name TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_used_at  TIMESTAMPTZ
+);
+
+-- 13. Short-lived nonces for the two-step register/authenticate ceremony.
+-- Sealed like notification_secrets -- RLS enabled, ZERO policies, no grants
+-- to authenticated/anon at all. Consumed (deleted) the moment they're used.
+CREATE TABLE webauthn_challenges (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  guard_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  purpose    TEXT NOT NULL CHECK (purpose IN ('register', 'auth')),
+  challenge  TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
 ```
 
 ---
@@ -1168,6 +1214,17 @@ Supabase GoTrue has no native code-login, so a synthetic identity is used intern
 **Subsequent logins:** `signInWithPassword({ email: '<code>@guards.local', password: pin })`.
 
 **Abuse controls:** the `claim-code` function rate-limits by IP and by code; repeated failures disable the code and notify the manager.
+
+**Passkey (Face ID / fingerprint) login (v2.16–2.18, §12.11)** — optional, additive, never a
+lockout: badge code + PIN always keeps working regardless. From an already-authenticated session, a
+guard can register an app-scoped WebAuthn credential (`residentKey: 'discouraged'` — explicitly
+**not** a synced OS passkey) via the `webauthn` Edge Function. On a device with one registered, the
+Login page's passkey button runs the real sign-in ceremony directly; on a device with none, the same
+button falls through to an ordinary badge-code + PIN login and the ceremony starts automatically
+right after. A device with a credential re-verifies on every fresh app load unless a real biometric
+check succeeded within the last 24 hours (§12.11's grace-window design). Full technical account —
+the pivot from Supabase's native Passkey API, the RP-ID allowlist, and how a successful ceremony
+mints a real session with no password involved — lives in §12.11, not repeated here.
 
 ---
 
@@ -2115,6 +2172,135 @@ open `clients.openWindow(url)` opens straight to it. Carried in the payload rath
 the service worker so a future notification type (e.g. a roster-published push, which would
 sensibly point at the roster instead) needs no new client-side branch.
 
+### 12.11 Passkey / Biometric Login (migration 46, `webauthn` Edge Function, v2.16–2.18)
+
+Optional Face ID / fingerprint login, **additive and never a lockout** — badge code + PIN always
+keeps working regardless of whether a guard ever sets this up.
+
+**The design changed once while building this, for a reason worth recording plainly.** v2.16
+shipped first on `@supabase/supabase-js`'s native, experimental Passkey API
+(`registerPasskey()`/`signInWithPasskey()`, `auth.experimental.passkey: true`) — GoTrue runs the
+whole WebAuthn ceremony and stores the credential itself, so this needed zero new migrations and
+zero new Edge Functions. Real-device testing the same day showed what that API actually produces: a
+true, **discoverable, OS-synced passkey**, visible in the phone's system "Passwords & passkeys" list
+and eligible to sync to the guard's Google/Apple account. That's a materially different trust
+boundary than "unlocks this app on this phone" — WebAuthn supports the narrower one directly
+(`residentKey: 'discouraged'` at registration produces a non-resident credential that neither syncs
+nor is offered through the OS account-picker UI), but Supabase's native Passkey API doesn't expose
+that option; it's deliberately built only for true discoverable passkeys. **v2.16's mechanism was
+replaced wholesale, same day**, with a from-scratch implementation: `@simplewebauthn/browser`
+client-side, `@simplewebauthn/server` in a new `webauthn` Edge Function, credentials stored in
+`webauthn_credentials`/`webauthn_challenges` (migration 46, §6.2) instead of GoTrue's own store —
+undoing the "zero backend code" property that was always the trade-off of the native API in the
+first place. **Known, confirmed platform limit, not a bug**: Android honours
+`residentKey: 'discouraged'` and never syncs the credential; Apple's platform authenticator can
+still create a synced iCloud Keychain passkey even when asked for `discouraged` — "never synced" is
+a strong guarantee on Android and only a best-effort one on iPhone.
+
+**The `webauthn` Edge Function**, one function with four actions via an `action` field (same shape
+as `claim-code`'s `status`/`claim` split), deployed `--no-verify-jwt` since `auth-options`/
+`auth-verify` have no session by definition — that's what they're establishing:
+
+```
+register-options  (needs the caller's own JWT) -> generateRegistrationOptions(), residentKey:
+                   'discouraged', excludeCredentials from the caller's existing rows
+register-verify   (needs the caller's own JWT) -> verifyRegistrationResponse(), INSERT into
+                   webauthn_credentials
+auth-options      (no session -- body carries a client-supplied guard_id hint)
+                   -> generateAuthenticationOptions() scoped to that guard's stored credential IDs
+auth-verify       (no session) -> verifyAuthenticationResponse() against the stored public key,
+                   then mints a real session
+```
+
+`register-*` resolve the caller's own `guard_id` from their own JWT using the exact `asCaller` +
+`getUser(token)` pattern §12.10 already established for `guard_submitted`/`guard_cancelled` — and
+the exact lesson v2.15.1 had to learn the hard way: `getUser()` needs its token passed explicitly,
+unlike `.rpc()`/`.from()`, which pick up the global `Authorization` header on their own.
+
+**A non-discoverable credential loses the "no username needed" property true passkeys have** — the
+server must already know which credential to challenge before the ceremony starts, since the browser
+can no longer show a blind "pick your passkey" picker. Solved with a local-only device flag,
+`wo.webauthnGuardId`, set after a successful registration on that specific device: sent to
+`auth-options` as a plain **hint**, never a trust boundary — the actual authorization is the
+cryptographic signature `verifyAuthenticationResponse()` checks against that exact guard's stored
+public key, so a forged `guard_id` does nothing without the matching physical authenticator.
+
+**RP ID/origin are a hardcoded allowlist inside the function itself**, keyed off the request's
+`Origin` header — the production origin, and `http://localhost:5173` as a second, entirely separate
+RP for local dev testing (a credential registered under one simply doesn't verify under the other,
+correct WebAuthn behaviour, so the dev entry is a disposable testing lane, not a way to touch
+production credentials from a dev machine). This is a real improvement over the native API's one
+RP-ID-per-Supabase-project constraint, and only possible because this function owns the whole
+ceremony now.
+
+**A successful `auth-verify` mints a real Supabase session with no password involved**:
+`admin.getUserById(guard_id)` for their (synthetic, non-routable) email, then
+`admin.generateLink({ type: 'magiclink' })` — which does **not** send any mail, it only returns a
+token — immediately exchanged server-side via a plain anon-key client's
+`verifyOtp({ token_hash, type: 'magiclink' })` for a real `{ session }`. Only its access/refresh
+tokens are returned to the browser, which installs them with `supabase.auth.setSession()`.
+
+**App-restart lock gate, with a 24-hour grace window.** A device with a registered passkey is meant
+to re-verify on a fresh app load rather than silently resuming — but every JS boot, including a
+plain browser refresh, looks identical to `AuthContext`'s bootstrap effect; there is no lighter-
+weight signal for "genuine reopen after time away" than "same session, page just reloaded." Gating
+on literal every boot (v2.16's original shipped behaviour) re-prompted on every refresh. Fixed with
+`wo.webauthnUnlockedAt` (`src/lib/supabase.ts`): the gate is skipped whenever a real ceremony
+succeeded within the last 24 hours, and shown otherwise — deliberately **only** ever set by an
+actual biometric verification, never extended by a mere silent resume, or a device opened once a day
+would never need to re-verify at all, defeating the point of gating it. 24h chosen over a 7-day or
+"only on session loss" alternative, weighing routine daily use against how long a lost/stolen phone
+would stay unlockable on the persisted session alone. **The gate itself has no separate "locked"
+screen** — v2.16 shipped one, and it was dropped the same week for feeling inconsistent with the
+rest of the app: an expired window now performs a plain, **local-only** sign-out
+(`supabase.auth.signOut({ scope: 'local' })`) and lands on the ordinary Login page every signed-out
+guard already sees. `scope: 'local'` matters — an automatic, per-device timeout must never revoke a
+session this guard has active on another device just because one phone's window lapsed.
+
+**Frontend UX, reworked once after the first ship.** v2.16 put passkey management (list, rename,
+remove) on a Preferences card, alongside the remember-me toggle described below. Ben's review after
+using it for real changed both: nobody needs to *delete* a passkey (it's set-and-forget, not
+something guards manage day to day), so that whole card was dropped; and remember-me belongs where
+almost every app puts it — under the personal PIN on the Login page itself, not tucked into
+settings. What replaced the management card is a **hybrid passkey button** on Login, matching the
+"sign in with biometrics or set one up" pattern most consumer apps with passkey login use: a purely
+local, instant check for whether this device already has a credential (`getPasskeyGuardId()`). If
+yes, the button runs the real sign-in ceremony. If not, it falls through to an ordinary badge-code +
+PIN login and the registration ceremony fires automatically right after — directly from the
+PIN-submit handler, in the very same click's async chain, not deferred to a later screen/tap, since
+`navigator.credentials.create()` needs to run reasonably close to a genuine user gesture or the
+browser silently refuses it. A dismissible, one-time nudge card on `GuardHome` (same established
+pattern as §12.10's notification enable-prompt) remains as the passive fallback for a guard who logs
+in normally without ever touching the passkey button, and as the safety net if the automatic
+ceremony above is cancelled or the browser declines it. `CodeInput` gained an imperative
+`forwardRef`/`useImperativeHandle` `focus()` for the same reason: a mount-time `autoFocus` doesn't
+refire on a re-render, and mobile browsers mostly ignore it outside a real user gesture anyway, so
+the passkey button's no-credential branch calls it directly to pop the keyboard.
+
+**Remember-me** (`src/lib/supabase.ts`) makes the persistence badge-code login already had
+implicitly (`persistSession: true`, always on, no toggle before this) explicit and reversible: a
+`wo.rememberMe` flag, default **on** so no guard's existing behaviour changes unless they opt out,
+drives a custom switchable storage adapter that delegates each read/write to `localStorage` or
+`sessionStorage` depending on the flag *at the time of that call*. On the Login page, flipping the
+toggle calls `setRememberMe()` immediately, before the guard even submits — since the adapter only
+consults the flag at the moment a session is actually written, the very next successful login
+already lands in the correct storage with no separate "apply after login" step needed.
+
+**Testing — Gate H** (`npm run test:webauthn`, `supabase/tests/webauthn.cloud.test.mjs`, 22
+assertions): RLS on both new tables (an owner reads/renames/deletes only their own row; a different
+guard gets nothing; a manager can read any row; a direct client `INSERT` is rejected outright — no
+grant exists, only the Edge Function's service-role client may ever create one; `webauthn_challenges`
+is completely unreachable via PostgREST regardless of role), and the Edge Function's auth/
+verification paths — missing/malformed caller JWT, an origin outside the allowlist, a `guard_id`
+with no credentials, a malformed `guard_id`, a bogus credential response rejected cleanly (400, not
+a crash) on both `register-verify` and `auth-verify`, and proof a consumed challenge cannot be
+replayed. Same deliberate scope as Gate G never invoking `send-notifications` for a real push: a
+genuine end-to-end ceremony still needs a physical authenticator or a browser's virtual-authenticator
+API, neither of which this suite uses — what IS exercised for real is
+`generateRegistrationOptions()`/`generateAuthenticationOptions()` actually running against the live
+Deno Edge Function runtime, which doubles as the "confirm a new runtime dependency actually works
+before trusting it" smoke test §12.10 set the precedent for with `npm:web-push`.
+
 ---
 
 ## 13. OPEN ITEMS
@@ -2131,6 +2317,7 @@ sensibly point at the roster instead) needs no new client-side branch.
 | 8   | `pg_cron` for the week sweep                                                                                                                  | Not configured; the sweep runs on app load (§12.1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | 9   | Tiered כמות penalty — discount a flex-tier guard's (כמות 3–4) _last_ missing shift so the solver favours closing target-coverage gaps over it | **Investigated (8 August), rejected — structurally a no-op.** Implemented across both engines and both referees, then tested against a hand-built adversarial scenario and the real live dataset: identical objective, identical assignments, flex-tier or not. Cause: H6 (§4.1, never over-staff a segment) already guarantees every legal placement either closes a real coverage gap or is blocked outright — there is no such thing as a placement that only satisfies כמות with zero coverage value for this discount to ever usefully trade away. Reverted in full; not worth re-investigating unless the hard-constraint set changes. |
 | 10  | Guard-requested shift count (§3.10) — let a guard state a preferred count for the week, separate from מנהל-configured כמות                    | **Implemented, v2.7** (migration 33) — §3.10. Below-configured guaranteed via a per-guard H4 ceiling; above-configured a measured, zero-harm soft bonus; the 5→6 exception for guards already at the ordinary ceiling shipped as an explicit phased follow-up, per Ben's request                                                                                                                                                                                                                                                                                                                                                             |
+| 11  | Passkey real-device confirmation (§8, §12.11) — registering on a real iPhone/Android from the Login page's hybrid button, confirming the credential does *not* appear in the phone's system Passwords & passkeys list, and confirming the restart-lock gate's unlock and 24h grace window behave as designed | **Open.** Everything checkable without a physical device (Gates A/H, typecheck) is covered; the ceremony itself, and the negative check that it's genuinely non-syncing, need a real phone — same class of gap as items in §14.3 for the PWA install and push notifications |
 
 ---
 
@@ -2163,10 +2350,11 @@ sensibly point at the roster instead) needs no new client-side branch.
 | **U**     | Notification click routing (§12.10, v2.13): tapping any push notification now opens or navigates straight to `/preferences`, carried in the push payload's `url` field rather than hardcoded in the service worker                                                                                                                                                                                                  | ✅ complete; real-device click confirmation pending Ben        |
 | **V**     | Manual "roster published" broadcast (§12.10, migrations 43–44, v2.14): manager-gated button, repeatable per week, on a new `roster_published` push type; `send-notifications` gains a manager-JWT auth path scoped to this one type. `publish_roster(p_run_id)` RPC replaces the three non-atomic client writes publish previously did, finally setting `published_at`                                            | ✅ complete; real-device delivery confirmation pending Ben     |
 | **W**     | Manager notified on guard submit/edit/cancel (§12.10, migration 45, v2.15): two new push types, client-triggered from `useGuardPortal.ts` rather than a database trigger (so `test:cloud` never pages the real manager), targeting a new role-based `manager_targets()`; `send-notifications` verifies the submission row's actual existence and the caller's own JWT identity server-side before sending. Real-device testing (v2.15.1) caught `asCaller.auth.getUser()` silently failing without an explicit token, fixed and confirmed delivering | ✅ complete; real-device delivery confirmed                    |
+| **X**     | Passkey (Face ID / fingerprint) login (§8, §12.11, migration 46, v2.16–2.18): shipped first on Supabase Auth's native Passkey API, replaced same-day with an app-scoped `@simplewebauthn/*` implementation (own `webauthn` Edge Function + two new tables) after real-device testing showed the native API produced a synced OS passkey, not the device-only credential intended. App-restart lock gate with a 24h grace window (no separate "locked" screen — dropped after shipping one), a Login-page remember-me toggle, and a hybrid passkey button (signs in directly or falls through to badge+PIN then auto-registers) rounded out the UX after two more real-device review passes | ✅ complete; real-device confirmation pending Ben (§13 item 11) |
 
 ### 14.2 Verification
 
-Twelve suites, all green. Every gate runs against the live project except the PGlite one. (Gate E
+Thirteen suites, all green. Every gate runs against the live project except the PGlite one. (Gate E
 engines now run 16 golden fixtures, not 8 — two added in v2.4: a segment-weight tie-break and a
 preference tie-break, both empirically constructed and verified against a hand-patched "flat
 weighting" baseline to confirm the tie they test was real before asserting the fix resolves it.
@@ -2215,10 +2403,11 @@ locally, which is expected, not a regression.
 | Gate E (edit)     | `npm run test:edit`                                       | Draft and published-roster editing, deletion, assignment-note round-trip and length cap, placeholder rows coexisting with real ones without collision (§12.9)    |
 | Gate F (realtime) | `npm run test:realtime`                                   | Live push both directions: roster changes to guards, submissions to the manager                                                                                  |
 | Gate G            | `npm run test:notifications`                              | push_subscriptions RLS, targeting functions (incl. the role-filter fix), tolerance window, send idempotency, two-open-weeks robustness (§12.10)                  |
+| Gate H            | `npm run test:webauthn`                                    | RLS on `webauthn_credentials`/`webauthn_challenges`, the `webauthn` Edge Function's auth/verification rejection paths, and a live smoke test of `generateRegistrationOptions()`/`generateAuthenticationOptions()` against the real Deno runtime (§12.11) |
 
 `npm run test:cloud` chains every cloud suite in this table (rls → auth → client → preferences →
-manager → generate → edit → realtime → notifications) and stops at the first failure. `npm run
-test:compare` asserts CP-SAT never scores below the mock.
+manager → generate → edit → realtime → notifications → webauthn) and stops at the first failure.
+`npm run test:compare` asserts CP-SAT never scores below the mock.
 
 ### 14.3 What is left
 
@@ -2243,6 +2432,17 @@ stays open until Ben checks it on his own devices.
 thing that couldn't be checked from this development machine; it has since been confirmed live —
 `send-notifications` invoked directly for all three notification types against an isolated test
 week, all three arrived on Ben's own installed PWA, and he confirmed each one before this closed.
+
+**v2.16–2.18's passkey login (§8, §12.11) has one item still open**, same class of gap as the two
+above: everything checkable without a physical authenticator — Gate H's RLS and auth/verification
+coverage, the live `generateRegistrationOptions()`/`generateAuthenticationOptions()` smoke test,
+full TypeScript typecheck — is green. What can't be checked here is the actual ceremony on a real
+iPhone/Android from the Login page's hybrid button, and specifically the negative confirmation that
+matters most for this feature: that the resulting credential does **not** show up in the phone's
+system Passwords & passkeys / Google Password Manager list, which is the entire reason v2.16's first
+cut (Supabase's native Passkey API) was replaced. Android fingerprint login, the restart-lock gate,
+and its 24h grace window have been confirmed working by Ben on his own phone during development; the
+non-syncing property specifically, and iPhone/Face ID behaviour at all, remain unconfirmed.
 
 One thread from v2.4 is now effectively resolved rather than deferred, and one demo-data note still
 stands:

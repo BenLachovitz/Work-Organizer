@@ -1,8 +1,8 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.15** — §14 there is the
-build status and roadmap, §1.14 is the changelog for everything since v2.9. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.18.1** — §14 there is the
+build status and roadmap, §1.17–§1.18 is the changelog for everything since v2.15. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
