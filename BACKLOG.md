@@ -172,11 +172,25 @@ submit, edit, or cancel is its own distinct, reviewable event.
 Migrations applied to the live database, `send-notifications` redeployed, full TypeScript typecheck
 clean, and `test:cloud` (10 new Gate G assertions: `manager_targets()` targeting, both types' repeat-
 send behaviour, and five auth/verification rejection paths) + `test:fixtures` + `test:rls` all green.
-Shipped, `package.json`/`GitVersion.yml` bumped to 2.15.0, tagged `v2.15.0`. **One thing still open**:
-same as Step V, real on-device delivery hasn't been confirmed — the automated suite only exercises
-the safe rejection paths (403/400), for the same reason Gate G never invokes a real success path for
-`roster_published`: it would page Ben's real phone on every test run. Do this manually before
-considering Step W fully done.
+Shipped, `package.json`/`GitVersion.yml` bumped to 2.15.0, tagged `v2.15.0`.
+
+**Real-device testing (same day) immediately found a real bug the automated suite's deliberate
+avoidance of the success path had let through**: Ben submitted preferences for a real test employee
+and got no notification at all. `notification_log` had zero `guard_submitted`/`guard_cancelled` rows
+ever — the request never got far enough to log anything. Root cause: `asCaller.auth.getUser()` was
+called with no argument, relying on the manually-injected `Authorization` header being picked up
+automatically. That works for `.rpc()`/`.from()` (PostgREST calls, which is why `roster_published`'s
+`is_manager()` check was fine) but not for the GoTrue auth client, which has no session of its own —
+it needs the token passed explicitly (`getUser(token)`), same as Supabase's own documented Edge
+Function pattern. Every real guard's submit/edit/cancel was silently failing the identity check.
+Fixed, wrapped in a `try`/`catch` so a malformed token now fails closed (403) rather than crashing
+the request (500), redeployed, and confirmed against the live function with the actual
+`functions.invoke()` SDK path (not just raw `fetch`, which had misleadingly passed in the original
+test): a safe validation path correctly reached 400, and a full send-path run delivered a real push
+(`sent: 1, targets: 1`) to Ben's phone. `package.json`/`GitVersion.yml` bumped to 2.15.1, tagged
+`v2.15.1`. **Nothing left open on this one** — unlike Steps V/W's original ship, this one now has a
+confirmed real on-device delivery, found via exactly the kind of manual test those steps were still
+waiting on.
 
 Nothing else mid-flight, no open branches.
 
@@ -218,9 +232,9 @@ deliberately deferred design choice, not a build gap. Four things still open, no
   as the two items above: everything checkable without pushing to a real phone (auth paths, schema,
   idempotency) is covered by `test:cloud`; actually pressing the button and confirming it arrives on
   Ben's installed PWA still needs Ben to do it himself.
-- **`guard_submitted`/`guard_cancelled` real-device delivery confirmation** (Step W, spec §12.10) —
-  same gap again: submitting or cancelling a real (or throwaway test) guard's availability through the
-  actual app and confirming the notification lands on Ben's phone still needs a manual pass.
+- ~~`guard_submitted`/`guard_cancelled` real-device delivery confirmation~~ — resolved the same day
+  Step W shipped: Ben's own real-device test caught the auth bug above, and the fix was confirmed via
+  a live `functions.invoke()` run that actually delivered (`sent: 1, targets: 1`). Nothing open here.
 - Whether `configured_kamut` itself should act as a soft *ceiling* for **every** guard (not just a
   floor) — surfaced once in v2.4 testing but the segment-weighting fix alone independently resolved
   the case that raised it, so never pursued as a general policy. A related, narrower question is now
@@ -355,8 +369,9 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.15.0**
-(Step W, manager notified on guard submit/edit/cancel), tagged `v2.15.0`.
+state that version describes), matching the spec's own version history. Currently at **2.15.1**
+(fix: guard_submitted/guard_cancelled auth was silently failing for every real guard), tagged
+`v2.15.1`.
 
 ## Commands
 
