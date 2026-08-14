@@ -13,8 +13,12 @@ const SESSION_KEY = 'sb-work-orgenizer-auth-token';
  * would be re-prompted on every refresh. Chosen after real-device testing
  * showed a hard "every boot" gate was too naggy for a work app opened
  * throughout a shift.
+ *
+ * TEMP (Ben, manual test): shrunk to 1 minute so the expiry path can be
+ * checked on a real device without waiting a full day. Revert to
+ * 24 * 60 * 60 * 1000 once confirmed.
  */
-const PASSKEY_UNLOCK_GRACE_MS = 24 * 60 * 60 * 1000;
+const PASSKEY_UNLOCK_GRACE_MS = 60 * 1000;
 
 /**
  * Defaults to `true` so nobody's current behaviour (always-persisted login)
