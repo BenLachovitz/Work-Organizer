@@ -10,16 +10,14 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.18.1: the
-# hybrid passkey button's fallback now imperatively focuses the code input
-# (mobile browsers largely ignore mount-time autoFocus, only a focus() call
-# inside a real click) and, more importantly, fires the passkey registration
-# ceremony directly from submitPin/submitNewPin right after a successful
-# login -- same click's async chain, not deferred to a second tap on the
-# GuardHome nudge -- so the flow is now: tap the button with nothing set up
-# -> log in with code+PIN -> the Face ID/fingerprint prompt appears on its
-# own, no extra tap needed.
-next-version: 2.18.1
+# version (see BACKLOG.md's Versioning section). Currently 2.19.0: removed
+# the header bell icon that let a guard mute/disable push notifications --
+# Ben's call, these carry real schedule-affecting updates and he doesn't
+# want them silenceable. useNotifications/push.ts lost disable/toggle and
+# unsubscribeFromPush entirely, not just the button; the GuardHome
+# enable-prompt card is now the only in-app notification control, and it's
+# enable-only by construction.
+next-version: 2.19.0
 mode: Mainline
 branches:
   main:

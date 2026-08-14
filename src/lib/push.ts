@@ -59,20 +59,6 @@ export async function subscribeToPush(guardId: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
-/** Unsubscribes this browser/device and removes its row. Best-effort on the
- *  DB delete -- an unreachable endpoint is harmless (send-notifications
- *  prunes dead subscriptions on its own the next time it tries one), so a
- *  guard toggling this off should never see an error for that half failing. */
-export async function unsubscribeFromPush(): Promise<void> {
-  if (!('serviceWorker' in navigator)) return;
-  const registration = await navigator.serviceWorker.ready;
-  const sub = await registration.pushManager.getSubscription();
-  if (!sub) return;
-  const endpoint = sub.endpoint;
-  await sub.unsubscribe();
-  await requireSupabase().from('push_subscriptions').delete().eq('endpoint', endpoint);
-}
-
 /** Whether THIS browser currently holds a live push subscription -- distinct
  *  from Notification.permission, which stays 'granted' even after the
  *  subscription itself was cleared (e.g. site data reset). */

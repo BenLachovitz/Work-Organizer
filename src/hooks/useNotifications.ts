@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
-import { isSubscribed, pushSupported, subscribeToPush, unsubscribeFromPush } from '@/lib/push';
+import { isSubscribed, pushSupported, subscribeToPush } from '@/lib/push';
 
-/** Wraps push-subscription state for the bell toggle and the enable-prompt
- *  card (spec 12.10). Re-checks isSubscribed() after every action rather
- *  than assuming the action succeeded, since a subscribe can silently no-op
- *  if the browser already had a (possibly stale) subscription. */
+/**
+ * Wraps push-subscription state for the enable-prompt card (spec 12.10).
+ * Enable-only, by deliberate design -- these notifications carry real
+ * schedule-affecting updates, so there is no in-app way to disable them once
+ * turned on. Re-checks isSubscribed() after enabling rather than assuming it
+ * succeeded, since a subscribe can silently no-op if the browser already had
+ * a (possibly stale) subscription.
+ */
 export function useNotifications(guardId: string | undefined) {
   const supported = pushSupported();
   const [subscribed, setSubscribed] = useState(false);
@@ -30,25 +34,12 @@ export function useNotifications(guardId: string | undefined) {
     }
   };
 
-  const disable = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await unsubscribeFromPush();
-      setSubscribed(await isSubscribed());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'שגיאה בביטול התראות');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return {
     supported,
     subscribed,
     busy,
     error,
     permission: supported ? Notification.permission : ('denied' as NotificationPermission),
-    toggle: () => void (subscribed ? disable() : enable()),
+    enable,
   };
 }

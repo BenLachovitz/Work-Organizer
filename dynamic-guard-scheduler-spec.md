@@ -1,6 +1,6 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.18.1 (build steps A–X complete; live and in daily use; deployed to production)
+**Version:** 2.19.0 (build steps A–Y complete; live and in daily use; deployed to production)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 14 August 2026
@@ -176,6 +176,12 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 71  | **Login UX rework, per Ben's review of the shipped feature** — the Preferences passkey-management card (list/rename/remove) was dropped entirely as redundant (a passkey is set-and-forget; nobody needs to delete one), the remember-me toggle (item 69) moved onto the Login page itself under the personal PIN step, and the Login page's passkey button became **hybrid**: it runs the real sign-in ceremony if this device already has a credential, otherwise falls through to an ordinary badge-code + PIN login | Matches the "sign in with biometrics or set one up" pattern most consumer apps with passkey login use, and closes the gap the management-card removal opened — the hybrid button is now the permanent way back in for a guard who skipped the one-time home-screen setup nudge (§12.11) |
 | 72  | **Hybrid flow fluency fix, same day** — the passkey button's no-credential branch now imperatively focuses the code input (`CodeInput` gained a `forwardRef`/`useImperativeHandle` handle) instead of relying on a mount-time `autoFocus` that never refires on a re-render and that mobile browsers mostly ignore outside a real user gesture anyway; and passkey registration now fires directly from the PIN-submit handler immediately after a successful login — same click's async chain — instead of being deferred to a flag `GuardHome` picked up on its next mount, a full navigation away from any usable browser "user gesture" window for `navigator.credentials.create()` | Real-device testing of item 71's first cut found both gaps: the keyboard never visibly opened, and setup only ever started if the guard found and tapped the separate home-screen nudge a second time. Best-effort either way — a failure or cancellation is swallowed silently, since the passive nudge card remains as a fallback |
+
+### 1.19 Changes in Version 2.19
+
+| #   | Change                                                                                                                                                                                                                                                                                                                                                                       | Rationale                                                                                                                                                                                                                                                                                                            |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 73  | **Removed the ability to mute/disable push notifications in-app** (§12.10) — the header bell-icon toggle is gone, and so is the underlying capability, not just the button: `useNotifications.ts` lost `disable`/`toggle` in favor of a single `enable`, and `src/lib/push.ts` lost `unsubscribeFromPush()` entirely. `GuardHome`'s existing enable-prompt card, unchanged in shape, is now the only in-app notification control, and was already enable-only in practice (it only ever renders while `Notification.permission === 'default'`) | These notifications carry real schedule-affecting updates (submission deadlines, roster publishes) — Ben's explicit call that no guard should be able to silence them through the app for any reason. Stated precisely because it matters: this closes the *in-app* path only; a guard can still disable notifications for the PWA at the OS/browser level, which has never been something a web app can prevent |
 
 ---
 
@@ -2145,13 +2151,18 @@ the private half and `CRON_SHARED_SECRET` live only as Edge Function secrets, th
 as `VITE_VAPID_PUBLIC_KEY` (safe for the browser, needed by `PushManager.subscribe()`) — same
 never-in-git discipline as `SOLVER_SECRET` (§11.1).
 
-**Frontend**: `src/lib/push.ts` (subscribe/unsubscribe, upserting into `push_subscriptions` via
-ordinary RLS-governed writes — a single-table write, no RPC needed) and `useNotifications` (hook
-wrapping `Notification.permission` + subscription state) back a bell-icon toggle in `AppShell`'s
-header (visible to everyone signed in, since the broadcast reaches managers too) and a one-time,
-dismissible enable-prompt card on `GuardHome` — that page, not somewhere more general, because it's
-where a guard actually is around deadline time, the same reasoning §10.4 gives for the PWA install
-nudge's placement.
+**Frontend**: `src/lib/push.ts` (subscribe, upserting into `push_subscriptions` via ordinary
+RLS-governed writes — a single-table write, no RPC needed) and `useNotifications` (hook wrapping
+`Notification.permission` + subscription state) back a one-time, dismissible enable-prompt card on
+`GuardHome` — that page, not somewhere more general, because it's where a guard actually is around
+deadline time, the same reasoning §10.4 gives for the PWA install nudge's placement. **Enable-only,
+by deliberate design (v2.19, item 73)**: an earlier header bell-icon toggle could also *disable* a
+subscription, and was removed along with the underlying `unsubscribeFromPush()`/`disable()` code
+paths, not just the button — these notifications carry real schedule-affecting updates, and no guard
+should be able to silence them through the app for any reason. Worth stating precisely: this closes
+the in-app path only. It was never possible, and still isn't, for a web app to stop a guard from
+disabling notifications for the PWA at the OS/browser level — that control never belonged to this
+app and no client-side change could take it away.
 
 **Testing**: Gate G (`supabase/tests/notifications.cloud.test.mjs`) exercises the SQL primitives
 directly — RLS on `push_subscriptions`, both targeting functions (explicitly asserting the
@@ -2351,6 +2362,7 @@ before trusting it" smoke test §12.10 set the precedent for with `npm:web-push`
 | **V**     | Manual "roster published" broadcast (§12.10, migrations 43–44, v2.14): manager-gated button, repeatable per week, on a new `roster_published` push type; `send-notifications` gains a manager-JWT auth path scoped to this one type. `publish_roster(p_run_id)` RPC replaces the three non-atomic client writes publish previously did, finally setting `published_at`                                            | ✅ complete; real-device delivery confirmation pending Ben     |
 | **W**     | Manager notified on guard submit/edit/cancel (§12.10, migration 45, v2.15): two new push types, client-triggered from `useGuardPortal.ts` rather than a database trigger (so `test:cloud` never pages the real manager), targeting a new role-based `manager_targets()`; `send-notifications` verifies the submission row's actual existence and the caller's own JWT identity server-side before sending. Real-device testing (v2.15.1) caught `asCaller.auth.getUser()` silently failing without an explicit token, fixed and confirmed delivering | ✅ complete; real-device delivery confirmed                    |
 | **X**     | Passkey (Face ID / fingerprint) login (§8, §12.11, migration 46, v2.16–2.18): shipped first on Supabase Auth's native Passkey API, replaced same-day with an app-scoped `@simplewebauthn/*` implementation (own `webauthn` Edge Function + two new tables) after real-device testing showed the native API produced a synced OS passkey, not the device-only credential intended. App-restart lock gate with a 24h grace window (no separate "locked" screen — dropped after shipping one), a Login-page remember-me toggle, and a hybrid passkey button (signs in directly or falls through to badge+PIN then auto-registers) rounded out the UX after two more real-device review passes | ✅ complete; real-device confirmation pending Ben (§13 item 11) |
+| **Y**     | Removed the ability to mute/disable push notifications in-app (§12.10, v2.19, item 73): the header bell-icon toggle and the `disable`/`unsubscribeFromPush()` code paths behind it are gone, not just hidden — `GuardHome`'s existing enable-prompt card is the only in-app control left, and was already enable-only in practice | ✅ complete                                                    |
 
 ### 14.2 Verification
 

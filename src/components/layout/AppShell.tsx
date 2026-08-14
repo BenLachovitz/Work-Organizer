@@ -4,7 +4,6 @@ import { cn } from '@/components/ui';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme, type Theme } from '@/contexts/ThemeContext';
 import { useViewMode } from '@/contexts/ViewModeContext';
-import { useNotifications } from '@/hooks/useNotifications';
 
 // ---------------------------------------------------------------------------
 
@@ -56,53 +55,6 @@ function ThemeToggle() {
   );
 }
 
-/** Push notifications on/off for this browser (spec 12.10). A guard who
- *  doesn't install the app / never enables this just misses reminders --
- *  no fallback channel, by explicit decision. Hidden entirely when the
- *  browser has no push support at all (e.g. a non-installed iOS Safari tab),
- *  since there's nothing this control could do there. */
-function NotificationToggle() {
-  const { profile } = useAuth();
-  const { supported, subscribed, busy, toggle } = useNotifications(profile?.id);
-  if (!supported) return null;
-
-  return (
-    <button
-      type="button"
-      onClick={toggle}
-      disabled={busy}
-      className={cn(
-        'rounded-lg p-2 transition-colors disabled:opacity-50',
-        subscribed
-          ? 'text-brand-600 hover:bg-brand-50 dark:text-brand-400 dark:hover:bg-brand-950/40'
-          : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200',
-      )}
-      aria-label={subscribed ? 'התראות פעילות - לחץ לביטול' : 'הפעלת התראות'}
-      title={subscribed ? 'התראות פעילות' : 'הפעלת התראות'}
-    >
-      {subscribed ? (
-        <svg className="size-5" viewBox="0 0 24 24" fill="none" strokeWidth="2">
-          <path
-            d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      ) : (
-        <svg className="size-5" viewBox="0 0 24 24" fill="none" strokeWidth="2">
-          <path
-            d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0M3 3l18 18"
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      )}
-    </button>
-  );
-}
-
 /** Admin-only: switches which employees the manager dashboard's lists show
  *  (src/lib/viewMode.ts) -- real employees, or the seeded demo guards. Ben
  *  always shows in both, so this never affects his own visibility. */
@@ -145,7 +97,6 @@ function Header({ title, subtitle }: { title: string; subtitle?: string }) {
 
         <div className="flex items-center gap-2">
           {isManager && <ViewModeToggle />}
-          <NotificationToggle />
           <ThemeToggle />
 
           {profile && (

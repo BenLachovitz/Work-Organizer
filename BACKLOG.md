@@ -1,8 +1,8 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.18.1** — §14 there is the
-build status and roadmap, §1.17–§1.18 is the changelog for everything since v2.15. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.19.0** — §14 there is the
+build status and roadmap, §1.17–§1.19 is the changelog for everything since v2.15. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
@@ -39,7 +39,7 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–X complete, live and in daily use
+## State: build steps A–Y complete, live and in daily use
 
 Full list in spec §14.1; changelog for every step is spec §1.1–§1.14. Step P (11 August) — per-day
 morning target override, a morning-priority coverage weight, the roster view stacking every
@@ -396,6 +396,30 @@ Full TypeScript typecheck clean, `test:cloud` all green (unchanged — still no 
 
 Nothing else mid-flight, no open branches.
 
+Step Y (14 August) — **removed the header bell icon that let a guard mute/disable push
+notifications** (spec §12.10). Ben's call: these notifications carry real schedule-affecting
+updates (submission deadlines, roster publishes), and he doesn't want anyone able to silence them
+through the app for any reason. Went further than just hiding the button — the underlying disable
+capability is gone too, not merely unreachable: `useNotifications.ts` lost `disable`/`toggle` in
+favor of a single `enable`, and `src/lib/push.ts` lost `unsubscribeFromPush()` entirely, since
+nothing calls it anymore. `GuardHome`'s existing one-time enable-prompt card (unchanged in shape,
+just now calls `enable` directly instead of `toggle`) is the only in-app notification control left,
+and it was already enable-only in practice — it only ever renders while
+`Notification.permission === 'default'`, so by the time a guard could want to disable something,
+the card is already gone.
+
+Worth being upfront about the actual limit here: this removes the *in-app* way to mute
+notifications. It was never possible, and still isn't, for a web app to prevent a guard from
+disabling notifications for the PWA at the OS/browser level (phone Settings → Notifications, or the
+browser's own site-permission UI) — that control has never belonged to this app and no code change
+here or anywhere else could take it away. What this change removes is the easy, one-tap in-app path
+that made muting them a casual, low-friction choice.
+
+Full TypeScript typecheck clean, `test:cloud` all green (10 suites unchanged — no backend touched;
+one run hit a known-flaky realtime websocket-timing assertion that passed clean on its own and on
+a full re-run immediately after, not a regression). `package.json`/`GitVersion.yml` bumped to
+2.19.0, tagged `v2.19.0`.
+
 **Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
 different underlying mechanism.
 
@@ -577,9 +601,9 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.18.1**
-(hybrid passkey button now auto-focuses the code input and auto-registers right after login, no
-extra tap needed), tagged `v2.18.1`.
+state that version describes), matching the spec's own version history. Currently at **2.19.0**
+(removed the header bell icon and the underlying capability to mute/disable push notifications),
+tagged `v2.19.0`.
 
 ## Commands
 

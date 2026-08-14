@@ -202,14 +202,16 @@ const NOTIF_PROMPT_DISMISSED_KEY = 'notif-prompt-dismissed';
 /**
  * One-time nudge to enable push notifications (spec 12.10) -- shown only
  * while the browser has never been asked (Notification.permission ===
- * 'default'). Dismissing it just hides the card; it doesn't deny permission,
- * so the bell icon in the header (AppShell) stays available either way.
- * GuardHome, not a more general spot, because this is where a guard actually
- * is around deadline time -- the same reasoning §10.4 gives for putting the
- * PWA install nudge where it is.
+ * 'default'). Enable-only, deliberately: these notifications carry real
+ * schedule-affecting updates, so there is no in-app way to turn them back off
+ * once granted -- the header's mute/disable toggle was removed for exactly
+ * this reason. Dismissing this card just hides it; it doesn't deny
+ * permission. GuardHome, not a more general spot, because this is where a
+ * guard actually is around deadline time -- the same reasoning §10.4 gives
+ * for putting the PWA install nudge where it is.
  */
 function NotificationPrompt({ guardId }: { guardId: string | undefined }) {
-  const { supported, permission, busy, error, toggle } = useNotifications(guardId);
+  const { supported, permission, busy, error, enable } = useNotifications(guardId);
   const [dismissed, setDismissed] = useState(
     () => localStorage.getItem(NOTIF_PROMPT_DISMISSED_KEY) === '1',
   );
@@ -230,7 +232,7 @@ function NotificationPrompt({ guardId }: { guardId: string | undefined }) {
         </p>
         {error && <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{error}</p>}
         <div className="mt-3 flex gap-2">
-          <Button size="sm" loading={busy} onClick={toggle}>
+          <Button size="sm" loading={busy} onClick={enable}>
             הפעלת התראות
           </Button>
           <Button size="sm" variant="secondary" onClick={dismiss}>
