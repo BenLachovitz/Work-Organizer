@@ -10,16 +10,16 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.18.0: reworked
-# the login UX per Ben's direction -- remember-me moved from a Preferences
-# card onto the Login page itself (under the personal PIN, not the badge
-# code), the passkey management card (list/rename/remove) was dropped
-# entirely as redundant, and the Login page's passkey button became hybrid:
-# signs in directly if this device already has a credential, otherwise
-# falls through to a normal badge-code + PIN login and then prompts the
-# passkey setup immediately afterward -- the common "sign in with biometrics
-# or set one up" pattern from most consumer apps.
-next-version: 2.18.0
+# version (see BACKLOG.md's Versioning section). Currently 2.18.1: the
+# hybrid passkey button's fallback now imperatively focuses the code input
+# (mobile browsers largely ignore mount-time autoFocus, only a focus() call
+# inside a real click) and, more importantly, fires the passkey registration
+# ceremony directly from submitPin/submitNewPin right after a successful
+# login -- same click's async chain, not deferred to a second tap on the
+# GuardHome nudge -- so the flow is now: tap the button with nothing set up
+# -> log in with code+PIN -> the Face ID/fingerprint prompt appears on its
+# own, no extra tap needed.
+next-version: 2.18.1
 mode: Mainline
 branches:
   main:

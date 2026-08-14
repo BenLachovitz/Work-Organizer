@@ -83,28 +83,6 @@ export function markPasskeyUnlocked(): void {
   localStorage.setItem(PASSKEY_UNLOCKED_AT_KEY, String(Date.now()));
 }
 
-const PASSKEY_SETUP_INTENT_KEY = 'wo.passkeySetupIntent';
-
-/**
- * Set when a guard taps "כניסה עם Face ID / טביעת אצבע" on the Login page
- * but this device has no passkey registered yet -- the button falls through
- * to a normal badge-code + PIN login instead of attempting (and guaranteeing
- * a failed) ceremony, and this flag is what tells GuardHome to surface the
- * setup prompt immediately afterward, bypassing its usual once-ever-dismissed
- * check for this one explicit request. sessionStorage, not localStorage: it
- * only needs to survive the one Login -> GuardHome navigation.
- */
-export function markPasskeySetupIntent(): void {
-  sessionStorage.setItem(PASSKEY_SETUP_INTENT_KEY, '1');
-}
-
-/** Reads AND clears the flag -- a one-shot signal, consumed at most once. */
-export function consumePasskeySetupIntent(): boolean {
-  const had = sessionStorage.getItem(PASSKEY_SETUP_INTENT_KEY) === '1';
-  if (had) sessionStorage.removeItem(PASSKEY_SETUP_INTENT_KEY);
-  return had;
-}
-
 /**
  * Delegates to localStorage (survives closing the PWA) or sessionStorage
  * (cleared when it's closed) depending on the remember-me flag *at the time

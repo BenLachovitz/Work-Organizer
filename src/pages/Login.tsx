@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { CodeInput } from '@/components/auth/CodeInput';
+import { useCallback, useRef, useState } from 'react';
+import { CodeInput, type CodeInputHandle } from '@/components/auth/CodeInput';
 import { Alert, Button, Card, Toggle } from '@/components/ui';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePasskeySupport } from '@/hooks/usePasskey';
@@ -9,9 +9,10 @@ import {
   getPasskeyGuardId,
   getRememberMe,
   isValidEmployeeCode,
-  markPasskeySetupIntent,
+  markPasskeyUnlocked,
   setRememberMe,
 } from '@/lib/supabase';
+import { registerPasskeyDevice } from '@/lib/webauthn';
 
 type Step = 'code' | 'pin' | 'setPin';
 
@@ -20,6 +21,7 @@ export function Login() {
   // Hardware capability only -- the button is now hybrid (see tryPasskey), so
   // it's shown even on a device with nothing registered yet.
   const passkeySupported = usePasskeySupport();
+  const codeInputRef = useRef<CodeInputHandle>(null);
 
   const [step, setStep] = useState<Step>('code');
   const [code, setCode] = useState('');
@@ -44,13 +46,18 @@ export function Login() {
    * credential. If so, run the real sign-in ceremony as before. If not,
    * there is nothing to challenge yet -- rather than attempt a ceremony
    * that's guaranteed to fail with a confusing system prompt, fall through
-   * to the normal badge-code + PIN login below and mark intent so GuardHome
-   * prompts the passkey setup immediately once that login succeeds.
+   * to the normal badge-code + PIN login: mark intent (picked up by
+   * submitPin/submitNewPin below to auto-register right after a successful
+   * login, still within the same user-gesture chain this click started) and
+   * imperatively focus the code input, since mobile browsers generally only
+   * pop the keyboard for a programmatic focus that happens inside a real
+   * user gesture like this click -- a plain mount-time autoFocus on page
+   * load is often silently ignored.
    */
   const tryPasskey = useCallback(async () => {
     if (!getPasskeyGuardId()) {
-      markPasskeySetupIntent();
       setPasskeySetupPending(true);
+      codeInputRef.current?.focus();
       return;
     }
     setPasskeyBusy(true);
@@ -63,6 +70,26 @@ export function Login() {
       setPasskeyBusy(false);
     }
   }, [signInWithPasskey]);
+
+  /**
+   * Fires immediately after a successful login, still inside the same
+   * click's async chain (submitPin/submitNewPin's button press) -- not
+   * deferred to a later screen/click, since navigator.credentials.create()
+   * generally needs to run reasonably close to a real user gesture to avoid
+   * the browser silently refusing it. Best-effort: a failure or cancellation
+   * here is swallowed, since GuardHome's passive setup nudge remains as a
+   * fallback either way.
+   */
+  const maybeAutoRegisterPasskey = useCallback(async () => {
+    if (!passkeySetupPending) return;
+    setPasskeySetupPending(false);
+    try {
+      await registerPasskeyDevice();
+      markPasskeyUnlocked();
+    } catch {
+      // best-effort -- see comment above
+    }
+  }, [passkeySetupPending]);
 
   const reset = () => {
     setStep('code');
@@ -101,6 +128,7 @@ export function Login() {
       setError(null);
       try {
         await signIn(code, value);
+        await maybeAutoRegisterPasskey();
       } catch (e) {
         setError(e instanceof Error ? e.message : 'התחברות נכשלה');
         setPin('');
@@ -108,7 +136,7 @@ export function Login() {
         setBusy(false);
       }
     },
-    [code, signIn],
+    [code, signIn, maybeAutoRegisterPasskey],
   );
 
   // --- step 2b: first login, choose a PIN -----------------------------------
@@ -126,12 +154,13 @@ export function Login() {
     setError(null);
     try {
       await claim(code, pin);
+      await maybeAutoRegisterPasskey();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'יצירת הסיסמה נכשלה');
     } finally {
       setBusy(false);
     }
-  }, [claim, code, pin, pinConfirm]);
+  }, [claim, code, pin, pinConfirm, maybeAutoRegisterPasskey]);
 
   return (
     // svh, not dvh: on first paint some mobile browsers resolve `dvh` against
@@ -223,6 +252,7 @@ export function Login() {
               )}
 
               <CodeInput
+                ref={codeInputRef}
                 value={code}
                 onChange={setCode}
                 length={EMPLOYEE_CODE_LENGTH}

@@ -366,6 +366,34 @@ Preferences management card is gone**. Three changes, all from the same conversa
 Full TypeScript typecheck clean, `test:cloud` all green (unchanged, 10 suites/214 assertions — no
 backend touched by any of this). `package.json`/`GitVersion.yml` bumped to 2.18.0, tagged `v2.18.0`.
 
+Step X, one more revision (14 August) — **the hybrid flow above wasn't actually fluent**. Real-device
+testing (Ben) found two problems with the 2.18.0 build: tapping the passkey button showed the "log in
+with your code first" text but never visibly moved focus into the code input, and after logging in
+nothing happened automatically — the setup only ever started if he found and tapped the separate
+GuardHome nudge card. Both traced back to the same root cause done differently than intended:
+
+1. **Focus.** `CodeInput`'s `autoFocus` only fires once, on mount — clicking the passkey button
+   re-renders the same already-mounted `Login`, so it never refires, and mobile browsers generally
+   suppress even a genuine mount-time `autoFocus` keyboard pop-up outside a real user gesture anyway.
+   `CodeInput` gained an imperative handle (`forwardRef` + `useImperativeHandle`, exposing `focus()`)
+   so `tryPasskey()`'s no-passkey branch can force focus into the code input from directly inside the
+   click handler — a real user gesture mobile browsers do honour.
+2. **Auto-setup.** The previous design deferred registration to a `wo.passkeySetupIntent`
+   sessionStorage flag consumed by GuardHome on mount, requiring one more tap on its nudge card to
+   actually fire the WebAuthn ceremony. Replaced with a direct call: `submitPin`/`submitNewPin` now
+   call a new `maybeAutoRegisterPasskey()` immediately after a successful `signIn()`/`claim()`, in the
+   very same async chain as the PIN submit button's click — the ceremony needs to run reasonably close
+   to a genuine user gesture or the browser silently refuses it, and by the time GuardHome mounts on a
+   fresh navigation that gesture is long gone. Best-effort: any failure or cancellation is swallowed
+   silently, since GuardHome's passive nudge card (untouched, same as before) remains as a fallback
+   either way. `markPasskeySetupIntent`/`consumePasskeySetupIntent` and the sessionStorage flag they
+   drove are gone — no longer needed now that the whole thing happens inline, same click, no
+   deferral. The result: tap the passkey button with nothing set up → keyboard pops open on the code
+   input → log in normally → the Face ID/fingerprint prompt appears on its own, no second tap.
+
+Full TypeScript typecheck clean, `test:cloud` all green (unchanged — still no backend involved).
+`package.json`/`GitVersion.yml` bumped to 2.18.1, tagged `v2.18.1`.
+
 Nothing else mid-flight, no open branches.
 
 **Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
@@ -549,9 +577,9 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.18.0**
-(login UX rework: remember-me moved to Login, passkey management card dropped, hybrid passkey
-button), tagged `v2.18.0`.
+state that version describes), matching the spec's own version history. Currently at **2.18.1**
+(hybrid passkey button now auto-focuses the code input and auto-registers right after login, no
+extra tap needed), tagged `v2.18.1`.
 
 ## Commands
 

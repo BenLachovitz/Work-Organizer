@@ -1,5 +1,21 @@
-import { useEffect, useRef, type ClipboardEvent, type KeyboardEvent } from 'react';
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  type ClipboardEvent,
+  type KeyboardEvent,
+} from 'react';
 import { cn } from '@/components/ui';
+
+export interface CodeInputHandle {
+  /** Imperative focus, for triggering it from something other than mount
+   *  (e.g. a button click) -- mobile browsers generally only honour a
+   *  programmatic focus/keyboard pop-up when it happens inside a real user
+   *  gesture, which a plain mount-time `autoFocus` running on page load
+   *  often isn't. */
+  focus: () => void;
+}
 
 /**
  * Segmented numeric entry for the 6-digit badge code and the PIN.
@@ -8,29 +24,39 @@ import { cn } from '@/components/ui';
  * number, and in an RTL flow the boxes would fill right-to-left and read back
  * reversed. Digits are LTR even inside Hebrew.
  */
-export function CodeInput({
-  value,
-  onChange,
-  length = 6,
-  autoFocus = false,
-  masked = false,
-  disabled = false,
-  invalid = false,
-  onComplete,
-  ariaLabel,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  length?: number;
-  autoFocus?: boolean;
-  masked?: boolean;
-  disabled?: boolean;
-  invalid?: boolean;
-  onComplete?: (v: string) => void;
-  ariaLabel?: string;
-}) {
+export const CodeInput = forwardRef<
+  CodeInputHandle,
+  {
+    value: string;
+    onChange: (v: string) => void;
+    length?: number;
+    autoFocus?: boolean;
+    masked?: boolean;
+    disabled?: boolean;
+    invalid?: boolean;
+    onComplete?: (v: string) => void;
+    ariaLabel?: string;
+  }
+>(function CodeInput(
+  {
+    value,
+    onChange,
+    length = 6,
+    autoFocus = false,
+    masked = false,
+    disabled = false,
+    invalid = false,
+    onComplete,
+    ariaLabel,
+  },
+  forwardedRef,
+) {
   const refs = useRef<(HTMLInputElement | null)[]>([]);
   const firedFor = useRef<string | null>(null);
+
+  useImperativeHandle(forwardedRef, () => ({
+    focus: () => refs.current[0]?.focus(),
+  }));
 
   useEffect(() => {
     if (autoFocus) refs.current[0]?.focus();
@@ -117,4 +143,4 @@ export function CodeInput({
       ))}
     </div>
   );
-}
+});
