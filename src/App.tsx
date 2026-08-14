@@ -49,7 +49,7 @@ function FullScreenLoader() {
 function Protected({ children }: { children: ReactNode }) {
   const { status } = useAuth();
   if (status === 'loading') return <FullScreenLoader />;
-  if (status === 'signedOut' || status === 'locked') return <Navigate to="/login" replace />;
+  if (status === 'signedOut') return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
@@ -58,7 +58,7 @@ function Protected({ children }: { children: ReactNode }) {
 function ManagerOnly({ children }: { children: ReactNode }) {
   const { status, isManager } = useAuth();
   if (status === 'loading') return <FullScreenLoader />;
-  if (status === 'signedOut' || status === 'locked') return <Navigate to="/login" replace />;
+  if (status === 'signedOut') return <Navigate to="/login" replace />;
   if (!isManager) return <Navigate to="/" replace />;
   return <>{children}</>;
 }

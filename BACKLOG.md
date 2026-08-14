@@ -321,6 +321,18 @@ call, weighed as balancing routine daily use against how long a lost/stolen phon
 unlockable on the persisted session alone before the biometric check matters again.
 `package.json`/`GitVersion.yml` bumped to 2.17.2, tagged `v2.17.2`.
 
+Step X, one more revision (14 August) — **dropped the "locked" screen entirely**. Ben's call after
+using it for real: a separate unlock UI felt inconsistent with the rest of the app, and he wanted one
+plain, familiar screen rather than a second "locked" identity. `AuthStatus` loses its `'locked'`
+member; when the passkey grace window has expired, `AuthContext`'s bootstrap effect now calls
+`supabase.auth.signOut({ scope: 'local' })` and lands on the ordinary `signedOut` state — the exact
+same Login page every signed-out guard already sees, which already puts the passkey sign-in button
+up front (Step X's original build). `scope: 'local'` matters: this only clears the current device's
+stored session: an automatic, per-device timeout must never revoke a session this guard has active
+elsewhere just because one phone's grace window lapsed. `PasskeyLockScreen` and the `useCodeInstead`
+escape hatch it needed are gone along with it — nothing replaces them, since the normal Login page
+already covers the same ground. `package.json`/`GitVersion.yml` bumped to 2.17.3, tagged `v2.17.3`.
+
 Nothing else mid-flight, no open branches.
 
 **Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
@@ -504,8 +516,9 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.17.2**
-(24-hour grace window on the passkey restart-lock gate), tagged `v2.17.2`.
+state that version describes), matching the spec's own version history. Currently at **2.17.3**
+(dropped the separate passkey "locked" screen in favour of a plain local sign-out), tagged
+`v2.17.3`.
 
 ## Commands
 

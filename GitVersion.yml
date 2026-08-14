@@ -10,13 +10,13 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.17.2: a
-# 24-hour grace window on the passkey restart-lock gate -- every JS boot,
-# including a plain browser refresh, looked identical to a genuine reopen,
-# so a guard was being re-prompted far more often than intended. Now only
-# re-prompts once 24h have passed since the last REAL biometric
-# verification (never extended by a mere silent resume).
-next-version: 2.17.2
+# version (see BACKLOG.md's Versioning section). Currently 2.17.3: dropped
+# the separate "locked" screen entirely -- an expired passkey grace window
+# now signs the device out locally (scope: 'local', never touching other
+# devices' sessions) and lands on the ordinary Login page instead, which
+# already offers the passkey button up front. Ben's call: wanted one
+# consistent look, not a second "unlock" UI.
+next-version: 2.17.3
 mode: Mainline
 branches:
   main:

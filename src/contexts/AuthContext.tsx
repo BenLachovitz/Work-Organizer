@@ -20,7 +20,7 @@ import {
 import { signInWithPasskeyDevice } from '@/lib/webauthn';
 import type { Profile } from '@/types/database';
 
-export type AuthStatus = 'loading' | 'signedOut' | 'locked' | 'signedIn';
+export type AuthStatus = 'loading' | 'signedOut' | 'signedIn';
 
 /** What the login screen needs to know about a badge code before asking for a PIN. */
 export interface CodeStatus {
@@ -40,9 +40,6 @@ interface AuthValue {
   signIn: (employeeCode: string, pin: string) => Promise<void>;
   claim: (employeeCode: string, pin: string) => Promise<void>;
   signInWithPasskey: () => Promise<void>;
-  /** Abandons the passkey unlock gate for this app load, falling back to the
-   *  normal badge-code + PIN screen. */
-  useCodeInstead: () => void;
   signOut: () => Promise<void>;
 }
 
@@ -142,16 +139,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void (async () => {
       const { data } = await supabase!.auth.getSession();
       if (cancelled) return;
-      // A device with a registered passkey is gated behind it on every fresh
-      // app load, UNLESS a real biometric verification already happened
-      // recently enough (isPasskeyUnlockFresh) -- every JS boot, including a
-      // plain browser refresh, looks identical from here, so without the
-      // grace window this would re-prompt on every refresh, not just a
-      // genuine reopen after time away. The session itself is left untouched
-      // (still refreshable) so signInWithPasskey() below can replace it on
-      // success without ever needing to read it back.
+      // A device with a registered passkey but no recent real verification
+      // (isPasskeyUnlockFresh) is signed out locally rather than shown a
+      // separate "locked" screen -- deliberately the same plain Login page
+      // every signed-out guard sees, which already offers the passkey
+      // sign-in button up front. `scope: 'local'` only clears THIS device's
+      // stored session; it must never revoke a session this guard has active
+      // on another device just because one phone's grace window lapsed.
       if (data.session && getPasskeyGuardId() && !isPasskeyUnlockFresh()) {
-        setStatus('locked');
+        await supabase!.auth.signOut({ scope: 'local' });
+        if (!cancelled) setStatus('signedOut');
         return;
       }
       if (data.session) {
@@ -242,10 +239,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus('signedIn');
   }, [demoMode, loadProfile]);
 
-  const useCodeInstead = useCallback(() => {
-    setStatus('signedOut');
-  }, []);
-
   const claim = useCallback(
     async (employeeCode: string, pin: string) => {
       if (demoMode) return signIn(employeeCode, pin);
@@ -277,21 +270,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signIn,
       claim,
       signInWithPasskey,
-      useCodeInstead,
       signOut,
     }),
-    [
-      status,
-      session,
-      profile,
-      demoMode,
-      lookupCode,
-      signIn,
-      claim,
-      signInWithPasskey,
-      useCodeInstead,
-      signOut,
-    ],
+    [status, session, profile, demoMode, lookupCode, signIn, claim, signInWithPasskey, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

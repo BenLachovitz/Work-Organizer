@@ -12,49 +12,8 @@ import {
 
 type Step = 'code' | 'pin' | 'setPin';
 
-/** Shown on app restart when this device has a registered passkey (see
- *  AuthContext's bootstrap effect) -- the badge-code session underneath is
- *  left untouched until this ceremony succeeds. */
-function PasskeyLockScreen() {
-  const { signInWithPasskey, useCodeInstead } = useAuth();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const unlock = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await signInWithPasskey();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'האימות הביומטרי נכשל');
-    } finally {
-      setBusy(false);
-    }
-  }, [signInWithPasskey]);
-
-  return (
-    <Card className="space-y-5 text-center">
-      <div>
-        <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">נעול</h2>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          אמת את זהותך עם Face ID או טביעת אצבע כדי להמשיך
-        </p>
-      </div>
-
-      {error && <Alert tone="error">{error}</Alert>}
-
-      <Button fullWidth size="lg" loading={busy} onClick={() => void unlock()}>
-        בטל נעילה
-      </Button>
-      <Button variant="ghost" fullWidth size="sm" onClick={useCodeInstead}>
-        כניסה עם קוד עובד
-      </Button>
-    </Card>
-  );
-}
-
 export function Login() {
-  const { status: authStatus, lookupCode, signIn, claim, signInWithPasskey, demoMode } = useAuth();
+  const { lookupCode, signIn, claim, signInWithPasskey, demoMode } = useAuth();
   // Gated on this device having actually registered a passkey before, not just
   // hardware capability -- a bare capability check would offer this button to
   // every guard on every compatible phone, including on their very first visit
@@ -197,9 +156,6 @@ export function Login() {
           <p className="mt-1 text-sm text-slate-400">מערכת שיבוץ אוטומטית לצוות האבטחה</p>
         </div>
 
-        {authStatus === 'locked' ? (
-          <PasskeyLockScreen />
-        ) : (
         <Card className="space-y-5">
           {demoMode && (
             <Alert tone="warn" title="מצב הדגמה">
@@ -369,7 +325,6 @@ export function Login() {
             </>
           )}
         </Card>
-        )}
 
         <p className="mt-6 text-center text-xs text-slate-500">
           בעיה בהתחברות? פנה למנהל המשמרת.
