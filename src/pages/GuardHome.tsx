@@ -200,23 +200,30 @@ export function GuardHome() {
 const NOTIF_PROMPT_DISMISSED_KEY = 'notif-prompt-dismissed';
 
 /**
- * One-time nudge to enable push notifications (spec 12.10) -- shown only
- * while the browser has never been asked (Notification.permission ===
- * 'default'). Enable-only, deliberately: these notifications carry real
- * schedule-affecting updates, so there is no in-app way to turn them back off
- * once granted -- the header's mute/disable toggle was removed for exactly
- * this reason. Dismissing this card just hides it; it doesn't deny
- * permission. GuardHome, not a more general spot, because this is where a
- * guard actually is around deadline time -- the same reasoning §10.4 gives
- * for putting the PWA install nudge where it is.
+ * One-time nudge to enable push notifications (spec 12.10) -- shown whenever
+ * this device isn't actually subscribed yet, not just while permission is
+ * still 'default'. Gating on 'default' alone used to hide this card forever
+ * the instant the OS permission prompt was granted, even if the subscribe
+ * call or the push_subscriptions upsert that follows it then failed -- a
+ * guard could grant permission, hit a silent error, and have no way back to
+ * retry (permission never returns to 'default' on its own). 'denied' is
+ * still a dead end -- requestPermission() won't even re-prompt -- so that
+ * case alone stays hidden. Enable-only otherwise, deliberately: these
+ * notifications carry real schedule-affecting updates, so there is no in-app
+ * way to turn them back off once granted -- the header's mute/disable toggle
+ * was removed for exactly this reason. Dismissing this card just hides it;
+ * it doesn't deny permission. GuardHome, not a more general spot, because
+ * this is where a guard actually is around deadline time -- the same
+ * reasoning §10.4 gives for putting the PWA install nudge where it is.
  */
 function NotificationPrompt({ guardId }: { guardId: string | undefined }) {
-  const { supported, permission, busy, error, enable } = useNotifications(guardId);
+  const { supported, checked, subscribed, permission, busy, error, enable } =
+    useNotifications(guardId);
   const [dismissed, setDismissed] = useState(
     () => localStorage.getItem(NOTIF_PROMPT_DISMISSED_KEY) === '1',
   );
 
-  if (!supported || permission !== 'default' || dismissed) return null;
+  if (!supported || !checked || subscribed || dismissed || permission === 'denied') return null;
 
   const dismiss = () => {
     localStorage.setItem(NOTIF_PROMPT_DISMISSED_KEY, '1');
