@@ -358,10 +358,10 @@ export function ManagerDashboard() {
                   />
                 )}
 
-                {/* Only for a published run, and never mid-edit: an image of a draft
-                    is indistinguishable from the real thing once it is in the group
-                    chat, and no later edit catches up with it. */}
-                {latestRun.is_published && !editing && (
+                {/* Available for any selected version, draft or published --
+                    only gated on not-mid-edit, since the on-screen grid it
+                    mirrors is itself mid-edit and would be stale to export. */}
+                {!editing && (
                   <RosterExport
                     weekStart={selected}
                     morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}

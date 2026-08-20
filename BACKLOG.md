@@ -1,7 +1,7 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.20.0** — §14 there is the
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.20.1** — §14 there is the
 build status and roadmap, §1.17–§1.20 is the changelog for everything since v2.15. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
@@ -419,6 +419,18 @@ rejected by the CHECK) + `test:fixtures` + `test:rls` all green. Shipped, `packa
 `GitVersion.yml` bumped to 2.20.0, tagged `v2.20.0`. Nothing left open — purely a display feature,
 no real-device-only check applies the way the PWA/notification/passkey items below do.
 
+Step Z, one more revision (20 August) — **JPEG preview/download no longer gated to published runs**
+(spec §10.2, item 76): `RosterExport` used to render only when `latestRun.is_published`, on the
+reasoning that a draft image in the group chat is indistinguishable from a promise once it's out
+there. Ben's explicit call: he wants the preview/download button available for whichever version is
+selected in `RunVersions` — draft or published — without publishing first. The gate in
+`ManagerDashboard.tsx` dropped `latestRun.is_published &&`, keeping only `!editing` (a mid-edit
+export would be a stale picture of what's on screen before the edit is saved). `RosterPublishNotify`
+right below it — the push announcement to every guard's phone — is a materially different action and
+stays published-only, untouched. Deliberately no draft watermark on the exported image itself — Ben's
+choice, no visual difference from a published export. `package.json`/`GitVersion.yml` bumped to
+2.20.1, tagged `v2.20.1`.
+
 Step Y (14 August) — **removed the header bell icon that let a guard mute/disable push
 notifications** (spec §12.10). Ben's call: these notifications carry real schedule-affecting
 updates (submission deadlines, roster publishes), and he doesn't want anyone able to silence them
@@ -624,8 +636,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.20.0**
-(per-week 12h/11h double-shift display setting), tagged `v2.20.0`.
+state that version describes), matching the spec's own version history. Currently at **2.20.1**
+(JPEG preview/download no longer gated to published runs), tagged `v2.20.1`.
 
 ## Commands
 

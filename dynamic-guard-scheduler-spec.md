@@ -1,7 +1,7 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.20.0 (build steps A–Y complete plus the double-shift display setting below; live and
-in daily use; deployed to production)
+**Version:** 2.20.1 (build steps A–Y complete plus the double-shift display setting and the
+draft-preview export change below; live and in daily use; deployed to production)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 20 August 2026
@@ -190,6 +190,7 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 74  | **Per-week 12h/11h double-shift display setting** (`roster_weeks.double_shift_display_hours`, migration 47, §2.4d) — a manager toggle that shortens the day12/night12 handover-boundary TEXT next to a guard's name by one hour ("עד 17:45" / "מ 19:45"), purely cosmetic: the shift is still scheduled and counted as a full 12h everywhere it matters | Ben's explicit requirement, phrased as "manage the doubled shift between 12h and 11h" — real-world guards on a day12/night12 sometimes actually leave/arrive an hour off the nominal boundary, and the roster's TEXT should be able to say so without touching coverage math |
 | 75  | The shortened text is **suppressed** (falls back to the full 12h boundary) on any specific assignment where that guard is the day's **only** real coverage of the segment the shortened hour would come out of (S2 for day12, S3 for night12)              | Ben's explicit caveat: shortening the text when nobody else covers that hour would misrepresent an actual empty slot as covered — computed live from that day's real assignments (`isDoubleShiftShortened()`), not stored, so it always reflects the current roster            |
+| 76  | **(v2.20.1) JPEG preview/download un-gated from "published only"** (§10.2) — `RosterExport` now renders for whichever run is selected, draft or published, gated only on not-mid-edit; `RosterPublishNotify`'s push announcement to every guard stays published-only | Ben's explicit call, reversing the v2.4-era published-only gate: he wants to preview/download any version's picture without publishing first. Deliberately not paired with a draft watermark on the image itself — his choice, no visual difference from the published export |
 
 ---
 
@@ -1599,9 +1600,19 @@ the columns get sized against the fallback face and clip when Heebo arrives.
 
 ### 10.2 Roster Image Export
 
-The manager can export a **published** roster as a JPEG (`src/lib/exportRoster.ts`,
-`src/components/manager/RosterExport.tsx`). The team coordinates in a WhatsApp group, so a picture
-is how the roster reaches eight phones regardless of what the app does.
+The manager can export the **selected run** — draft or published — as a JPEG
+(`src/lib/exportRoster.ts`, `src/components/manager/RosterExport.tsx`). The team coordinates in a
+WhatsApp group, so a picture is how the roster reaches eight phones regardless of what the app does.
+
+**Not published-only, as of v2.20.1** — earlier versions gated the preview/download button to a
+published run specifically, on the reasoning below (point 2, kept for the history). Ben's explicit
+call: he wants the preview/download available for whichever version he has selected, published or
+not, without waiting to publish first. The only remaining published-only gate is
+`RosterPublishNotify` (§12.10) — the push announcement to every guard's phone is a materially
+different action from a manager previewing or saving a picture for their own use, and stays
+published-only. `RosterExport` itself is now ungated except for `!editing` (exporting the version
+currently being hand-edited would export a stale picture of what's on screen before the edit is
+saved).
 
 Three decisions worth keeping:
 
@@ -1610,9 +1621,11 @@ Three decisions worth keeping:
    the kind that breaks it — Tailwind v4 emits `oklch()`, shift colours are CSS custom properties,
    chips carry rings. Half-rendered output is worse than none, because the manager would not notice
    until the picture was already in the group chat.
-2. **Published runs only.** A draft is a proposal still being moved around; once an image of it is
-   in the chat it is _the roster_ as far as the guards are concerned, and no later edit catches up
-   with it. Publishing is when the roster becomes a promise, so it is when it becomes shareable.
+2. **(Historical, v2.4–v2.20.0) Published runs only.** A draft is a proposal still being moved
+   around; once an image of it is in the chat it is _the roster_ as far as the guards are concerned,
+   and no later edit catches up with it. Publishing is when the roster becomes a promise, so it was,
+   until v2.20.1, when it became shareable. Superseded above — kept here as the reasoning a future
+   change in the other direction should weigh against.
 3. **Built for its destination, not a copy of the screen.** 11px text and a sideways-scrolling table
    are unreadable as a chat thumbnail, so the type is larger, nothing scrolls, and the week range,
    legend and handover convention are printed on the image — a picture in a chat arrives with no

@@ -11,13 +11,16 @@ import type {
 import type { Profile, ScheduleAssignment } from '@/types/database';
 
 /**
- * Exporting the published roster as a JPEG, for the team's WhatsApp group.
+ * Exporting the selected run as a JPEG, for the team's WhatsApp group.
  *
- * Offered ONLY for a published run. A draft is a proposal the manager is still
- * moving people around in; once an image of it is in the group chat it is a
- * roster as far as eight guards are concerned, and no later edit catches up
- * with it. Publishing is the moment the roster becomes a promise, so it is the
- * moment it becomes shareable.
+ * Available for ANY selected run, draft or published (Ben's explicit call --
+ * previously gated to published only, on the reasoning that a draft image in
+ * the group chat is indistinguishable from a promise once it's out there; he
+ * wants the preview/download itself available earlier regardless). The
+ * publish-only gate that remains is `RosterPublishNotify` just below this
+ * component in ManagerDashboard.tsx -- the push announcement to every guard's
+ * phone is a materially different action than a manager previewing or saving
+ * a picture for themselves, and stays published-only.
  *
  * The preview lives behind a button rather than inline. RosterExport is always
  * rendered directly under the on-screen RosterGrid it is a picture OF -- an
@@ -140,9 +143,9 @@ export function RosterExport({
   return (
     <Card className="p-0">
       <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-        <p className="font-bold text-slate-900 dark:text-slate-100">שליחת הסידור לקבוצה</p>
+        <p className="font-bold text-slate-900 dark:text-slate-100">ייצוא הסידור לתמונה</p>
         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-          תמונה של הסידור המפורסם, מוכנה לשליחה בוואטסאפ.
+          תמונה של הגרסה הנבחרת, מוכנה לתצוגה או לשליחה בוואטסאפ.
         </p>
       </div>
 
