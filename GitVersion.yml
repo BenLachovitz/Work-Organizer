@@ -10,14 +10,14 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.19.0: removed
-# the header bell icon that let a guard mute/disable push notifications --
-# Ben's call, these carry real schedule-affecting updates and he doesn't
-# want them silenceable. useNotifications/push.ts lost disable/toggle and
-# unsubscribeFromPush entirely, not just the button; the GuardHome
-# enable-prompt card is now the only in-app notification control, and it's
-# enable-only by construction.
-next-version: 2.19.0
+# version (see BACKLOG.md's Versioning section). Currently 2.20.0: per-week
+# 12h/11h double-shift display setting (migration 47). day12/night12 always
+# count as a full 12h shift everywhere it matters (coverage, kamut, rest) --
+# this only shortens the handover-boundary TEXT next to the guard's name by
+# one hour, and only where doing so would not misrepresent the day's only
+# real coverage of that hour. See doubleShiftSuffix()/doubleShiftLabel() in
+# src/lib/shifts.ts.
+next-version: 2.20.0
 mode: Mainline
 branches:
   main:

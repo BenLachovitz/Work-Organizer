@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card } from '@/components/ui';
 import { downloadBlob, renderRosterImage, rosterFileName } from '@/lib/exportRoster';
 import type { DateKey } from '@/lib/dates';
-import type { MorningTarget, MorningTargetOverrides, SecondaryTargetOverrides } from '@/lib/shifts';
+import type {
+  DoubleShiftHours,
+  MorningTarget,
+  MorningTargetOverrides,
+  SecondaryTargetOverrides,
+} from '@/lib/shifts';
 import type { Profile, ScheduleAssignment } from '@/types/database';
 
 /**
@@ -26,6 +31,7 @@ export function RosterExport({
   morningTarget,
   morningTargetOverrides,
   segmentTargetOverrides,
+  doubleShiftHours,
   assignments,
   guards,
 }: {
@@ -35,6 +41,8 @@ export function RosterExport({
   morningTargetOverrides?: MorningTargetOverrides;
   /** S2/S3/S4's own, independent per-day exceptions to their flat target of 2 (§1). */
   segmentTargetOverrides?: SecondaryTargetOverrides;
+  /** Display-only 12h/11h handover-text setting for this week (§1). */
+  doubleShiftHours?: DoubleShiftHours;
   assignments: ScheduleAssignment[];
   guards: Profile[];
 }) {
@@ -52,6 +60,7 @@ export function RosterExport({
       [
         weekStart,
         morningTarget,
+        doubleShiftHours ?? 12,
         JSON.stringify(morningTargetOverrides ?? {}),
         JSON.stringify(segmentTargetOverrides ?? {}),
         guards.length,
@@ -59,7 +68,15 @@ export function RosterExport({
           .map((a) => `${a.target_date}|${a.shift}|${a.guard_id}|${a.note_before ?? ''}|${a.note_after ?? ''}`)
           .sort(),
       ].join(','),
-    [weekStart, morningTarget, morningTargetOverrides, segmentTargetOverrides, assignments, guards],
+    [
+      weekStart,
+      morningTarget,
+      doubleShiftHours,
+      morningTargetOverrides,
+      segmentTargetOverrides,
+      assignments,
+      guards,
+    ],
   );
 
   useEffect(() => {
@@ -85,6 +102,7 @@ export function RosterExport({
       morningTarget,
       morningTargetOverrides,
       segmentTargetOverrides,
+      doubleShiftHours,
       assignments,
       guards,
     });

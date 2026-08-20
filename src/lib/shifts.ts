@@ -303,6 +303,79 @@ export function shiftsCovering(segment: Segment): ShiftType[] {
 }
 
 // ---------------------------------------------------------------------------
+// Double-shift (day12/night12) display hours -- a manager-facing setting
+// only, NOT a solver input. A day12/night12 guard is scheduled for, and
+// counted against every rule as, the full 12h regardless of this value --
+// see roster_weeks.double_shift_display_hours (migration 47). The only thing
+// it changes is the handover-boundary TEXT rendered next to the guard's name
+// (RosterGrid, exportRoster, the guard's own shift list): at 12 (the
+// default) it reads the full boundary; at 11 it shortens by one hour, UNLESS
+// this guard is the day's only REAL coverage of the segment that hour would
+// come out of, in which case the full text is kept so the roster never
+// implies an hour with literally nobody there.
+// ---------------------------------------------------------------------------
+
+export type DoubleShiftHours = 11 | 12;
+
+/** The segment whose last (day12) or first (night12) hour the 11h setting
+ *  shortens away from the display text. */
+const DOUBLE_SHIFT_EDGE_SEGMENT: Record<'day12' | 'night12', Segment> = {
+  day12: 'S2',
+  night12: 'S3',
+};
+
+/**
+ * True when `self` (a day12/night12 assignment) is the ONLY real coverage of
+ * its edge segment on that day -- i.e. showing a shortened boundary would
+ * imply an hour with nobody there at all. `self` is matched by reference,
+ * not id, so this works identically against ScheduleAssignment rows and the
+ * roster editor's own DraftAssignment shape without either importing the
+ * other's type.
+ */
+export function isDoubleShiftShortened<T extends { shift: ShiftType; guard_id: string | null }>(
+  shift: 'day12' | 'night12',
+  self: T,
+  dayAssignments: readonly T[],
+  doubleShiftHours: DoubleShiftHours,
+): boolean {
+  if (doubleShiftHours === 12) return false;
+  const segment = DOUBLE_SHIFT_EDGE_SEGMENT[shift];
+  return dayAssignments.some(
+    (a) => a !== self && a.guard_id != null && SHIFTS[a.shift].covers.includes(segment),
+  );
+}
+
+/** The chip suffix shown next to a day12/night12 guard's name -- "עד 18:45"
+ *  / "מ 18:45", or one hour shorter under the 11h setting (see above). */
+export function doubleShiftSuffix<T extends { shift: ShiftType; guard_id: string | null }>(
+  shift: 'day12' | 'night12',
+  self: T,
+  dayAssignments: readonly T[],
+  doubleShiftHours: DoubleShiftHours,
+): string {
+  if (!isDoubleShiftShortened(shift, self, dayAssignments, doubleShiftHours)) {
+    return shift === 'day12' ? 'עד 18:45' : 'מ 18:45';
+  }
+  return shift === 'day12' ? 'עד 17:45' : 'מ 19:45';
+}
+
+/** The full window label for a day12/night12 shift -- SHIFTS[shift].label,
+ *  or one hour shorter under the 11h setting (see above). Used where the
+ *  shift's own time range is printed standalone rather than as a name
+ *  suffix (the guard's "המשמרות שלי" list). */
+export function doubleShiftLabel<T extends { shift: ShiftType; guard_id: string | null }>(
+  shift: 'day12' | 'night12',
+  self: T,
+  dayAssignments: readonly T[],
+  doubleShiftHours: DoubleShiftHours,
+): string {
+  if (!isDoubleShiftShortened(shift, self, dayAssignments, doubleShiftHours)) {
+    return SHIFTS[shift].label;
+  }
+  return shift === 'day12' ? '06:45-17:45' : '19:45-06:45';
+}
+
+// ---------------------------------------------------------------------------
 // Rest rules (spec 2.6)
 //
 //   < 8h   impossible, hard-blocked  (this is where No-Clopen comes from:

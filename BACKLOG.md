@@ -1,12 +1,12 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.19.0** — §14 there is the
-build status and roadmap, §1.17–§1.19 is the changelog for everything since v2.15. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.20.0** — §14 there is the
+build status and roadmap, §1.17–§1.20 is the changelog for everything since v2.15. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
-*Last updated: 14 August 2026*
+*Last updated: 20 August 2026*
 
 ---
 
@@ -39,7 +39,7 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–Y complete, live and in daily use
+## State: build steps A–Z complete, live and in daily use
 
 Full list in spec §14.1; changelog for every step is spec §1.1–§1.14. Step P (11 August) — per-day
 morning target override, a morning-priority coverage weight, the roster view stacking every
@@ -396,6 +396,29 @@ Full TypeScript typecheck clean, `test:cloud` all green (unchanged — still no 
 
 Nothing else mid-flight, no open branches.
 
+Step Z (20 August) — **per-week 12h/11h double-shift display setting** (spec §2.4d, migration 47):
+`WeekControlsPanel` gained a two-button toggle, styled identically to the existing morning-target
+2/3 toggle, that shortens the handover-boundary TEXT next to a day12/night12 guard's name by one
+hour — "עד 17:45" instead of "עד 18:45", "מ 19:45" instead of "מ 18:45". Deliberately invisible to
+the solver and both referees: the shift is still scheduled, and counted against every coverage/
+kamut/rest rule, as a full 12 hours regardless of this setting — only the text changes. Ben's
+caveat, also implemented: on any specific assignment where that guard is the day's *only* real
+coverage of the segment the shortened hour would come out of (S2's last hour for day12, S3's first
+hour for night12), the text stays at the full 12h boundary instead, so the roster never implies an
+hour with literally nobody there. `isDoubleShiftShortened()`/`doubleShiftSuffix()`/
+`doubleShiftLabel()` (`src/lib/shifts.ts`) compute this once, generically over any
+`{ shift, guard_id }`-shaped row matched by object reference, so the identical logic runs against
+both `ScheduleAssignment` and `RosterEditor`'s own `DraftAssignment` shape — threaded through
+`RosterGrid` (manager and guard, shared), `RosterEditor`'s live-edit chips, the JPEG export
+(`exportRoster.ts`), and the guard's own "המשמרות שלי" list. Nothing solver-side changed — no new
+fixture, no new referee logic — since the setting never reaches `SolverInput`.
+
+Migration applied to the live database, full TypeScript typecheck clean, and `test:cloud` (new Gate
+D assertions: manager sets/reads the value, a guard is rejected by RLS, an out-of-range value is
+rejected by the CHECK) + `test:fixtures` + `test:rls` all green. Shipped, `package.json`/
+`GitVersion.yml` bumped to 2.20.0, tagged `v2.20.0`. Nothing left open — purely a display feature,
+no real-device-only check applies the way the PWA/notification/passkey items below do.
+
 Step Y (14 August) — **removed the header bell icon that let a guard mute/disable push
 notifications** (spec §12.10). Ben's call: these notifications carry real schedule-affecting
 updates (submission deadlines, roster publishes), and he doesn't want anyone able to silence them
@@ -574,7 +597,7 @@ rejected the push — often a stale subscription that's already been pruned by t
   `VAPID_SUBJECT` are set as Supabase Edge Function secrets; the matching `notify_url`/`cron_secret`
   pair lives in the `notification_secrets` table (not a GUC — see spec §12.10 for why), set via a
   plain `UPDATE`, not committed anywhere
-- 46 migrations applied, tracked in a `schema_migrations` ledger
+- 47 migrations applied, tracked in a `schema_migrations` ledger
 
 ### Current database contents
 
@@ -601,9 +624,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.19.0**
-(removed the header bell icon and the underlying capability to mute/disable push notifications),
-tagged `v2.19.0`.
+state that version describes), matching the spec's own version history. Currently at **2.20.0**
+(per-week 12h/11h double-shift display setting), tagged `v2.20.0`.
 
 ## Commands
 

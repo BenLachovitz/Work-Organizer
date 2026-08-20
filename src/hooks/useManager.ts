@@ -13,6 +13,7 @@ import {
   MAX_SHIFTS_PER_WEEK,
   effectiveKamut,
   type BaseShift,
+  type DoubleShiftHours,
   type MorningTarget,
   type MorningTargetOverrides,
   type SecondaryTarget,
@@ -242,6 +243,7 @@ export function useUpdateWeek() {
     mutationFn: async (input: {
       weekStart: DateKey;
       morningTarget?: MorningTarget;
+      doubleShiftHours?: DoubleShiftHours;
       status?: RosterWeek['status'];
       deadline?: string;
     }) => {
@@ -263,6 +265,8 @@ export function useUpdateWeek() {
 
       const patch: Record<string, unknown> = {};
       if (input.morningTarget !== undefined) patch.morning_target_slots = input.morningTarget;
+      if (input.doubleShiftHours !== undefined)
+        patch.double_shift_display_hours = input.doubleShiftHours;
       if (input.deadline !== undefined) patch.submission_deadline = input.deadline;
 
       if (Object.keys(patch).length > 0) {

@@ -7,6 +7,7 @@ import {
   morningTargetForDay,
   secondaryTargetForDay,
   segmentFloors,
+  type DoubleShiftHours,
   type MorningTarget,
   type MorningTargetOverrides,
   type SecondarySegment,
@@ -34,6 +35,7 @@ export function WeekControlsPanel({
   onSetDayOverride,
   segmentTargetOverrides,
   onSetSegmentDayOverride,
+  onSetDoubleShiftHours,
   onSetStatus,
   saving,
 }: {
@@ -57,6 +59,7 @@ export function WeekControlsPanel({
     segment: SecondarySegment,
     target: SecondaryTarget,
   ) => void;
+  onSetDoubleShiftHours: (h: DoubleShiftHours) => void;
   onSetStatus: (s: RosterWeek['status']) => void;
   saving: boolean;
 }) {
@@ -190,6 +193,39 @@ export function WeekControlsPanel({
             <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
               שבת וראשון הם ימי מנוחה - יעד הבוקר בהם תמיד 2, גם כשנבחר 3.
             </p>
+          </div>
+
+          {/* ---------------- double-shift display hours ---------------- */}
+          <div>
+            <p className="mb-1 text-sm font-bold text-slate-700 dark:text-slate-300">
+              תצוגת משמרת כפולה (12 שעות)
+            </p>
+            <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+              המשמרת עצמה תמיד נספרת כ-12 שעות מלאות בכיסוי, בכמות ובמנוחה. הבחירה כאן משנה רק את
+              השעה המוצגת ליד השם -- "עד 17:45" במקום "עד 18:45", או "מ 19:45" במקום "מ 18:45".
+              כשאין כיסוי אחר לצהריים באותו יום, התצוגה נשארת 12 שעות כדי לא לרמוז על שעה ריקה
+              בפועל.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {([12, 11] as DoubleShiftHours[]).map((h) => (
+                <button
+                  key={h}
+                  type="button"
+                  disabled={saving}
+                  onClick={() => onSetDoubleShiftHours(h)}
+                  className={cn(
+                    'rounded-xl border-2 px-3 py-2.5 text-center transition-all disabled:opacity-50',
+                    (week.double_shift_display_hours ?? 12) === h
+                      ? 'border-brand-600 bg-brand-50 dark:bg-brand-950/50'
+                      : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600',
+                  )}
+                >
+                  <span className="block text-lg font-extrabold text-slate-900 dark:text-slate-100">
+                    {h} שעות
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* ---------------- per-day override ---------------- */}

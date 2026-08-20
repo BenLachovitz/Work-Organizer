@@ -37,7 +37,7 @@ import {
   useUpdateWeek,
 } from '@/hooks/useManager';
 import { formatWeekRange, weekDates } from '@/lib/dates';
-import type { MorningTarget } from '@/lib/shifts';
+import type { DoubleShiftHours, MorningTarget } from '@/lib/shifts';
 import { useViewMode } from '@/contexts/ViewModeContext';
 import { visibleToViewMode } from '@/lib/viewMode';
 
@@ -91,6 +91,7 @@ export function ManagerDashboard() {
 
   const { viewMode } = useViewMode();
   const week = weeks?.find((w) => w.week_start === selected) ?? null;
+  const doubleShiftHours = (week?.double_shift_display_hours ?? 12) as DoubleShiftHours;
   const dates = useMemo(() => (selected ? weekDates(selected) : []), [selected]);
   // Filtered for DISPLAY only -- generation, RosterGrid and export below all
   // keep reading `data.guards` unfiltered, since the view-mode toggle changes
@@ -167,6 +168,9 @@ export function ManagerDashboard() {
               // baseline is always the flat 2.
               target: t === 2 ? null : t,
             })
+          }
+          onSetDoubleShiftHours={(h) =>
+            updateWeek.mutate({ weekStart: selected, doubleShiftHours: h })
           }
           onSetStatus={(s) => updateWeek.mutate({ weekStart: selected, status: s })}
         />
@@ -308,6 +312,7 @@ export function ManagerDashboard() {
                     morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
                     morningTargetOverrides={morningTargetOverrides}
                     segmentTargetOverrides={segmentTargetOverrides}
+                    doubleShiftHours={doubleShiftHours}
                     assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
                     guards={data.guards}
                     // The referee must judge an edit against exactly what the solver
@@ -347,6 +352,7 @@ export function ManagerDashboard() {
                     morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
                     morningTargetOverrides={morningTargetOverrides}
                     segmentTargetOverrides={segmentTargetOverrides}
+                    doubleShiftHours={doubleShiftHours}
                     assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
                     guards={data?.guards ?? []}
                   />
@@ -361,6 +367,7 @@ export function ManagerDashboard() {
                     morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
                     morningTargetOverrides={morningTargetOverrides}
                     segmentTargetOverrides={segmentTargetOverrides}
+                    doubleShiftHours={doubleShiftHours}
                     assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
                     guards={data?.guards ?? []}
                   />

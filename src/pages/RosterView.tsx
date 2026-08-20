@@ -12,7 +12,7 @@ import {
   todayInIsrael,
   weekStartOf,
 } from '@/lib/dates';
-import { SHIFTS } from '@/lib/shifts';
+import { SHIFTS, doubleShiftLabel } from '@/lib/shifts';
 import type { Profile } from '@/types/database';
 
 /**
@@ -113,6 +113,7 @@ function WeekSection({
         morningTarget={week.morningTarget}
         morningTargetOverrides={week.morningTargetOverrides}
         segmentTargetOverrides={week.segmentTargetOverrides}
+        doubleShiftHours={week.doubleShiftHours}
         assignments={week.assignments}
         guards={guards}
         highlightGuardId={profileId}
@@ -136,6 +137,15 @@ function WeekSection({
             {mine.map((a) => {
               const def = SHIFTS[a.shift];
               const isToday = a.target_date === today;
+              const label =
+                a.shift === 'day12' || a.shift === 'night12'
+                  ? doubleShiftLabel(
+                      a.shift,
+                      a,
+                      week.assignments.filter((x) => x.target_date === a.target_date),
+                      week.doubleShiftHours,
+                    )
+                  : def.label;
               return (
                 <div
                   key={a.id}
@@ -171,7 +181,7 @@ function WeekSection({
                       {def.he}
                     </p>
                     <p className="num text-[10px] text-slate-400 dark:text-slate-500">
-                      {def.label}
+                      {label}
                     </p>
                   </div>
                 </div>

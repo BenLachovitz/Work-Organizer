@@ -125,6 +125,32 @@ async function run() {
       .update({ morning_target_slots: 4 }).eq('week_start', WEEK);
     error ? ok('an out-of-range target (4) is rejected by the CHECK') : bad('target range', 'accepted 4');
   }
+  {
+    // double_shift_display_hours (migration 47) -- display-only, but governed
+    // by the same weeks_manager_write RLS policy and CHECK-constraint shape
+    // as morning_target_slots above, so the same three-part proof applies.
+    const { error } = await mgr.from('roster_weeks')
+      .update({ double_shift_display_hours: 11 }).eq('week_start', WEEK);
+    const rows = await sql(`SELECT double_shift_display_hours FROM roster_weeks WHERE week_start='${WEEK}'`);
+    !error && rows[0].double_shift_display_hours === 11
+      ? ok('manager sets the double-shift display to 11h')
+      : bad('manager sets double-shift display', error?.message ?? JSON.stringify(rows));
+  }
+  {
+    const { data } = await g1.from('roster_weeks')
+      .update({ double_shift_display_hours: 12 }).eq('week_start', WEEK).select();
+    const rows = await sql(`SELECT double_shift_display_hours FROM roster_weeks WHERE week_start='${WEEK}'`);
+    (!data || data.length === 0) && rows[0].double_shift_display_hours === 11
+      ? ok('guard cannot change the double-shift display')
+      : bad('guard sets double-shift display', `value is now ${rows[0].double_shift_display_hours}`);
+  }
+  {
+    const { error } = await mgr.from('roster_weeks')
+      .update({ double_shift_display_hours: 10 }).eq('week_start', WEEK);
+    error
+      ? ok('an out-of-range double-shift display (10) is rejected by the CHECK')
+      : bad('double-shift display range', 'accepted 10');
+  }
 
   console.log('\n\x1b[1m2. כמות targets\x1b[0m');
   {

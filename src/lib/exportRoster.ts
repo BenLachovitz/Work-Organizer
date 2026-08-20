@@ -7,9 +7,11 @@ import {
 } from '@/lib/dates';
 import {
   SHIFTS,
+  doubleShiftSuffix,
   isWeekendDay,
   segmentFloors,
   segmentTargets,
+  type DoubleShiftHours,
   type MorningTarget,
   type MorningTargetOverrides,
   type Segment,
@@ -92,6 +94,8 @@ export interface RosterImageInput {
   morningTargetOverrides?: MorningTargetOverrides;
   /** S2/S3/S4's own, independent per-day exceptions to their flat target of 2 (§1). */
   segmentTargetOverrides?: SecondaryTargetOverrides;
+  /** Display-only 12h/11h handover-text setting for this week (§1). */
+  doubleShiftHours?: DoubleShiftHours;
   assignments: ScheduleAssignment[];
   guards: Profile[];
   /** Printed under the title. Defaults to the week range. */
@@ -188,6 +192,7 @@ function rowsFor(
   day: ScheduleAssignment[],
   nameOf: (id: string | null) => string,
   target = 0,
+  doubleShiftHours: DoubleShiftHours = 12,
 ): Row[] {
   if (block === 'morning') {
     const dayRows = day.filter((a) => a.shift === 'morning' || a.shift === 'day12');
@@ -195,7 +200,7 @@ function rowsFor(
       kind: 'chip' as const,
       shift: a.shift,
       name: nameOf(a.guard_id),
-      suffix: a.shift === 'day12' ? 'עד 18:45' : undefined,
+      suffix: a.shift === 'day12' ? doubleShiftSuffix('day12', a, day, doubleShiftHours) : undefined,
       notePrefix: a.note_before ?? undefined,
       noteSuffix: a.note_after ?? undefined,
     }));
@@ -214,7 +219,7 @@ function rowsFor(
       kind: 'chip' as const,
       shift: a.shift,
       name: nameOf(a.guard_id),
-      suffix: a.shift === 'night12' ? 'מ 18:45' : undefined,
+      suffix: a.shift === 'night12' ? doubleShiftSuffix('night12', a, day, doubleShiftHours) : undefined,
       notePrefix: a.note_before ?? undefined,
       noteSuffix: a.note_after ?? undefined,
     }));
@@ -304,8 +309,15 @@ const LEGEND = [
 export async function renderRosterImage(input: RosterImageInput): Promise<Blob> {
   await document.fonts?.ready;
 
-  const { weekStart, morningTarget, morningTargetOverrides, segmentTargetOverrides, assignments, guards } =
-    input;
+  const {
+    weekStart,
+    morningTarget,
+    morningTargetOverrides,
+    segmentTargetOverrides,
+    doubleShiftHours = 12,
+    assignments,
+    guards,
+  } = input;
   const dates = weekDates(weekStart);
   const colors = shiftColors();
   // A placeholder (id === null) has no name at all -- '' lets the note text
@@ -341,6 +353,7 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
           : b.key === 'night'
             ? targets.S4
             : Math.max(targets.S2, targets.S3),
+        doubleShiftHours,
       ),
     );
   });

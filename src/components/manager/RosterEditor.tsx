@@ -13,9 +13,11 @@ import {
   SHIFTS,
   SHIFT_TYPES,
   classifyRest,
+  doubleShiftSuffix,
   isWeekendDay,
   segmentFloors,
   segmentTargets,
+  type DoubleShiftHours,
   type MorningTarget,
   type MorningTargetOverrides,
   type Segment,
@@ -82,6 +84,7 @@ export function RosterEditor({
   morningTarget,
   morningTargetOverrides,
   segmentTargetOverrides,
+  doubleShiftHours = 12,
   assignments,
   guards,
   solverInput,
@@ -95,6 +98,8 @@ export function RosterEditor({
   morningTargetOverrides?: MorningTargetOverrides;
   /** S2/S3/S4's own, independent per-day exceptions to their flat target of 2 (§1). */
   segmentTargetOverrides?: SecondaryTargetOverrides;
+  /** Display-only 12h/11h handover-text setting for this week (§1). */
+  doubleShiftHours?: DoubleShiftHours;
   assignments: ScheduleAssignment[];
   guards: Profile[];
   /** The same input the solver saw, so the referee judges identically. */
@@ -336,7 +341,12 @@ export function RosterEditor({
                                 marks the 18:45 boundary. */}
                             {SHIFTS[d.shift].isExtended && d.shift !== 'afternoon' && (
                               <span className="num shrink-0 text-[9px] font-normal opacity-90">
-                                {d.shift === 'day12' ? 'עד 18:45' : 'מ 18:45'}
+                                {doubleShiftSuffix(
+                                  d.shift as 'day12' | 'night12',
+                                  d,
+                                  onDate(date),
+                                  doubleShiftHours,
+                                )}
                               </span>
                             )}
                           </span>

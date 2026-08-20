@@ -4,9 +4,11 @@ import { widestRosterColumn } from '@/lib/measureColumns';
 import { HEBREW_DAYS_SHORT, formatDayMonth, weekDates, type DateKey } from '@/lib/dates';
 import {
   SHIFTS,
+  doubleShiftSuffix,
   isWeekendDay,
   segmentFloors,
   segmentTargets,
+  type DoubleShiftHours,
   type MorningTarget,
   type MorningTargetOverrides,
   type Segment,
@@ -133,6 +135,7 @@ export function RosterGrid({
   morningTarget,
   morningTargetOverrides,
   segmentTargetOverrides,
+  doubleShiftHours = 12,
   assignments,
   guards,
   highlightGuardId,
@@ -145,6 +148,8 @@ export function RosterGrid({
   morningTargetOverrides?: MorningTargetOverrides;
   /** S2/S3/S4's own, independent per-day exceptions to their flat target of 2 (§1). */
   segmentTargetOverrides?: SecondaryTargetOverrides;
+  /** Display-only 12h/11h handover-text setting for this week (§1). */
+  doubleShiftHours?: DoubleShiftHours;
   assignments: ScheduleAssignment[];
   guards: Profile[];
   /** Ring this guard's chips. Set on the guard-facing view so a person can
@@ -220,8 +225,10 @@ export function RosterGrid({
       <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
         <p className="font-bold text-slate-900 dark:text-slate-100">{title}</p>
         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-          משמרת 12 שעות מסומנת ״עד 18:45״ או ״מ 18:45״. בצהריים, שני שמות מופרדים ב־/ הם חילוף
-          ב־18:45 - הראשון עד, השני מ־18:45.
+          {doubleShiftHours === 12
+            ? 'משמרת 12 שעות מסומנת ״עד 18:45״ או ״מ 18:45״.'
+            : 'משמרת 12 שעות מסומנת ״עד 17:45״ או ״מ 19:45״, אלא אם אין כיסוי חלופי בצהריים באותו יום - אז התצוגה נשארת ״עד/מ 18:45״ כרגיל.'}{' '}
+          בצהריים, שני שמות מופרדים ב־/ הם חילוף ב־18:45 - הראשון עד, השני מ־18:45.
         </p>
       </div>
 
@@ -307,7 +314,11 @@ export function RosterGrid({
                             key={a.id}
                             assignment={a}
                             name={nameOf(a.guard_id)}
-                            suffix={a.shift === 'day12' ? 'עד 18:45' : undefined}
+                            suffix={
+                              a.shift === 'day12'
+                                ? doubleShiftSuffix('day12', a, day, doubleShiftHours)
+                                : undefined
+                            }
                             mine={a.guard_id === highlightGuardId}
                           />
                         ))}
@@ -341,7 +352,11 @@ export function RosterGrid({
                             key={a.id}
                             assignment={a}
                             name={nameOf(a.guard_id)}
-                            suffix={a.shift === 'night12' ? 'מ 18:45' : undefined}
+                            suffix={
+                              a.shift === 'night12'
+                                ? doubleShiftSuffix('night12', a, day, doubleShiftHours)
+                                : undefined
+                            }
                             mine={a.guard_id === highlightGuardId}
                           />
                         ))}

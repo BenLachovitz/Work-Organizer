@@ -1,9 +1,10 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.19.0 (build steps A–Y complete; live and in daily use; deployed to production)
+**Version:** 2.20.0 (build steps A–Y complete plus the double-shift display setting below; live and
+in daily use; deployed to production)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
-**Document Date:** 14 August 2026
+**Document Date:** 20 August 2026
 
 ---
 
@@ -183,6 +184,13 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 73  | **Removed the ability to mute/disable push notifications in-app** (§12.10) — the header bell-icon toggle is gone, and so is the underlying capability, not just the button: `useNotifications.ts` lost `disable`/`toggle` in favor of a single `enable`, and `src/lib/push.ts` lost `unsubscribeFromPush()` entirely. `GuardHome`'s existing enable-prompt card, unchanged in shape, is now the only in-app notification control, and was already enable-only in practice (it only ever renders while `Notification.permission === 'default'`) | These notifications carry real schedule-affecting updates (submission deadlines, roster publishes) — Ben's explicit call that no guard should be able to silence them through the app for any reason. Stated precisely because it matters: this closes the *in-app* path only; a guard can still disable notifications for the PWA at the OS/browser level, which has never been something a web app can prevent |
 
+### 1.20 Changes in Version 2.20
+
+| #   | Change                                                                                                                                                                                                                                                        | Rationale                                                                                                                                                                                                                                                                        |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 74  | **Per-week 12h/11h double-shift display setting** (`roster_weeks.double_shift_display_hours`, migration 47, §2.4d) — a manager toggle that shortens the day12/night12 handover-boundary TEXT next to a guard's name by one hour ("עד 17:45" / "מ 19:45"), purely cosmetic: the shift is still scheduled and counted as a full 12h everywhere it matters | Ben's explicit requirement, phrased as "manage the doubled shift between 12h and 11h" — real-world guards on a day12/night12 sometimes actually leave/arrive an hour off the nominal boundary, and the roster's TEXT should be able to say so without touching coverage math |
+| 75  | The shortened text is **suppressed** (falls back to the full 12h boundary) on any specific assignment where that guard is the day's **only** real coverage of the segment the shortened hour would come out of (S2 for day12, S3 for night12)              | Ben's explicit caveat: shortening the text when nobody else covers that hour would misrepresent an actual empty slot as covered — computed live from that day's real assignments (`isDoubleShiftShortened()`), not stored, so it always reflects the current roster            |
+
 ---
 
 ## 2. OPERATIONAL SCHEDULING RULES
@@ -345,6 +353,44 @@ rows per day — S1 (only on working days, unchanged from §2.4b) plus S2/S3/S4 
 מוקדם" / "צהריים מאוחר" / "לילה" and badged "הוחרג" the same way. The override counter badge changed
 from "(N ימים הוחרגו)" to a combined "(N חריגות)" summing the morning override count with all three
 secondary segments' counts.
+
+### 2.4d Double-Shift Display Hours (migration 47, v2.20)
+
+`roster_weeks.double_shift_display_hours` (`11 | 12`, default `12`) is a manager-facing, per-week
+setting that is deliberately invisible to the solver, both referees, and every coverage/kamut/rest
+computation — a day12/night12 guard is scheduled for, and counted against every hard rule as, the
+full 12 hours regardless of this value. The **only** thing it changes is the handover-boundary TEXT
+rendered next to the guard's name: RosterGrid's morning-block "עד 18:45" suffix on a day12 chip and
+night-block "מ 18:45" suffix on a night12 chip. At the default 12 these read the full boundary; set
+to 11, they shorten by one hour — "עד 17:45" / "מ 19:45" — **unless** that specific guard is the
+day's only real coverage of the segment the shortened hour would come out of (S2's last hour for
+day12, S3's first hour for night12), in which case the text stays at the full 12h boundary so the
+roster never implies an hour with literally nobody there, even though the guard is (and always was)
+actually present for it either way.
+
+`isDoubleShiftShortened()` / `doubleShiftSuffix()` / `doubleShiftLabel()` (`src/lib/shifts.ts`)
+implement this once, generically over any assignment-shaped row (`{ shift, guard_id }`) matched by
+object reference rather than id, so the identical logic runs against `ScheduleAssignment` rows and
+the roster editor's own `DraftAssignment` shape without either importing the other's type. Threaded
+through every place a day12/night12 chip renders: `RosterGrid` (manager and guard, shared), the
+manager's live-edit grid (`RosterEditor`'s `SlotEditor` chips), the JPEG export (`exportRoster.ts`,
+mirroring `RosterGrid` rule for rule as always), and the guard's own "המשמרות שלי" list
+(`RosterView.tsx`), which uses `doubleShiftLabel()` to shorten the standalone `"06:45-18:45"` /
+`"18:45-06:45"` window label it prints rather than a name-suffix.
+
+**Manager UI**: a two-button 12h/11h toggle on `WeekControlsPanel`, styled identically to the
+existing morning-target 2/3 toggle, sitting between the morning-capacity section and the per-day
+override section. `useUpdateWeek()` gained a `doubleShiftHours` input alongside `morningTarget`,
+patching the new column the same way. `useVisibleRosters()` (guard portal) fetches the column
+alongside `morning_target_slots` so a guard's own view reflects it too.
+
+**Sparse-by-week, not sparse-by-day** — unlike §2.4b/§2.4c's per-day override tables, this is a
+single flat value per week, closer in shape to `morning_target_slots` itself than to its per-day
+exception tables: there is no "differs from a baseline" concept here, just one on/off choice for the
+whole week. `DEFAULT 12` on the column means every existing and future week keeps today's unchanged
+text unless a manager explicitly opts a week in — no standing default setting was added (unlike
+`default_morning_target_slots`), since nothing about this needs to carry forward differently for a
+brand-new week versus any other.
 
 ### 2.5 Capacity Analysis (why floors must be soft)
 
@@ -2363,6 +2409,7 @@ before trusting it" smoke test §12.10 set the precedent for with `npm:web-push`
 | **W**     | Manager notified on guard submit/edit/cancel (§12.10, migration 45, v2.15): two new push types, client-triggered from `useGuardPortal.ts` rather than a database trigger (so `test:cloud` never pages the real manager), targeting a new role-based `manager_targets()`; `send-notifications` verifies the submission row's actual existence and the caller's own JWT identity server-side before sending. Real-device testing (v2.15.1) caught `asCaller.auth.getUser()` silently failing without an explicit token, fixed and confirmed delivering | ✅ complete; real-device delivery confirmed                    |
 | **X**     | Passkey (Face ID / fingerprint) login (§8, §12.11, migration 46, v2.16–2.18): shipped first on Supabase Auth's native Passkey API, replaced same-day with an app-scoped `@simplewebauthn/*` implementation (own `webauthn` Edge Function + two new tables) after real-device testing showed the native API produced a synced OS passkey, not the device-only credential intended. App-restart lock gate with a 24h grace window (no separate "locked" screen — dropped after shipping one), a Login-page remember-me toggle, and a hybrid passkey button (signs in directly or falls through to badge+PIN then auto-registers) rounded out the UX after two more real-device review passes | ✅ complete; real-device confirmation pending Ben (§13 item 11) |
 | **Y**     | Removed the ability to mute/disable push notifications in-app (§12.10, v2.19, item 73): the header bell-icon toggle and the `disable`/`unsubscribeFromPush()` code paths behind it are gone, not just hidden — `GuardHome`'s existing enable-prompt card is the only in-app control left, and was already enable-only in practice | ✅ complete                                                    |
+| **Z**     | Per-week 12h/11h double-shift display setting (§2.4d, migration 47, v2.20, items 74–75): a manager toggle that shortens the day12/night12 handover-boundary TEXT by one hour, purely cosmetic (the shift is still scheduled and counted as 12h everywhere it matters), suppressed on any assignment where that guard is the day's only real coverage of the hour it would shorten away from | ✅ complete                                                    |
 
 ### 14.2 Verification
 

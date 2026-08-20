@@ -11,6 +11,7 @@ import type {
 import type { DateKey } from '@/lib/dates';
 import type {
   BaseShift,
+  DoubleShiftHours,
   MorningTargetOverrides,
   SecondarySegment,
   SecondaryTargetOverrides,
@@ -220,6 +221,9 @@ export interface WeekRoster {
   /** S2/S3/S4's own, independent per-day exceptions to their flat target of
    *  2 (§1) -- see segmentTargets() in src/lib/shifts.ts. */
   segmentTargetOverrides: SecondaryTargetOverrides;
+  /** Display-only 12h/11h handover-text setting for this week -- see
+   *  doubleShiftSuffix()/doubleShiftLabel() in src/lib/shifts.ts. */
+  doubleShiftHours: DoubleShiftHours;
   assignments: ScheduleAssignment[];
 }
 
@@ -265,7 +269,7 @@ export function useVisibleRosters() {
         db.from('profiles').select('*'),
         db
           .from('roster_weeks')
-          .select('week_start, morning_target_slots')
+          .select('week_start, morning_target_slots, double_shift_display_hours')
           .in('week_start', list.map((r) => r.week_start)),
         db
           .from('weekly_morning_target_overrides')
@@ -283,7 +287,11 @@ export function useVisibleRosters() {
       if (segmentOverrideRes.error) throw new Error(segmentOverrideRes.error.message);
 
       const assignments = (assignRes.data as ScheduleAssignment[]) ?? [];
-      const targets = (weekRes.data ?? []) as { week_start: string; morning_target_slots: 2 | 3 }[];
+      const targets = (weekRes.data ?? []) as {
+        week_start: string;
+        morning_target_slots: 2 | 3;
+        double_shift_display_hours: DoubleShiftHours;
+      }[];
       const overrideRows = (overrideRes.data ?? []) as {
         week_start: string;
         day_index: number;
@@ -308,6 +316,8 @@ export function useVisibleRosters() {
             runId: r.id,
             morningTarget:
               targets.find((w) => w.week_start === r.week_start)?.morning_target_slots ?? 2,
+            doubleShiftHours:
+              targets.find((w) => w.week_start === r.week_start)?.double_shift_display_hours ?? 12,
             morningTargetOverrides: Object.fromEntries(
               overrideRows
                 .filter((o) => o.week_start === r.week_start)

@@ -29,6 +29,10 @@ export interface RosterWeek {
   submission_deadline: string;
   status: WeekStatus;
   created_at: string;
+  /** Display-only. day12/night12 always count as 12h everywhere it matters;
+   *  this only shortens the handover-boundary text by one hour when set to
+   *  11. See doubleShiftSuffix()/doubleShiftLabel() in src/lib/shifts.ts. */
+  double_shift_display_hours: 11 | 12;
 }
 
 export interface WeeklySubmission {
