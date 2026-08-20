@@ -1,7 +1,8 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.20.1 (build steps A–Y complete plus the double-shift display setting and the
-draft-preview export change below; live and in daily use; deployed to production)
+**Version:** 2.20.2 (build steps A–Y complete plus the double-shift display setting, the
+draft-preview export change, and the manager PIN-reset capability below; live and in daily use;
+deployed to production)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 20 August 2026
@@ -1911,6 +1912,7 @@ every day.
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Add employee**    | `INSERT INTO roster_codes` — the same action `seed.sql` did by hand for the first eight. The employee still sets their own PIN through the ordinary "קוד עובד" login flow; nothing here creates an account directly.                                                                                                                                                                                                                                                                                 |
 | **Delete employee** | `delete_employee(employee_code)` RPC (migration 21) — a genuine, irreversible deletion, not a deactivation. Cascades through `auth.users → profiles → {schedule_assignments, weekly_wish_preferences, weekly_submissions, weekly_guard_targets}`, so the person's shift history is gone from every roster, including a published one. Refuses to let a manager delete their own account. Works identically on a still-pending invitation (no profile exists yet, so only `roster_codes` is touched). |
+| **Reset PIN** (v2.20.2) | `reset-pin` Edge Function — resets a claimed guard's forgotten PIN (their literal GoTrue password on `{code}@guards.local`) to a new value the manager enters, WITHOUT touching `profiles`, `roster_codes`, or anything hanging off `guard_id`. There is no self-service "forgot PIN" flow (badge code + PIN is the whole credential, and there never was a "forgot password" affordance to route around — the manager suspected it existed and didn't; it never did). |
 | **Default כמות**    | Edits `profiles.default_kamut` (claimed) or `roster_codes.default_kamut` (not yet claimed) — the §2.7 baseline, not the per-week override the `Stepper` on `TeamTable` already edits.                                                                                                                                                                                                                                                                                                                |
 
 > **v1 of this feature deactivated instead of deleting** (`profiles.is_active = false`), reasoned
@@ -1938,6 +1940,20 @@ Three points worth keeping:
 3. **Editing an existing employee's default needs no new policy.** `profiles_manager_write`
    (migration 3) already lets a manager write any guard's `default_kamut` — that part of the page is
    pure UI on top of a policy that already existed.
+4. **Reset PIN could not be "delete and re-claim," because `profiles.id IS auth.users.id`** — the
+   same UUID, FK'd `ON DELETE CASCADE` (migration 1). Deleting just the `auth.users` row to let the
+   guard re-claim the code takes the `profiles` row (and everything hanging off `guard_id`) down with
+   it — exactly what `delete_employee` above already does deliberately, and exactly what "reset her
+   PIN without touching her roster history" needs to avoid. The only viable shape is resetting the
+   PASSWORD on the existing `auth.users` row in place, via `admin.auth.admin.updateUserById()` — the
+   same service-role admin call `claim-code` already uses to create one (§ above), applied to an
+   existing user instead. Unlike `claim-code`, `reset-pin` is deployed WITHOUT `--no-verify-jwt`: the
+   platform itself rejects a request with no valid session before the function's own code even runs,
+   and the code re-checks `is_manager()` server-side on top of that (same two-layer pattern as
+   `generate-schedule`) — a guard's own JWT is correctly rejected with 403, never just "hidden" in the
+   UI. Verified end-to-end against the live project: a guard JWT is rejected, a too-short PIN is
+   rejected, a manager's reset succeeds, the OLD PIN stops working immediately, the NEW one signs in,
+   and the guard's `profiles` row (id, employee_code) is provably unchanged.
 
 ### 12.5 Configurable Submission Window (migration 22)
 
@@ -2422,7 +2438,8 @@ before trusting it" smoke test §12.10 set the precedent for with `npm:web-push`
 | **W**     | Manager notified on guard submit/edit/cancel (§12.10, migration 45, v2.15): two new push types, client-triggered from `useGuardPortal.ts` rather than a database trigger (so `test:cloud` never pages the real manager), targeting a new role-based `manager_targets()`; `send-notifications` verifies the submission row's actual existence and the caller's own JWT identity server-side before sending. Real-device testing (v2.15.1) caught `asCaller.auth.getUser()` silently failing without an explicit token, fixed and confirmed delivering | ✅ complete; real-device delivery confirmed                    |
 | **X**     | Passkey (Face ID / fingerprint) login (§8, §12.11, migration 46, v2.16–2.18): shipped first on Supabase Auth's native Passkey API, replaced same-day with an app-scoped `@simplewebauthn/*` implementation (own `webauthn` Edge Function + two new tables) after real-device testing showed the native API produced a synced OS passkey, not the device-only credential intended. App-restart lock gate with a 24h grace window (no separate "locked" screen — dropped after shipping one), a Login-page remember-me toggle, and a hybrid passkey button (signs in directly or falls through to badge+PIN then auto-registers) rounded out the UX after two more real-device review passes | ✅ complete; real-device confirmation pending Ben (§13 item 11) |
 | **Y**     | Removed the ability to mute/disable push notifications in-app (§12.10, v2.19, item 73): the header bell-icon toggle and the `disable`/`unsubscribeFromPush()` code paths behind it are gone, not just hidden — `GuardHome`'s existing enable-prompt card is the only in-app control left, and was already enable-only in practice | ✅ complete                                                    |
-| **Z**     | Per-week 12h/11h double-shift display setting (§2.4d, migration 47, v2.20, items 74–75): a manager toggle that shortens the day12/night12 handover-boundary TEXT by one hour, purely cosmetic (the shift is still scheduled and counted as 12h everywhere it matters), suppressed on any assignment where that guard is the day's only real coverage of the hour it would shorten away from | ✅ complete                                                    |
+| **Z**     | Per-week 12h/11h double-shift display setting (§2.4d, migration 47, v2.20, items 74–75): a manager toggle that shortens the day12/night12 handover-boundary TEXT by one hour, purely cosmetic (the shift is still scheduled and counted as 12h everywhere it matters), suppressed on any assignment where that guard is the day's only real coverage of the hour it would shorten away from. Same-day follow-up (v2.20.1, item 76): JPEG preview/download un-gated from published-only runs | ✅ complete                                                    |
+| **AA**    | Manager-triggered guard PIN reset (§12.4, `reset-pin` Edge Function, v2.20.2): resets a claimed guard's forgotten PIN in place via the GoTrue admin API, without touching `profiles`/`roster_codes`/roster history — `profiles.id IS auth.users.id` with `ON DELETE CASCADE` rules out a delete-and-re-claim approach. Manager-JWT-gated at both the platform level (deployed without `--no-verify-jwt`) and server-side (`is_manager()`), verified end-to-end against the live project | ✅ complete                                                    |
 
 ### 14.2 Verification
 

@@ -3,6 +3,36 @@ import { requireSupabase } from '@/lib/supabase';
 import { managerKeys } from '@/hooks/useManager';
 
 /**
+ * Calls the reset-pin Edge Function and surfaces ITS error message -- same
+ * reasoning as webauthn.ts's invokeWebauthn / AuthContext's invokeClaimCode:
+ * supabase-js reports any non-2xx as a generic "Edge Function returned a
+ * non-2xx status code" and leaves `data` null, which would hide every useful
+ * Hebrew message the function actually produces. The real body hangs off
+ * error.context.
+ */
+async function invokeResetPin(body: {
+  guard_id: string;
+  new_pin: string;
+}): Promise<{ ok: true; displayName: string }> {
+  const { data, error } = await requireSupabase().functions.invoke<{
+    ok: true;
+    displayName: string;
+  }>('reset-pin', { body });
+  if (!error) return data!;
+
+  const ctx = (error as { context?: Response }).context;
+  if (ctx && typeof ctx.json === 'function') {
+    try {
+      const parsed = (await ctx.json()) as { error?: string };
+      if (parsed?.error) throw new Error(parsed.error);
+    } catch (e) {
+      if (e instanceof Error && e.message && !/JSON/i.test(e.message)) throw e;
+    }
+  }
+  throw new Error('שגיאת תקשורת. נסה שוב.');
+}
+
+/**
  * Team CRUD -- add an employee, delete one (claimed or still pending), and
  * edit the default כמות each seeds a new week with.
  *
@@ -75,6 +105,23 @@ export function useDeleteEmployee() {
       }
     },
     onSuccess: () => void invalidateCodes(qc),
+  });
+}
+
+/**
+ * Resets a guard's forgotten PIN to a new one the manager hands them --
+ * WITHOUT touching profiles, roster_codes, or anything hanging off guard_id
+ * (schedule_assignments, weekly_submissions, etc.), unlike useDeleteEmployee.
+ * There is no self-service "forgot PIN" flow (the PIN IS the guard's GoTrue
+ * password), so this is the only way back in for someone who genuinely
+ * forgot theirs. Goes through the reset-pin Edge Function, not a table write
+ * -- resetting a GoTrue password needs the service-role admin API, which is
+ * never exposed through PostgREST.
+ */
+export function useResetGuardPin() {
+  return useMutation({
+    mutationFn: (input: { guardId: string; newPin: string }) =>
+      invokeResetPin({ guard_id: input.guardId, new_pin: input.newPin }),
   });
 }
 

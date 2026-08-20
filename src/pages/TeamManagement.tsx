@@ -2,22 +2,33 @@ import { useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { CodeInput } from '@/components/auth/CodeInput';
 import { Alert, Badge, Button, ButtonLink, Card, Spinner, Stepper, cn } from '@/components/ui';
-import { EMPLOYEE_CODE_LENGTH, isValidEmployeeCode } from '@/lib/supabase';
+import { EMPLOYEE_CODE_LENGTH, PIN_MIN_LENGTH, isValidEmployeeCode } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRosterCodeStatus, type RosterCodeStatus } from '@/hooks/useManager';
-import { useAddEmployee, useDeleteEmployee, useUpdateDefaultKamut } from '@/hooks/useTeam';
+import {
+  useAddEmployee,
+  useDeleteEmployee,
+  useResetGuardPin,
+  useUpdateDefaultKamut,
+} from '@/hooks/useTeam';
 import { useViewMode } from '@/contexts/ViewModeContext';
 import { visibleToViewMode } from '@/lib/viewMode';
 
 /**
  * Manager control over who is on the team, as opposed to ManagerDashboard's
- * week-by-week "what are they working". Three operations, none of which
- * touch claim-code -- the one publicly-reachable unauthenticated write path
- * in the system stays exactly as it was:
+ * week-by-week "what are they working". Four operations; only ADD touches
+ * claim-code, the one publicly-reachable unauthenticated write path in the
+ * system, and only by creating the invitation row it reads:
  *
  *   ADD          creates a roster_codes row -- the same thing seed.sql did by
  *                hand for the first eight. The employee still sets their own
  *                PIN through the normal "קוד עובד" login flow.
+ *   RESET PIN    for a guard who forgot their PIN and has no self-service way
+ *                back in (the PIN IS their GoTrue password -- there is no
+ *                separate "forgot password" flow). Goes through the
+ *                reset-pin Edge Function to reset just the password on their
+ *                EXISTING auth.users row -- profile, roster history and
+ *                every submission stay exactly as they were.
  *   DELETE       genuinely erases the employee: profile, preferences,
  *                submissions and every roster assignment they were ever part
  *                of, including a published one (delete_employee, migration
@@ -213,10 +224,28 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
   const { profile } = useAuth();
   const updateDefault = useUpdateDefaultKamut();
   const deleteEmployee = useDeleteEmployee();
+  const resetPin = useResetGuardPin();
   const [confirming, setConfirming] = useState(false);
+  const [resettingPin, setResettingPin] = useState(false);
+  const [newPin, setNewPin] = useState('');
+  const [pinResetDone, setPinResetDone] = useState(false);
 
   const saving = updateDefault.isPending || deleteEmployee.isPending;
   const isSelf = row.profile_id !== null && row.profile_id === profile?.id;
+
+  const submitPinReset = () => {
+    if (!row.profile_id || newPin.length !== PIN_MIN_LENGTH) return;
+    resetPin.mutate(
+      { guardId: row.profile_id, newPin },
+      {
+        onSuccess: () => {
+          setResettingPin(false);
+          setNewPin('');
+          setPinResetDone(true);
+        },
+      },
+    );
+  };
 
   return (
     <div className="px-4 py-3">
@@ -258,6 +287,18 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
         </p>
       ) : (
         <div className="mt-2 flex flex-wrap items-center gap-2">
+          {row.is_claimed && row.profile_id && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setResettingPin((v) => !v);
+                setPinResetDone(false);
+              }}
+            >
+              {resettingPin ? 'ביטול איפוס' : 'שכח/ה PIN - איפוס'}
+            </Button>
+          )}
           <Button
             size="sm"
             variant={confirming ? 'danger' : 'ghost'}
@@ -287,9 +328,37 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
         </Alert>
       )}
 
-      {(updateDefault.isError || deleteEmployee.isError) && (
+      {resettingPin && (
+        <div className="mt-2 space-y-2 rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800">
+          <p className="text-xs text-slate-600 dark:text-slate-300">
+            בחר קוד PIN חדש בן {PIN_MIN_LENGTH} ספרות עבור {row.display_name} ומסור לו/לה אותו -
+            הפרופיל, ההיסטוריה וכל הסידורים שלו/שלה לא ישתנו.
+          </p>
+          <CodeInput
+            value={newPin}
+            onChange={setNewPin}
+            length={PIN_MIN_LENGTH}
+            ariaLabel={`PIN חדש עבור ${row.display_name}`}
+          />
+          <Button
+            size="sm"
+            fullWidth
+            disabled={newPin.length !== PIN_MIN_LENGTH}
+            loading={resetPin.isPending}
+            onClick={submitPinReset}
+          >
+            אפס סיסמה
+          </Button>
+        </div>
+      )}
+
+      {pinResetDone && (
+        <Alert tone="success">הסיסמה אופסה. מסור ל{row.display_name} את הקוד החדש שבחרת.</Alert>
+      )}
+
+      {(updateDefault.isError || deleteEmployee.isError || resetPin.isError) && (
         <p className="mt-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800 dark:bg-rose-950/50 dark:text-rose-400">
-          {[updateDefault.error, deleteEmployee.error]
+          {[updateDefault.error, deleteEmployee.error, resetPin.error]
             .filter((e): e is Error => e instanceof Error)
             .map((e) => e.message)
             .join(' · ') || 'הפעולה נכשלה.'}

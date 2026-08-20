@@ -10,14 +10,13 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.20.1: JPEG
-# preview/download (RosterExport) no longer gated to published runs -- it
-# now renders for whichever run is selected, draft or published, gated only
-# on not-mid-edit. Reverses the v2.4-era published-only rule (Ben's explicit
-# call); RosterPublishNotify's push announcement to every guard's phone
-# stays published-only, untouched. No draft watermark added to the image
-# itself -- deliberate, no visual difference from a published export.
-next-version: 2.20.1
+# version (see BACKLOG.md's Versioning section). Currently 2.20.2:
+# manager-triggered guard PIN reset (new reset-pin Edge Function). Resets
+# the password on a guard's EXISTING auth.users row in place -- profiles.id
+# IS auth.users.id (ON DELETE CASCADE), so a delete-and-re-claim approach
+# would have erased her roster history, which this avoids entirely.
+# Manager-JWT-gated at both the platform level and server-side (is_manager()).
+next-version: 2.20.2
 mode: Mainline
 branches:
   main:

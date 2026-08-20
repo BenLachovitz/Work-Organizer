@@ -1,7 +1,7 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.20.1** — §14 there is the
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.20.2** — §14 there is the
 build status and roadmap, §1.17–§1.20 is the changelog for everything since v2.15. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
@@ -431,6 +431,29 @@ stays published-only, untouched. Deliberately no draft watermark on the exported
 choice, no visual difference from a published export. `package.json`/`GitVersion.yml` bumped to
 2.20.1, tagged `v2.20.1`.
 
+Step AA (20 August) — **manager-triggered guard PIN reset** (spec §12.4, new `reset-pin` Edge
+Function): Hodaya forgot her PIN and the "problem logging in? contact the manager" dead-end text on
+the Login page had nothing behind it — there was never a self-service "forgot PIN" flow to route
+around, badge code + PIN is the whole credential and the PIN is literally her GoTrue password.
+Deleting and re-registering her wasn't an option either: `profiles.id IS auth.users.id`, FK'd
+`ON DELETE CASCADE`, so deleting the `auth.users` row to free the badge code for re-claiming would
+have taken her `profiles` row — and every `schedule_assignments`/`weekly_submissions` row hanging off
+her `guard_id` — down with it, exactly the history-erasing outcome `delete_employee` causes on
+purpose elsewhere. The clean path is resetting the PASSWORD on her *existing* `auth.users` row in
+place, via the same `admin.auth.admin.updateUserById()` service-role call `claim-code` already uses
+to create one — nothing else touched. New `reset-pin` Edge Function, deployed WITHOUT
+`--no-verify-jwt` (unlike `claim-code`'s deliberately public design): the platform itself rejects an
+unauthenticated call before the function's own code runs, and the code re-checks `is_manager()`
+server-side on top of that, same two-layer pattern `generate-schedule` already established. New
+"שכח/ה PIN - איפוס" button on `TeamManagement.tsx`'s per-employee row (`useResetGuardPin` in
+`useTeam.ts`) lets the manager type in a new 6-digit PIN and hand it to the guard directly.
+
+Verified end-to-end against the live project with a disposable test guard (not Hodaya's real
+account): a guard's own JWT is rejected (403), a too-short PIN is rejected (400), a manager's reset
+succeeds, the OLD PIN stops signing in immediately, the NEW one signs in, and the guard's `profiles`
+row (id, employee_code) is provably unchanged throughout. `package.json`/`GitVersion.yml` bumped to
+2.20.2, tagged `v2.20.2`.
+
 Step Y (14 August) — **removed the header bell icon that let a guard mute/disable push
 notifications** (spec §12.10). Ben's call: these notifications carry real schedule-affecting
 updates (submission deadlines, roster publishes), and he doesn't want anyone able to silence them
@@ -601,7 +624,8 @@ rejected the push — often a stale subscription that's already been pruned by t
 - Credentials in `.env.local` — **gitignored**, never committed
 - ⚠️ Outbound Postgres ports (5432/6543) are **firewalled on this machine**. `DATABASE_URL` will not
   work; migrations go over HTTPS through the Supabase Management API via `npm run db:apply`.
-- Edge Functions `claim-code`, `generate-schedule`, `send-notifications`, and `webauthn` are deployed
+- Edge Functions `claim-code`, `generate-schedule`, `send-notifications`, `webauthn`, and `reset-pin`
+  are deployed
 - Solver live at `https://guard-solver.onrender.com`; `SOLVER_URL` and `SOLVER_SECRET` are set as
   Supabase Edge Function secrets
 - `pg_cron`/`pg_net` enabled (first use in this project, spec §12.10); one job, `notification_tick`,
@@ -636,8 +660,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.20.1**
-(JPEG preview/download no longer gated to published runs), tagged `v2.20.1`.
+state that version describes), matching the spec's own version history. Currently at **2.20.2**
+(manager-triggered guard PIN reset), tagged `v2.20.2`.
 
 ## Commands
 
