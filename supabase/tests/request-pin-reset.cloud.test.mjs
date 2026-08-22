@@ -1,18 +1,26 @@
 /**
- * GATE I -- self-service PIN reset via WhatsApp OTP (whatsapp-pin-reset).
+ * GATE I -- self-service PIN reset via a push-notification OTP
+ * (request-pin-reset). Replaces the WhatsApp-based design (last session)
+ * before it ever went live -- delivery now goes through this app's own
+ * send-notifications push infrastructure instead of Meta's Cloud API.
  *
- * A real send to Meta's Cloud API costs money and must never fire inside a
- * repeatable test:cloud run -- same reasoning Gate G already documents for
- * never invoking send-notifications for a real push. So otp_verify/
- * otp_complete are exercised for real (seeding a pin_reset_otps row directly
- * via SQL with a known OTP's hash, standing in for a real ceremony -- same
- * approach Gate H uses for webauthn_credentials), and otp_request is only
- * exercised on the one path reachable without ever touching Meta: a claimed
- * guard with no phone_number on file, which the function rejects BEFORE it
- * ever checks whether WHATSAPP_* secrets are configured. A real send is
- * confirmed separately, once, by hand (see BACKLOG.md).
+ * A real push to a REAL subscribed device (Ben's own phone, say) must never
+ * fire inside a repeatable test:cloud run -- same reasoning Gate G already
+ * documents for never invoking send-notifications for a real broadcast. So:
+ *   - otp_verify/otp_complete are exercised for real by seeding a
+ *     pin_reset_otps row directly via SQL with a known OTP's hash, standing
+ *     in for a real ceremony (same approach Gate H uses for
+ *     webauthn_credentials).
+ *   - otp_request is exercised for real on TWO paths that never reach a real
+ *     device: a claimed guard with NO push subscription at all (the clean
+ *     "no notifications enabled" error), and a claimed guard with a
+ *     deliberately BOGUS subscription (endpoint/keys that don't correspond
+ *     to any real device) -- send-notifications genuinely attempts the
+ *     send, genuinely fails against the bogus endpoint, and this suite
+ *     asserts otp_request surfaces that failure honestly rather than a
+ *     false "ok".
  *
- *   node supabase/tests/whatsapp-pin-reset.cloud.test.mjs
+ *   node supabase/tests/request-pin-reset.cloud.test.mjs
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -28,10 +36,11 @@ for (const line of (await readFile(join(ROOT, '.env.local'), 'utf8')).split('\n'
   if (m && !line.trimStart().startsWith('#')) env[m[1]] = m[2];
 }
 const REF = env.VITE_SUPABASE_URL.match(/https:\/\/([a-z0-9]+)\./)[1];
-const FN = `${env.VITE_SUPABASE_URL}/functions/v1/whatsapp-pin-reset`;
+const FN = `${env.VITE_SUPABASE_URL}/functions/v1/request-pin-reset`;
 
-const CODE = '990801'; // the one guard under test
-const CODE_NO_PHONE = '990802'; // claimed, but no phone_number on file
+const CODE = '990801'; // the one guard used for otp_verify/otp_complete
+const CODE_NO_SUB = '990802'; // claimed, zero push_subscriptions rows
+const CODE_BOGUS_SUB = '990803'; // claimed, one push_subscriptions row pointing nowhere real
 const OLD_PIN = 'Old-Pin-12345';
 const NEW_PIN = '654321';
 const OTP = '135790';
@@ -55,16 +64,17 @@ async function sql(query) {
 }
 
 const cleanup = () => sql(`
-  DELETE FROM pin_reset_otps WHERE employee_code IN ('${CODE}', '${CODE_NO_PHONE}');
+  DELETE FROM pin_reset_otps WHERE employee_code IN ('${CODE}', '${CODE_NO_SUB}', '${CODE_BOGUS_SUB}');
   DELETE FROM auth.users WHERE email LIKE '9908%@guards.local';
   DELETE FROM roster_codes WHERE employee_code LIKE '9908%';`);
 
 async function setup() {
   await cleanup();
   await sql(`
-    INSERT INTO roster_codes (employee_code, display_name, initial_role, phone_number) VALUES
-      ('${CODE}', 'בדיקת-וואטסאפ', 'guard', '+972500000801'),
-      ('${CODE_NO_PHONE}', 'בדיקת-וואטסאפ-ללא-טלפון', 'guard', NULL);
+    INSERT INTO roster_codes (employee_code, display_name, initial_role) VALUES
+      ('${CODE}', 'בדיקת-איפוס', 'guard'),
+      ('${CODE_NO_SUB}', 'בדיקת-איפוס-ללא-מנוי', 'guard'),
+      ('${CODE_BOGUS_SUB}', 'בדיקת-איפוס-מנוי-מזויף', 'guard');
 
     INSERT INTO auth.users (
       instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -75,16 +85,22 @@ async function setup() {
            extensions.crypt('${OLD_PIN}', extensions.gen_salt('bf')), NOW(),
            '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, NOW(), NOW(),
            '', '', '', ''
-      FROM (VALUES ('${CODE}'), ('${CODE_NO_PHONE}')) AS c(code);
+      FROM (VALUES ('${CODE}'), ('${CODE_NO_SUB}'), ('${CODE_BOGUS_SUB}')) AS c(code);
 
     INSERT INTO profiles (id, employee_code, display_name, role, is_active)
     SELECT u.id, split_part(u.email,'@',1),
            CASE split_part(u.email,'@',1)
-             WHEN '${CODE}' THEN 'בדיקת-וואטסאפ' ELSE 'בדיקת-וואטסאפ-ללא-טלפון' END,
+             WHEN '${CODE}' THEN 'בדיקת-איפוס'
+             WHEN '${CODE_NO_SUB}' THEN 'בדיקת-איפוס-ללא-מנוי'
+             ELSE 'בדיקת-איפוס-מנוי-מזויף' END,
            'guard'::user_role, TRUE
       FROM auth.users u WHERE u.email LIKE '9908%@guards.local';
 
     UPDATE roster_codes SET is_claimed = TRUE WHERE employee_code LIKE '9908%';
+
+    INSERT INTO push_subscriptions (guard_id, endpoint, p256dh, auth)
+    SELECT id, 'https://example.invalid/bogus-endpoint-${CODE_BOGUS_SUB}', 'bogus-p256dh', 'bogus-auth'
+      FROM profiles WHERE employee_code = '${CODE_BOGUS_SUB}';
   `);
 }
 
@@ -130,15 +146,29 @@ async function seedOtp(otp, { expired = false, attempts = 0 } = {}) {
 }
 
 async function run() {
-  console.log('\n\x1b[1mGATE I -- self-service PIN reset via WhatsApp OTP\x1b[0m\n');
+  console.log('\n\x1b[1mGATE I -- self-service PIN reset via a push-notification OTP\x1b[0m\n');
   await setup();
 
-  console.log('\x1b[1m1. otp_request -- the one path reachable without ever touching Meta\x1b[0m');
+  console.log('\x1b[1m1. otp_request -- paths reachable without paging a real device\x1b[0m');
   {
-    const { status, json } = await call('otp_request', { employee_code: CODE_NO_PHONE });
+    const { status, json } = await call('otp_request', { employee_code: CODE_NO_SUB });
     status === 404 && json?.error
-      ? ok('a claimed guard with no phone_number on file gets a clean 404 -- checked BEFORE the WhatsApp config, never reaches Meta')
-      : bad('no phone on file', `status=${status} body=${JSON.stringify(json)}`);
+      ? ok('a claimed guard with NO push subscription gets a clean 404')
+      : bad('no subscription', `status=${status} body=${JSON.stringify(json)}`);
+  }
+  {
+    // A bogus subscription -- send-notifications genuinely attempts delivery
+    // and genuinely fails (invalid endpoint), never reaching a real device.
+    const { status, json } = await call('otp_request', { employee_code: CODE_BOGUS_SUB });
+    status === 502 && json?.error
+      ? ok('a guard whose only subscription fails delivery gets an honest error, not a false "ok"')
+      : bad('bogus subscription', `status=${status} body=${JSON.stringify(json)}`);
+  }
+  {
+    const rows = await sql(`SELECT id FROM pin_reset_otps WHERE employee_code = '${CODE_BOGUS_SUB}'`);
+    rows.length === 0
+      ? ok('the failed request left no dangling pin_reset_otps row behind')
+      : bad('cleanup on failed send', JSON.stringify(rows));
   }
   {
     const { status } = await call('otp_request', { employee_code: '000000' });
@@ -149,7 +179,7 @@ async function run() {
     status === 400 ? ok('a malformed employee_code is rejected (400)') : bad('malformed code', `status=${status}`);
   }
 
-  console.log('\n\x1b[1m2. otp_verify -- seeded row, standing in for a real WhatsApp send\x1b[0m');
+  console.log('\n\x1b[1m2. otp_verify -- seeded row, standing in for a real notification\x1b[0m');
   {
     await seedOtp(OTP);
     const { status, json } = await call('otp_verify', { employee_code: CODE, otp: '000000' });
@@ -160,8 +190,6 @@ async function run() {
     rows[0]?.attempts === 1 ? ok('the wrong guess incremented attempts') : bad('attempts increment', JSON.stringify(rows));
   }
   {
-    // 4 more wrong guesses (5 total) exhausts the row -- the 6th call, even
-    // with the CORRECT code, must still be rejected.
     for (let i = 0; i < 4; i++) await call('otp_verify', { employee_code: CODE, otp: '000000' });
     const { status } = await call('otp_verify', { employee_code: CODE, otp: OTP });
     status === 400 ? ok('5 wrong guesses locks the code out, even a correct guess after that is rejected') : bad('lockout', `status=${status}`);
@@ -217,7 +245,6 @@ async function run() {
     rows.length === 1 ? ok('the profile row is untouched (same employee_code, still resolves)') : bad('profile untouched', JSON.stringify(rows));
   }
   {
-    // The OTP row was deleted on consumption -- replaying the same token must fail.
     const { status } = await call('otp_complete', {
       employee_code: CODE, verify_token: verifyToken, new_pin: '111111',
     });
@@ -237,7 +264,7 @@ async function run() {
 
   console.log('\n\x1b[1m5. claim_attempts widened for otp_request\x1b[0m');
   {
-    const before = await sql(`SELECT COUNT(*)::int AS n FROM claim_attempts WHERE employee_code = '${CODE_NO_PHONE}' AND action = 'otp_request'`);
+    const before = await sql(`SELECT COUNT(*)::int AS n FROM claim_attempts WHERE employee_code = '${CODE_NO_SUB}' AND action = 'otp_request'`);
     before[0].n > 0 ? ok("otp_request attempts are recorded under the 'otp_request' action") : bad('otp_request logged', JSON.stringify(before));
   }
   {
@@ -247,6 +274,20 @@ async function run() {
     } catch (e) {
       bad('otp_request action accepted', e.message);
     }
+  }
+
+  console.log('\n\x1b[1m6. notification_log accepts pin_reset_otp\x1b[0m');
+  {
+    const rows = await sql(`SELECT status, detail FROM notification_log WHERE notification_type = 'pin_reset_otp' ORDER BY created_at DESC LIMIT 5`);
+    rows.length > 0
+      ? ok(`pin_reset_otp events are logged (most recent status: ${rows[0].status})`)
+      : bad('pin_reset_otp logged', 'no notification_log rows found for this type');
+  }
+  {
+    const rows = await sql(`SELECT detail FROM notification_log WHERE notification_type = 'pin_reset_otp' AND detail LIKE '%${OTP}%'`);
+    rows.length === 0
+      ? ok('the plaintext OTP is never written into notification_log.detail')
+      : bad('otp not logged in plaintext', JSON.stringify(rows));
   }
 
   await cleanup();

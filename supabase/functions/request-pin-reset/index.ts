@@ -1,38 +1,45 @@
 /**
- * whatsapp-pin-reset -- self-service PIN recovery via a WhatsApp one-time code
- * (Meta WhatsApp Business Cloud API).
+ * request-pin-reset -- self-service PIN recovery via a one-time code
+ * delivered as a PUSH NOTIFICATION (migration 50).
+ *
+ * Replaces the WhatsApp-based whatsapp-pin-reset (migrations 48-49, last
+ * session) before it ever went live: the intended delivery channel needed a
+ * Meta WhatsApp Business Account, which needs a Meta Business Portfolio,
+ * which Ben's Meta account cannot currently create (an Ads-billing dispute
+ * restricts it, and there is no way to attach WhatsApp to an app without a
+ * Business Portfolio -- confirmed, not a UI quirk to route around). Ben's
+ * call: deliver the OTP through this app's OWN already-working push
+ * notification system instead (send-notifications, migrations 40-45) --
+ * no new external account, no new dependency, reuses infrastructure already
+ * live in production. phone_number, which existed only to feed the Meta
+ * call, is reverted (migration 50) -- nothing else ever used it.
  *
  * Deployed with --no-verify-jwt, same reasoning as claim-code: a guard who
- * forgot her PIN has no session to verify. This is now the SECOND publicly
- * reachable unauthenticated write path in the system (claim-code is the
- * first) -- every branch below is written on the same "assume the caller is
- * hostile" footing that file's own docstring states, and reuses its exact
- * throttle (claim_attempts / claim_rate_ok / record_claim_attempt, migration
- * 4, widened by migration 49 to also cover the 'otp_request' action).
- *
- * The manager-only reset-pin function (migration/deploy from last session)
- * stays in place permanently as the fallback for any guard with no
- * phone_number on file yet -- this function never touches that one, and
- * never replaces it.
+ * forgot her PIN has no session to verify. The one real trade-off versus
+ * WhatsApp: delivery needs an EXISTING push_subscriptions row for this
+ * guard, which itself needs a prior login on that same device with
+ * notifications enabled -- a guard with no subscription anywhere, or on an
+ * unfamiliar device, gets a clean error routing her to the manager's
+ * reset-pin fallback instead, same shape as the old "no phone on file" case.
  *
  * Actions
  *   { action: 'otp_request', employee_code }
- *     -> looks up profiles.phone_number for a CLAIMED code, sends a 6-digit
- *        WhatsApp OTP via Meta's Cloud API, stores its SHA-256 hash.
+ *     -> looks up the guard's push subscription(s), sends a 6-digit OTP via
+ *        send-notifications' pin_reset_otp type, stores its SHA-256 hash.
  *   { action: 'otp_verify',  employee_code, otp }
  *     -> checks the code against the stored hash (5 wrong guesses kills it),
  *        mints a one-time verify_token on success.
  *   { action: 'otp_complete', employee_code, verify_token, new_pin }
  *     -> resets the password on the guard's EXISTING auth.users row via
- *        admin.auth.admin.updateUserById() -- the exact mechanism reset-pin
- *        already uses, duplicated here rather than cross-invoked (the two
- *        functions have incompatible auth models: a manager JWT there, a
- *        proven OTP here), then signs the guard in via the caller (handled
- *        client-side, same as claim-code's claim() -> signIn() sequence).
+ *        admin.auth.admin.updateUserById() -- the same call reset-pin
+ *        already makes, duplicated here rather than cross-invoked (the two
+ *        functions have incompatible auth models). Unchanged from the
+ *        WhatsApp-era design -- otp_verify/otp_complete never cared how the
+ *        code was delivered.
  *
- * Never leaks a phone number to the client, and never distinguishes "OTP
- * expired" from "too many wrong guesses" in otp_verify's response -- either
- * way the guard's only real next step is requesting a fresh code.
+ * Never distinguishes "OTP expired" from "too many wrong guesses" in
+ * otp_verify's response -- either way the guard's only real next step is
+ * requesting a fresh code.
  */
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
@@ -46,7 +53,7 @@ const CORS = {
 const CODE_RE = /^[0-9]{6}$/;
 const OTP_RE = /^[0-9]{6}$/;
 const PIN_MIN = 6;
-const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes -- keep in sync with the Meta template's own expiry wording
+const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_ATTEMPTS = 5;
 
 function json(body: unknown, status = 200) {
@@ -76,36 +83,6 @@ function generateOtp(): string {
   const buf = new Uint32Array(1);
   crypto.getRandomValues(buf);
   return String(100000 + (buf[0]! % 900000));
-}
-
-async function sendWhatsappOtp(
-  phoneNumberId: string,
-  accessToken: string,
-  templateName: string,
-  templateLang: string,
-  to: string,
-  otp: string,
-): Promise<boolean> {
-  const res = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      messaging_product: 'whatsapp',
-      to,
-      type: 'template',
-      template: {
-        name: templateName,
-        language: { code: templateLang },
-        components: [{ type: 'body', parameters: [{ type: 'text', text: otp }] }],
-      },
-    }),
-  });
-  if (!res.ok) {
-    // Never surface Meta's raw error body to the client -- log server-side only.
-    console.error('whatsapp send failed', res.status, await res.text().catch(() => ''));
-    return false;
-  }
-  return true;
 }
 
 Deno.serve(async (req: Request) => {
@@ -147,7 +124,7 @@ Deno.serve(async (req: Request) => {
   // ==========================================================================
   // otp_request -- looks up profiles (not roster_codes: only a CLAIMED guard
   // has a password to reset), rate-limited the same way claim-code's own
-  // actions are, sends the WhatsApp message, stores the OTP's hash.
+  // actions are, delivers the OTP via a push notification, stores its hash.
   // ==========================================================================
   if (action === 'otp_request') {
     const ip = clientIp(req);
@@ -167,14 +144,9 @@ Deno.serve(async (req: Request) => {
         p_succeeded: ok,
       });
 
-    // Business-logic prerequisites (does this guard even have a phone on
-    // file?) are checked BEFORE the WhatsApp config check below -- there's no
-    // reason to care whether Meta is configured for a request that was going
-    // to be refused anyway, and it keeps this branch fully testable
-    // regardless of whether WHATSAPP_* secrets exist yet.
     const { data: profile } = await admin
       .from('profiles')
-      .select('phone_number')
+      .select('id')
       .eq('employee_code', code)
       .maybeSingle();
 
@@ -186,24 +158,24 @@ Deno.serve(async (req: Request) => {
       // hasn't already told the guard.
       return json({ error: 'הקוד אינו רשום או טרם נרשם. פנה למנהל המשמרת.' }, 404);
     }
-    const phone = profile.phone_number as string | null;
-    if (!phone) {
-      await record(false);
-      return json(
-        { error: 'לא נמצא מספר טלפון עבור עובד זה. פנה למנהל המשמרת לאיפוס ידני.' },
-        404,
-      );
-    }
+    const guardId = profile.id as string;
 
-    const accessToken = Deno.env.get('WHATSAPP_ACCESS_TOKEN');
-    const phoneNumberId = Deno.env.get('WHATSAPP_PHONE_NUMBER_ID');
-    const templateName = Deno.env.get('WHATSAPP_TEMPLATE_NAME');
-    const templateLang = Deno.env.get('WHATSAPP_TEMPLATE_LANG') ?? 'he';
-    if (!accessToken || !phoneNumberId || !templateName) {
+    // Delivery needs an EXISTING push subscription -- checked here (rather
+    // than only discovered inside send-notifications) so the guard gets a
+    // specific, actionable error instead of a false "ok" that never arrives.
+    const { count: subCount } = await admin
+      .from('push_subscriptions')
+      .select('id', { count: 'exact', head: true })
+      .eq('guard_id', guardId);
+
+    if (!subCount) {
       await record(false);
       return json(
-        { error: 'שירות שחזור הסיסמה אינו מוגדר עדיין. פנה למנהל המשמרת.', code: 'NO_WHATSAPP' },
-        503,
+        {
+          error:
+            'לא ניתן לשלוח קוד אימות למכשיר זה - ההתראות אינן מופעלות. פנה למנהל המשמרת לאיפוס ידני.',
+        },
+        404,
       );
     }
 
@@ -223,11 +195,41 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'שגיאת שרת' }, 500);
     }
 
-    const sent = await sendWhatsappOtp(phoneNumberId, accessToken, templateName, templateLang, phone, otp);
-    if (!sent) {
+    // Server-to-server call into send-notifications, the exact same
+    // cron-secret mechanism notification_tick already uses (pg_net calling
+    // the same URL/secret pair from Postgres instead of from here).
+    const { data: secrets } = await admin
+      .from('notification_secrets')
+      .select('notify_url, cron_secret')
+      .single();
+
+    let sent = 0;
+    if (secrets?.notify_url && secrets?.cron_secret) {
+      try {
+        const res = await fetch(secrets.notify_url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-cron-secret': secrets.cron_secret },
+          body: JSON.stringify({ type: 'pin_reset_otp', guard_id: guardId, otp }),
+        });
+        const body = await res.json().catch(() => null);
+        sent = res.ok ? ((body?.sent as number | undefined) ?? 0) : 0;
+      } catch {
+        sent = 0;
+      }
+    }
+
+    if (sent < 1) {
+      // Nothing actually delivered -- don't leave a dead OTP a guard could
+      // never legitimately use, and don't tell her it worked when it didn't.
       await admin.from('pin_reset_otps').delete().eq('employee_code', code);
       await record(false);
-      return json({ error: 'שליחת הקוד ב-WhatsApp נכשלה. נסה שוב.' }, 502);
+      return json(
+        {
+          error:
+            'שליחת קוד האימות נכשלה. ודא שההתראות פעילות במכשיר זה, או פנה למנהל המשמרת לאיפוס ידני.',
+        },
+        502,
+      );
     }
 
     await record(true);

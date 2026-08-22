@@ -1,8 +1,8 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.21.0** — §14 there is the
-build status and roadmap, §1.17–§1.21 is the changelog for everything since v2.15. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.22.0** — §14 there is the
+build status and roadmap, §1.17–§1.22 is the changelog for everything since v2.15. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
@@ -572,6 +572,66 @@ AA's manual `reset-pin` covers every guard regardless in the meantime. Once Meta
 real end-to-end send needs confirming by hand once, the same class of real-device-only check push
 notifications and passkey ceremonies each needed.
 
+Step AB, revised (22 August, same day) — **forgot-PIN OTP delivery pivots from WhatsApp to a push
+notification** (spec §12.12, migrations 49–50, `whatsapp-pin-reset` renamed `request-pin-reset`).
+Before any real WhatsApp message was ever sent, Ben went to actually do the Meta setup above and
+found his Facebook account restricted from Meta Ads over a disputed fraudulent charge from years
+earlier (someone else had used the account; Ben isn't paying a bill he doesn't own). Walked through
+the options together: trying the existing restricted account first (confirmed dead — Meta requires a
+Business Portfolio to attach WhatsApp to an app at all, and "Create an app without a use case"
+doesn't route around it either, checked directly rather than assumed), a new Business Portfolio under
+a different admin, or a third-party provider. **Ben's call**: drop Meta entirely and deliver the OTP
+through this app's own already-working push notification system instead — no external account to
+unblock, no new dependency, reuses `send-notifications` (spec §12.10), already live in production.
+
+`phone_number` (migration 48) is **fully reverted** (migration 50: both columns, the
+`copy_phone_number` trigger, and `roster_code_status` rebuilt without it) — it existed for no reason
+other than feeding the WhatsApp call, and nothing else in the project ever touched it, so there was
+nothing to preserve. `AddEmployeeCard`'s required phone field and `EmployeeRow`'s phone-edit panel
+are gone from `TeamManagement.tsx` along with it. The OTP mechanics themselves — `pin_reset_otps`'s
+hash/attempts/expiry/`verify_token` shape, `claim_attempts`' widened `'otp_request'` action — are
+**unchanged**; only the delivery channel moved, and the guard-facing Login.tsx flow (tap "שכחתי
+סיסמה" → enter the code → choose a new PIN) needed **zero changes at all**, since it was always
+delivery-channel-agnostic by construction.
+
+`whatsapp-pin-reset` renamed `request-pin-reset` (old function deleted from Supabase, new one
+deployed `--no-verify-jwt` in its place). `otp_request` now: resolves the guard's id from
+`employee_code`, confirms at least one live `push_subscriptions` row exists for them (else a clean
+404 — the new equivalent of "no phone on file"), generates and stores the OTP exactly as before, then
+calls `send-notifications` **server-to-server** — the identical `x-cron-secret` mechanism
+`notification_tick` already uses (reads `notify_url`/`cron_secret` straight from
+`notification_secrets`) — with a brand-new `pin_reset_otp` type. That type is cron-secret-**only**,
+like the original three cron types, not JWT-reachable at all like `roster_published`/
+`guard_submitted` are: its one legitimate caller has no session to present a JWT with in the first
+place. If nothing actually delivers (`sent < 1` — e.g. a subscription exists but is dead),
+`otp_request` deletes the now-useless OTP row and returns a clean, honest error rather than a false
+"ok" that a guard would wait forever on. The plaintext OTP is never written into
+`notification_log.detail` — it already lives, hashed, in `pin_reset_otps`.
+
+**The one real trade-off, worth being upfront about**: delivery now needs an *existing* push
+subscription on the device she's using, where a phone number worked regardless of device or app
+state. In practice this rarely bites — every real guard already uses the app weekly and gets nudged
+to enable notifications early, and a forgotten-PIN guard is almost always on the same phone she
+always uses. Anyone it doesn't cover — no subscription anywhere, or an unfamiliar device — gets
+routed to Step AA's manager fallback, same two-tier shape the WhatsApp design already had.
+
+New Gate I rebuilt (`npm run test:pinreset`, `supabase/tests/request-pin-reset.cloud.test.mjs`, 23
+assertions, replacing the WhatsApp-era file 1:1 in scope): `otp_verify`/`otp_complete` unchanged in
+coverage (seeded OTP row, correct/wrong/expired/lockout/replay). `otp_request` now covers two paths
+that never reach a real device instead of one — a guard with zero subscriptions (clean 404), and a
+guard with a deliberately bogus subscription, where `send-notifications` genuinely attempts delivery
+and genuinely fails, proving `otp_request` reports that honestly (502) and cleans up rather than
+leaving a dangling row. New: `notification_log` accepts `pin_reset_otp` and is asserted to never
+contain the plaintext code. Migrations applied to the live database, full TypeScript typecheck clean,
+`test:cloud` (11 suites, Gate I rebuilt) + `test:fixtures` + `test:rls` all green — including a
+same-run confirmation that redeploying `send-notifications` without re-passing `--no-verify-jwt`
+preserved its existing platform-level JWT setting (checked directly against production: an
+unauthenticated call still reaches the function's own code and gets its own `403`, not the platform's
+generic 401, proving the cron-secret path used by `pg_cron` was never at risk). `package.json`/
+`GitVersion.yml` bumped to 2.22.0, tagged `v2.22.0`. **Fully live** — unlike the WhatsApp version,
+nothing external is left to configure; one real-device push-delivery confirmation is the only thing
+still open, tracked below.
+
 ---
 
 ## What is left
@@ -579,14 +639,12 @@ notifications and passkey ceremonies each needed.
 Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
 deliberately deferred design choice, not a build gap. Six things still open, not build gaps:
 
-- **Meta WhatsApp Business setup** (Step AB, spec §12.12) — the WhatsApp-OTP forgot-PIN feature is
-  code-complete and deployed but not yet live: a verified Meta Business Account, a WhatsApp Business
-  Account, a phone number, a permanent System User access token, and a message template approved in
-  the Authentication category are all manual, on Ben's side. Once those exist, three secrets
-  (`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TEMPLATE_NAME`) need setting and a
-  real send needs confirming by hand once. Every guard is covered by Step AA's manual fallback in the
-  meantime. Also still open, separately: the `phone_number` uniqueness constraint, deliberately
-  deferred until Ben's own multi-mock-employee testing is done.
+- **Real-device push-delivery confirmation for forgot-PIN** (Step AB revised, spec §12.12) — the
+  push-notification OTP flow is code-complete, deployed, and fully live (no external setup pending,
+  unlike the abandoned WhatsApp design). What's still open is the same class of real-device-only
+  check every push-based feature here has needed: confirming a real OTP notification actually arrives
+  on a currently-subscribed phone and the guard can complete the flow end to end from the Login page.
+  Every guard without a live subscription is covered by Step AA's manual fallback regardless.
 - **Passkey real-device registration + unlock confirmation** (Step X, spec §8) — now on the rebuilt
   app-scoped WebAuthn mechanism (own `webauthn` Edge Function, not Supabase's native Passkey API; see
   Step X's same-day revision above). Registering from Preferences on a real iPhone/Android, confirming
@@ -707,18 +765,18 @@ rejected the push — often a stale subscription that's already been pruned by t
 - ⚠️ Outbound Postgres ports (5432/6543) are **firewalled on this machine**. `DATABASE_URL` will not
   work; migrations go over HTTPS through the Supabase Management API via `npm run db:apply`.
 - Edge Functions `claim-code`, `generate-schedule`, `send-notifications`, `webauthn`, `reset-pin`,
-  and `whatsapp-pin-reset` are deployed
+  and `request-pin-reset` are deployed. (`whatsapp-pin-reset` existed briefly, v2.21.0, and was
+  deleted from Supabase the same day it pivoted to `request-pin-reset` — see Step AB revised.)
 - Solver live at `https://guard-solver.onrender.com`; `SOLVER_URL` and `SOLVER_SECRET` are set as
   Supabase Edge Function secrets
 - `pg_cron`/`pg_net` enabled (first use in this project, spec §12.10); one job, `notification_tick`,
   fires every 15 minutes. `CRON_SHARED_SECRET`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and
   `VAPID_SUBJECT` are set as Supabase Edge Function secrets; the matching `notify_url`/`cron_secret`
   pair lives in the `notification_secrets` table (not a GUC — see spec §12.10 for why), set via a
-  plain `UPDATE`, not committed anywhere
-- ⚠️ `WHATSAPP_ACCESS_TOKEN`/`WHATSAPP_PHONE_NUMBER_ID`/`WHATSAPP_TEMPLATE_NAME` are **not yet set**
-  — `whatsapp-pin-reset` is deployed and returns a clean `NO_WHATSAPP` error until Ben completes the
-  Meta Business setup described in "What is left" above
-- 49 migrations applied, tracked in a `schema_migrations` ledger
+  plain `UPDATE`, not committed anywhere. `request-pin-reset` reuses this exact same secret pair to
+  call `send-notifications` server-to-server for the `pin_reset_otp` type — no separate secrets of
+  its own, unlike the abandoned WhatsApp design's three `WHATSAPP_*` secrets (never set, moot now).
+- 50 migrations applied, tracked in a `schema_migrations` ledger
 
 ### Current database contents
 
@@ -745,9 +803,9 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.21.0**
-(self-service forgot-PIN via WhatsApp OTP — code-complete, WhatsApp delivery pending Meta setup),
-tagged `v2.21.0`.
+state that version describes), matching the spec's own version history. Currently at **2.22.0**
+(self-service forgot-PIN pivoted to push-notification delivery — fully live, no external setup
+pending), tagged `v2.22.0`.
 
 ## Commands
 

@@ -19,9 +19,6 @@ export interface AddEmployeeInput {
   employeeCode: string;
   displayName: string;
   defaultKamut: number;
-  /** E.164, required for a new employee (§ TeamManagement) -- feeds the
-   *  WhatsApp OTP forgot-PIN flow once they claim their code. */
-  phoneNumber: string;
 }
 
 /**
@@ -38,7 +35,6 @@ export function useAddEmployee() {
         display_name: input.displayName,
         initial_role: 'guard',
         default_kamut: input.defaultKamut,
-        phone_number: input.phoneNumber,
       });
       if (error) {
         if (error.code === '23505') throw new Error('קוד עובד זה כבר קיים במערכת.');
@@ -128,38 +124,6 @@ export function useUpdateDefaultKamut() {
         : await db
             .from('roster_codes')
             .update({ default_kamut: input.value })
-            .eq('employee_code', input.employeeCode);
-      if (error) throw new Error(error.message);
-    },
-    onSuccess: () => void invalidateCodes(qc),
-  });
-}
-
-/**
- * Sets/edits an existing employee's phone number -- optional, unlike
- * AddEmployeeCard's required field, so an existing guard with none on file
- * simply keeps using the manager-only reset-pin fallback until one is set.
- * Same dual-table write as useUpdateDefaultKamut: profiles once claimed
- * (trg_profiles_phone_number has already copied it there and it's the live,
- * editable value from then on), roster_codes before.
- */
-export function useUpdateEmployeePhone() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: {
-      employeeCode: string;
-      profileId: string | null;
-      phoneNumber: string | null;
-    }) => {
-      const db = requireSupabase();
-      const { error } = input.profileId
-        ? await db
-            .from('profiles')
-            .update({ phone_number: input.phoneNumber })
-            .eq('id', input.profileId)
-        : await db
-            .from('roster_codes')
-            .update({ phone_number: input.phoneNumber })
             .eq('employee_code', input.employeeCode);
       if (error) throw new Error(error.message);
     },

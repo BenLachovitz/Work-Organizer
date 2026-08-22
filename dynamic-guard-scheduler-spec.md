@@ -1,8 +1,8 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.21.0 (build steps A–Y complete plus the double-shift display setting, the
-draft-preview export change, manager PIN-reset, and the self-service WhatsApp-OTP forgot-PIN flow
-below; live and in daily use; deployed to production — WhatsApp delivery pending Meta setup, §14.3)
+**Version:** 2.22.0 (build steps A–Y complete plus the double-shift display setting, the
+draft-preview export change, manager PIN-reset, and the self-service push-notification forgot-PIN
+flow below; live and in daily use; deployed to production)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 22 August 2026
@@ -203,6 +203,16 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | 78  | **`phone_number` added to the schema** (migrations 48, §12.4/§12.12) — the first contact channel that has ever existed for a guard, on both `roster_codes` (pre-claim) and `profiles` (post-claim), carried across at claim time by a dedicated trigger. Required when a manager adds a new employee, optional/editable for an existing one. No uniqueness constraint yet — deliberately deferred on Ben's explicit instruction | Item 77's manual reset worked, but Ben explicitly wants a REAL, self-service "forgot password" system on the guard's own side — "instead of what we currently have, not in addition to it." Self-service needs some verification channel, and none existed anywhere in this schema before now |
 | 79  | **Self-service forgot-PIN via WhatsApp OTP** (§12.12, migration 49, new `whatsapp-pin-reset` Edge Function) — a guard taps "שכחתי סיסמה" on the Login page's PIN step, gets a 6-digit code via WhatsApp (Meta Business Cloud API), enters it, then chooses a new PIN herself — no manager involved on the happy path. The old dead "החלפת קוד עובד" button is gone, replaced (not supplemented) by this plus a small "→ קוד אחר" back-link for the genuinely different "wrong code" case | Ben's explicit design choice among the options discussed: no email/phone existed to build a classic reset-link flow around, and a push-to-manager-approval design was considered and set aside in favor of Ben's own WhatsApp-Business-API idea, which he already has the real phone numbers to support |
 | 80  | The manager-mediated `reset-pin` (item 77) **stays as the permanent fallback**, not a stopgap — for any guard with no phone number on file yet, or if WhatsApp delivery fails for some other reason | Deliberate two-tier design: self-service is the primary path once a guard has a number on file, but nothing about this feature should ever leave a guard with literally no way back in |
+
+---
+
+### 1.22 Changes in Version 2.22
+
+| #   | Change                                                                                                                                                                                                                                                        | Rationale                                                                                                                                                                                                                                                                        |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 81  | **Forgot-PIN OTP delivery pivots from WhatsApp to a push notification** (§12.12, migrations 49–50, `whatsapp-pin-reset` renamed `request-pin-reset`) — before any real WhatsApp message was ever sent, Ben discovered his Meta account is restricted from Ads over a disputed fraudulent charge, and Meta requires a Business Portfolio to attach WhatsApp to an app at all, with no way around it ("create an app without a use case" doesn't avoid the requirement either — confirmed directly, not assumed). Rather than wait on the dispute or stand up a new Business Portfolio under a different admin, delivery moves to this app's own already-working `send-notifications` push system instead | Ben's explicit call, once the Meta account restriction was found to be a genuine dead end: reuse infrastructure already live in production rather than depend on an external account he cannot currently unblock |
+| 82  | **`phone_number` fully reverted** (migration 50 — columns, trigger, `roster_code_status` view all undone; `AddEmployeeCard`'s required field and `EmployeeRow`'s edit panel removed from `TeamManagement.tsx`) | Item 78 added it for no reason other than feeding the WhatsApp call — nothing else in the project ever used it, so once WhatsApp was dropped there was nothing left to preserve. A "required" field that does nothing would only confuse a future reader |
+| 83  | **`send-notifications` gains a `pin_reset_otp` type**, cron-secret-only like the original three cron types (no JWT path — its only legitimate caller, `request-pin-reset`, itself has no caller session to check against). `otp_request` confirms a live `push_subscriptions` row exists before generating a code, and treats a `send-notifications` response reporting zero delivered as a real failure — deleting the now-useless OTP row and returning a clean error rather than a false "ok" | The one real trade-off of the new channel versus WhatsApp: delivery needs an existing subscription, which a phone number never did. Made this failure mode honest and clearly reported rather than silently swallowed, so a guard is never left assuming a code is coming when it never will |
 
 ---
 
@@ -1923,8 +1933,7 @@ every day.
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Add employee**    | `INSERT INTO roster_codes` — the same action `seed.sql` did by hand for the first eight. The employee still sets their own PIN through the ordinary "קוד עובד" login flow; nothing here creates an account directly.                                                                                                                                                                                                                                                                                 |
 | **Delete employee** | `delete_employee(employee_code)` RPC (migration 21) — a genuine, irreversible deletion, not a deactivation. Cascades through `auth.users → profiles → {schedule_assignments, weekly_wish_preferences, weekly_submissions, weekly_guard_targets}`, so the person's shift history is gone from every roster, including a published one. Refuses to let a manager delete their own account. Works identically on a still-pending invitation (no profile exists yet, so only `roster_codes` is touched). |
-| **Phone number** (v2.21.0) | `roster_codes.phone_number` / `profiles.phone_number` (migration 48) — **required** when adding a new employee, **optional/editable** for an existing one. Feeds the guard's own self-service WhatsApp-OTP forgot-PIN flow (§12.12); `NULL` just means that guard still relies on the Reset PIN fallback below.                                                                                                                                                        |
-| **Reset PIN** (v2.20.2) | `reset-pin` Edge Function — resets a claimed guard's forgotten PIN (their literal GoTrue password on `{code}@guards.local`) to a new value the manager enters, WITHOUT touching `profiles`, `roster_codes`, or anything hanging off `guard_id`. **Permanent fallback** for any guard with no phone number on file yet (§12.12) — the guard's own self-service WhatsApp-OTP flow is the primary path now, this is the manual backstop. |
+| **Reset PIN** (v2.20.2) | `reset-pin` Edge Function — resets a claimed guard's forgotten PIN (their literal GoTrue password on `{code}@guards.local`) to a new value the manager enters, WITHOUT touching `profiles`, `roster_codes`, or anything hanging off `guard_id`. **Permanent fallback** for any guard whose device has no push subscription for the self-service forgot-PIN flow to deliver an OTP to (§12.12) — the guard's own self-service flow is the primary path, this is the manual backstop. |
 | **Default כמות**    | Edits `profiles.default_kamut` (claimed) or `roster_codes.default_kamut` (not yet claimed) — the §2.7 baseline, not the per-week override the `Stepper` on `TeamTable` already edits.                                                                                                                                                                                                                                                                                                                |
 
 > **v1 of this feature deactivated instead of deleting** (`profiles.is_active = false`), reasoned
@@ -2399,113 +2408,118 @@ API, neither of which this suite uses — what IS exercised for real is
 Deno Edge Function runtime, which doubles as the "confirm a new runtime dependency actually works
 before trusting it" smoke test §12.10 set the precedent for with `npm:web-push`.
 
-### 12.12 Self-Service Forgot-PIN via WhatsApp OTP (migrations 48–49, `whatsapp-pin-reset`, v2.21)
+### 12.12 Self-Service Forgot-PIN via a Push-Notification OTP (migrations 49–50, `request-pin-reset`, v2.20.3–v2.22)
 
 Replaces a dead button. The Login page's `'pin'` step (existing-PIN entry) used to carry a
 "החלפת קוד עובד" link that did nothing but reset local state back to the code-entry step — a guard
 who genuinely forgot her PIN had no real recovery path, only the manager-mediated `reset-pin`
 (§12.4) once the manager noticed or was told. That fallback **still exists, permanently** — for any
-guard with no phone number on file. This section adds a genuine self-service path for guards who do.
+guard whose device has no live push subscription. This section adds a genuine self-service path for
+guards who do.
 
-**No contact channel existed anywhere in this schema before this.** The only "email" in the whole
-system is the synthetic `{code}@guards.local` GoTrue login, unreachable by anyone. Migration 48 adds
-`phone_number` following the exact dual-column pre-claim/post-claim shape `default_kamut`
-(migration 20) and `is_demo` (migration 34) already established — a column on `roster_codes` for a
-not-yet-claimed invitation, the same column on `profiles` for a live guard, carried across at claim
-time by a dedicated `copy_phone_number()`/`trg_profiles_phone_number` trigger (mirroring migration
-34's `copy_is_demo()` shape — a separate trigger per copied column, not a shared one, so
-`claim-code`, the one publicly-reachable unauthenticated write path, is never touched). **Nullable
-unconditionally, no uniqueness constraint** — deliberately deferred, Ben's explicit instruction:
-testing uses several mock employees sharing his own real phone number, and the constraint will be
-added later on his explicit go-ahead once that testing is done.
+**Design changed mid-build, for a reason worth recording plainly — the same discipline §12.11's own
+account of its native-Passkey-API pivot follows.** The original plan (v2.21.0, migrations 48–49)
+delivered the OTP via Meta's WhatsApp Business Cloud API, which needed a `phone_number` added to the
+schema for the first time and a new `whatsapp-pin-reset` Edge Function. Before any real message was
+ever sent — `WHATSAPP_*` secrets were never configured — Ben discovered his Meta account is
+restricted from Ads over a disputed fraudulent charge from years earlier. Meta requires a Business
+Portfolio to attach a WhatsApp Business Account to an app at all, with **no way around it**:
+confirmed directly, "Create an app without a use case" does not avoid the requirement either, since a
+WhatsApp Business Account is fundamentally a Business Portfolio asset, not an artifact of which
+onboarding wizard was used. Rather than wait on an account dispute or stand up a new Business
+Portfolio under a different admin, **Ben's call (v2.22.0)**: deliver the OTP through this app's OWN
+already-working push notification system (`send-notifications`, §12.10) instead — no new external
+account, no new dependency, reuses infrastructure already live in production. `phone_number`
+(migration 48) is fully reverted (migration 50) — nothing else in the project ever used it, so there
+was nothing else to preserve. The OTP mechanics themselves — `pin_reset_otps`'s hash/attempts/
+expiry/`verify_token` shape, `claim_attempts`' widened `'otp_request'` action (migration 49) — are
+**unchanged**; only the delivery channel moved.
 
-**Manager UI** (`TeamManagement.tsx`): required when adding a new employee (`AddEmployeeCard`) —
-without a number, there's no self-service path to set up, so the form blocks submission until one
-validates. Optional and editable for an existing employee (`EmployeeRow`'s new "עריכת טלפון" /
-"הוספת טלפון" toggle panel, mirroring the existing PIN-reset panel's own interaction shape) — an
-existing real guard with none on file simply keeps relying on the manager-mediated fallback until one
-is set. `normalizeIsraeliPhone()` (`src/lib/phone.ts`) validates Israeli mobile numbers
-(`05\d{8}`, landlines excluded since they cannot receive WhatsApp) and converts to E.164
-client-side; the Edge Function trusts whatever's already stored and never re-normalizes or accepts a
-phone number in any request body itself.
+**The one real trade-off versus the WhatsApp design, worth stating plainly**: delivery now needs an
+**existing `push_subscriptions` row** for the guard, which itself needs a prior login on that same
+device with notifications enabled — a phone number works regardless of app state or device, a push
+subscription doesn't. In practice this is rarely a gap: every real guard already uses this app weekly
+and is nudged to enable notifications early (`GuardHome`'s enable-prompt card), and a forgotten-PIN
+guard is overwhelmingly trying to log back into the same device she always uses. A guard with no
+subscription anywhere, or on an unfamiliar device, gets a clean error routing her to the manager's
+`reset-pin` fallback instead — the same two-tier shape (self-service primary, manager fallback for
+the rest) the WhatsApp design already had for "no phone on file," just with a different coverage
+boundary.
 
-**The `whatsapp-pin-reset` Edge Function**, a new file rather than a third+ action bolted onto
-`claim-code` — that function's own docstring treats it as hostile-input territory, changed "as
-rarely as possible," and this is a categorically bigger addition (a 3-call stateful sequence, a new
-external HTTP dependency with its own secrets, a new table) than anything added to it since it was
-written. It doesn't fit `reset-pin` either — that function's authorization is `is_manager()` via a
-caller JWT; this one has no caller identity at all, authorization comes from proving OTP possession
-instead. Deployed `--no-verify-jwt`, same posture as `claim-code` (the guard has no session at this
-point) — this is now the **second** publicly-reachable unauthenticated write path in the system,
-written on the identical "assume the caller is hostile" footing:
+**The `request-pin-reset` Edge Function** (renamed from `whatsapp-pin-reset` in the same pivot), a
+new file rather than a third+ action bolted onto `claim-code` — that function's own docstring treats
+it as hostile-input territory, changed "as rarely as possible," and this is a categorically bigger
+addition (a 3-call stateful sequence, a new table) than anything added to it since it was written. It
+doesn't fit `reset-pin` either — that function's authorization is `is_manager()` via a caller JWT;
+this one has no caller identity at all, authorization comes from proving OTP possession instead.
+Deployed `--no-verify-jwt`, same posture as `claim-code` (the guard has no session at this point) —
+this is now the **second** publicly-reachable unauthenticated write path in the system, written on
+the identical "assume the caller is hostile" footing:
 
 ```
-otp_request  (no session) -- looks up profiles.phone_number for a CLAIMED code, sends a 6-digit
-             WhatsApp OTP via Meta's Cloud API, stores its SHA-256 hash. Rate-limited via
+otp_request  (no session) -- resolves the guard's id from a CLAIMED employee_code, confirms at
+             least one push_subscriptions row exists (else a clean 404), generates a 6-digit OTP,
+             stores its SHA-256 hash, then calls send-notifications SERVER-TO-SERVER (the exact
+             cron-secret mechanism notification_tick already uses -- reads notify_url/cron_secret
+             from notification_secrets, migration 42) with the new pin_reset_otp type. If nothing
+             actually delivered (sent < 1 -- e.g. a subscription exists but is dead), the OTP row
+             is deleted and a clean error returned rather than a false "ok". Rate-limited via
              claim_rate_ok()/record_claim_attempt() (migration 4), widened by migration 49 to
              also cover 'otp_request' -- reused completely unmodified (the auto-disable logic
              those functions once had was already removed project-wide by migration 6, so
-             there's no risk of an OTP send failure locking anyone's badge code).
+             there's no risk of a failed send locking anyone's badge code).
 otp_verify   (no session) -- checks a 6-digit guess against the stored hash. 5 wrong guesses
              kills that specific code (a per-row counter, not the rolling claim_attempts
              window -- a different job: gating brute-force guesses on one live code needs a tight
-             per-code cap, not a shared per-(code,ip) throttle meant to gate how often the PAID
-             send itself can fire). A correct guess mints a one-time verify_token.
+             per-code cap, not a shared per-(code,ip) throttle meant to gate how often a send can
+             be triggered at all). A correct guess mints a one-time verify_token. Unchanged from
+             the WhatsApp-era design -- this action never cared how the code was delivered.
 otp_complete (no session) -- requires a verify_token from a successful otp_verify, resets the
              password on the guard's EXISTING auth.users row via
              admin.auth.admin.updateUserById() -- the same call reset-pin already makes,
              duplicated here rather than cross-invoked, since the two functions have incompatible
              auth models and every function in this project already builds its own admin client
-             from scratch. Consumes (deletes) the OTP row on success -- single use.
+             from scratch. Consumes (deletes) the OTP row on success -- single use. Unchanged from
+             the WhatsApp-era design.
 ```
 
-**`pin_reset_otps`** (migration 49) follows the exact "fully sealed" shape `webauthn_challenges`
-(migration 46) and `notification_secrets` (migration 42) already use: RLS on, **zero** policies,
-`REVOKE ALL` from every PostgREST role — completely unreachable via the API regardless of role, only
-the Edge Function's service-role client can ever touch it. No `consumed_at` column, for the same
-reason `webauthn_challenges` has none — a row is deleted the instant it's consumed or superseded (a
-fresh `otp_request` for the same code deletes any prior live row first, so "at most one live OTP per
-code" holds without a partial unique index).
+**`pin_reset_otps`** (migration 49, untouched by the pivot) follows the exact "fully sealed" shape
+`webauthn_challenges` (migration 46) and `notification_secrets` (migration 42) already use: RLS on,
+**zero** policies, `REVOKE ALL` from every PostgREST role — completely unreachable via the API
+regardless of role, only the Edge Function's service-role client can ever touch it. No `consumed_at`
+column, for the same reason `webauthn_challenges` has none — a row is deleted the instant it's
+consumed or superseded (a fresh `otp_request` for the same code deletes any prior live row first, so
+"at most one live OTP per code" holds without a partial unique index).
 
-**Business-logic checks run before the WhatsApp-configured check, not after** — `otp_request` looks
-up the guard's `phone_number` and returns 404 immediately if there is none, *before* it ever checks
-whether `WHATSAPP_ACCESS_TOKEN`/`WHATSAPP_PHONE_NUMBER_ID`/`WHATSAPP_TEMPLATE_NAME` are configured.
-Ordering this the other way round was the first draft, caught before shipping: with Meta not yet
-configured on the live project (see below), every `otp_request` would have returned the generic "not
-configured yet" error regardless of whether the guard even has a phone on file — masking the more
-specific, genuinely useful error, and making that whole path untestable until Meta setup was
-complete. Reordering the checks fixed both at once and is simply the more correct order regardless:
-there's no reason to care about infrastructure config for a request that was going to be refused for
-a business reason anyway. If the secrets genuinely aren't set, `otp_request` degrades the same way
-`generate-schedule` does for `NO_SOLVER` — a clean `503 { code: 'NO_WHATSAPP' }`, never a crash.
-
-**Meta WhatsApp Business Cloud API** — the actual send, a templated `POST` to
-`https://graph.facebook.com/v21.0/{phone_number_id}/messages` with the OTP digits as the template's
-one body parameter. **Not yet configured on the live project as of this writing** — three Supabase
-secrets (`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TEMPLATE_NAME`, optionally
-`WHATSAPP_TEMPLATE_LANG`, default `he`) need real values from a Meta Business Account + WhatsApp
-Business Account + a phone number + a permanent System User access token + a message template
-approved in the **Authentication** category — all manual, Meta-side setup work, outside what any
-code change here can do. Until those secrets exist, every `otp_request` for a guard who *does* have
-a phone on file returns the same clean `NO_WHATSAPP` 503 the missing-phone case already exercises
-for real.
+**`send-notifications` gains a fourth cron-secret-only type**, `pin_reset_otp` (migration 50) —
+unlike `roster_published`/`guard_submitted`/`guard_cancelled`, this one has **no JWT auth path at
+all**, only the original three cron types' shape: the only legitimate caller is `request-pin-reset`'s
+`otp_request` action, which itself runs with no caller session to check against. `guard_id` in the
+payload is trusted precisely *because* only a holder of the cron secret can reach this branch — the
+same discipline `notification_tick`'s own three types already rely on. Targets a single, already-
+resolved `guard_id` directly rather than a `_targets()` RPC (every other type's recipient set is a
+role/subscription query; this one's recipient is already known). Not deduped — each request is a
+genuine, distinct event, same as `guard_submitted`/`guard_cancelled`. The plaintext OTP is
+deliberately **never** written into `notification_log.detail` — it already lives, hashed, in
+`pin_reset_otps`; there's no reason for the plaintext to also sit in an audit log a manager can read.
 
 **Login.tsx**: three new steps chained from `'pin'` — `'otpVerify'` (enter the code, unmasked
-`CodeInput` since the guard is reading it off WhatsApp rather than recalling a memorized secret, a
-"שלח שוב" resend with a 30s client-side cooldown as a UX nicety on top of the real server-side
-throttle) and `'otpNewPin'` (choose a new PIN, exactly `'setPin'`'s shape — factored into a shared
-internal `PinChooser` component used by both, since the surrounding heading/copy/submit-button/
-back-link genuinely differ between "first registration" and "post-OTP reset" but the two-`CodeInput`
--plus-remember-me block underneath doesn't). `'pin'`'s old bottom-of-card "החלפת קוד עובד" ghost
-button is gone, split into two distinct, honest actions instead of one that conflated them: a small
-"→ קוד אחר" back-link moved to the **top** of the step (for "this isn't my code, let me retype it"),
-and a real, primary-adjacent "שכחתי סיסמה" button (for "this is my code, I forgot the PIN") that
-fires `requestPinResetOtp` immediately on tap — no separate confirm screen — and transitions straight
-to `'otpVerify'`. `completePinResetOtp` signs the guard in immediately on success (`signIn()`
-internally, same sequence `claim()` already follows for first-time registration), so a successful
-reset lands on the signed-in home screen, not back at a bare login prompt. The `'setPin'` step's
-identical dead button is untouched — a genuinely different concern (a not-yet-claimed code has no PIN
-to forget), out of scope here.
+`CodeInput` since the guard is reading it off a notification rather than recalling a memorized
+secret, a "שלח שוב" resend with a 30s client-side cooldown as a UX nicety on top of the real
+server-side throttle) and `'otpNewPin'` (choose a new PIN, exactly `'setPin'`'s shape — factored into
+a shared internal `PinChooser` component used by both, since the surrounding heading/copy/submit-
+button/back-link genuinely differ between "first registration" and "post-OTP reset" but the two-
+`CodeInput`-plus-remember-me block underneath doesn't). `'pin'`'s old bottom-of-card "החלפת קוד עובד"
+ghost button is gone, split into two distinct, honest actions instead of one that conflated them: a
+small "→ קוד אחר" back-link moved to the **top** of the step (for "this isn't my code, let me
+retype it"), and a real, primary-adjacent "שכחתי סיסמה" button (for "this is my code, I forgot the
+PIN") that fires `requestPinResetOtp` immediately on tap — no separate confirm screen — and
+transitions straight to `'otpVerify'`. `completePinResetOtp` signs the guard in immediately on
+success (`signIn()` internally, same sequence `claim()` already follows for first-time
+registration), so a successful reset lands on the signed-in home screen, not back at a bare login
+prompt. The `'setPin'` step's identical dead button is untouched — a genuinely different concern (a
+not-yet-claimed code has no PIN to forget), out of scope here. None of this layer changed across the
+WhatsApp→push pivot — the guard-facing flow was always delivery-channel-agnostic by construction.
 
 **Shared `invokeEdgeFunction()`** (`src/lib/edgeFunctions.ts`) — `invokeClaimCode` (`AuthContext.tsx`)
 and `invokeResetPin` (`useTeam.ts`) were already near-identical ~15-line copies of the same
@@ -2514,25 +2528,29 @@ the function's own Hebrew message unless the response body is read back out of `
 explicitly). Adding a third near-copy for this feature would have tripled it; extracted into one
 shared helper instead, all three call sites now use it.
 
-**Testing — Gate I** (`npm run test:whatsapp`, `supabase/tests/whatsapp-pin-reset.cloud.test.mjs`, 19
-assertions). Same deliberate scope as Gate G never invoking `send-notifications` for a real push, and
-Gate H seeding a `webauthn_credentials` row directly rather than running a real ceremony: a real
-Meta send costs money and must never fire inside a repeatable `test:cloud` run. `otp_verify`/
-`otp_complete` are exercised for real by seeding a `pin_reset_otps` row directly via SQL with a known
-OTP's SHA-256 hash (correct code accepted and mints a token; 5 wrong guesses locks the code out, a
-6th correct guess still rejected; an expired row rejected; a successful `otp_complete` proven by the
-OLD PIN failing sign-in and the NEW PIN succeeding, mirroring the before/after proof used to manually
-verify `reset-pin` last session but fully automated here since no Meta call is involved; a replayed,
-already-consumed `verify_token` rejected). `otp_request` is exercised for real on the one path
-reachable without ever touching Meta — a claimed guard with `phone_number IS NULL` — which doubles as
-confirmation the check-ordering fix above actually works. RLS: `pin_reset_otps` fully sealed
-(`42501 permission denied`, not just an empty result — there's no grant for RLS to even evaluate
-against). `claim_attempts.action`'s widened CHECK accepts `'otp_request'`.
+**Testing — Gate I** (`npm run test:pinreset`, `supabase/tests/request-pin-reset.cloud.test.mjs`, 23
+assertions). Same deliberate scope as Gate G never invoking `send-notifications` for a real
+broadcast, and Gate H seeding a `webauthn_credentials` row directly rather than running a real
+ceremony: a real push to a REAL subscribed device must never fire inside a repeatable `test:cloud`
+run. `otp_verify`/`otp_complete` are exercised for real by seeding a `pin_reset_otps` row directly
+via SQL with a known OTP's SHA-256 hash (correct code accepted and mints a token; 5 wrong guesses
+locks the code out, a 6th correct guess still rejected; an expired row rejected; a successful
+`otp_complete` proven by the OLD PIN failing sign-in and the NEW PIN succeeding, mirroring the
+before/after proof used to manually verify `reset-pin`; a replayed, already-consumed `verify_token`
+rejected). `otp_request` is exercised for real on **two** paths that never reach a real device: a
+claimed guard with zero subscriptions (clean 404), and a claimed guard with a deliberately bogus
+subscription (endpoint/keys matching no real device) — `send-notifications` genuinely attempts
+delivery and genuinely fails, and the suite asserts `otp_request` surfaces that failure honestly (502)
+rather than a false "ok," and cleans up the now-useless OTP row rather than leaving it dangling. RLS:
+`pin_reset_otps` fully sealed (`42501 permission denied`, not just an empty result — there's no grant
+for RLS to even evaluate against). `claim_attempts.action`'s widened CHECK accepts `'otp_request'`.
+`notification_log` accepts `pin_reset_otp` and never carries the plaintext code.
 
-**Not automated, by design, same as Gate G's real-push gap**: the actual `fetch()` to
-`graph.facebook.com`. Once Meta setup is complete and secrets are configured, a real send needs
-confirming by hand once, the same way push notifications (§12.10) and passkey ceremonies (§12.11)
-each needed a real-device check no automated suite could stand in for.
+**Not automated, by design, same as Gate G's real-push gap**: an actual push arriving on a real,
+currently-subscribed device. Needs confirming by hand once — the same class of real-device-only check
+push notifications (§12.10) and passkey ceremonies (§12.11) each needed — but is otherwise much
+lower-risk to verify than the WhatsApp design was, since it costs nothing and pages only whichever
+test account is used, not a real Meta billing relationship.
 
 ---
 
@@ -2587,7 +2605,8 @@ each needed a real-device check no automated suite could stand in for.
 | **Y**     | Removed the ability to mute/disable push notifications in-app (§12.10, v2.19, item 73): the header bell-icon toggle and the `disable`/`unsubscribeFromPush()` code paths behind it are gone, not just hidden — `GuardHome`'s existing enable-prompt card is the only in-app control left, and was already enable-only in practice | ✅ complete                                                    |
 | **Z**     | Per-week 12h/11h double-shift display setting (§2.4d, migration 47, v2.20, items 74–75): a manager toggle that shortens the day12/night12 handover-boundary TEXT by one hour, purely cosmetic (the shift is still scheduled and counted as 12h everywhere it matters), suppressed on any assignment where that guard is the day's only real coverage of the hour it would shorten away from. Same-day follow-up (v2.20.1, item 76): JPEG preview/download un-gated from published-only runs | ✅ complete                                                    |
 | **AA**    | Manager-triggered guard PIN reset (§12.4, `reset-pin` Edge Function, v2.20.2): resets a claimed guard's forgotten PIN in place via the GoTrue admin API, without touching `profiles`/`roster_codes`/roster history — `profiles.id IS auth.users.id` with `ON DELETE CASCADE` rules out a delete-and-re-claim approach. Manager-JWT-gated at both the platform level (deployed without `--no-verify-jwt`) and server-side (`is_manager()`), verified end-to-end against the live project | ✅ complete                                                    |
-| **AB**    | Self-service forgot-PIN via WhatsApp OTP (§12.12, migrations 48–49, `whatsapp-pin-reset`, v2.21.0): guards' phone numbers added to the schema for the first time (required for new employees, optional/editable for existing ones); a new 3-action public Edge Function (`otp_request`/`otp_verify`/`otp_complete`) sends and verifies a WhatsApp one-time code via Meta's Cloud API, then resets the PIN in place, same mechanism `reset-pin` already uses. Three new Login.tsx steps replace the old dead "החלפת קוד עובד" button. The manager-mediated `reset-pin` fallback (Step AA) stays in place for any guard with no phone number on file | ✅ code complete, deployed; **Meta WhatsApp Business setup still pending** (§14.3) — degrades to a clean `NO_WHATSAPP` error until configured |
+| **AB**    | Self-service forgot-PIN, phase 1 (§12.12, migrations 48–49, v2.21.0): first shipped on Meta's WhatsApp Business Cloud API, needing `phone_number` added to the schema for the first time. Superseded the same week (v2.22.0, item AB below) after a Meta account restriction was found to block WhatsApp setup entirely — see the revision row directly below for what actually shipped | ✅ superseded, see next row                                    |
+| **AB rev.** | Self-service forgot-PIN, phase 2 — the design that stuck (§12.12, migrations 49–50, `request-pin-reset`, v2.22.0): `phone_number` fully reverted (nothing else ever used it); delivery moves to a new `pin_reset_otp` push-notification type on the already-live `send-notifications` function instead of Meta. Same 3-action public Edge Function shape (`otp_request`/`otp_verify`/`otp_complete`), same PIN-reset mechanism `reset-pin` already uses, same three new Login.tsx steps replacing the old dead "החלפת קוד עובד" button — none of that guard-facing layer needed to change across the pivot. The manager-mediated `reset-pin` fallback (Step AA) stays in place for any guard whose device has no push subscription | ✅ complete, live in production                                 |
 
 ### 14.2 Verification
 
@@ -2641,29 +2660,21 @@ locally, which is expected, not a regression.
 | Gate F (realtime) | `npm run test:realtime`                                   | Live push both directions: roster changes to guards, submissions to the manager                                                                                  |
 | Gate G            | `npm run test:notifications`                              | push_subscriptions RLS, targeting functions (incl. the role-filter fix), tolerance window, send idempotency, two-open-weeks robustness (§12.10)                  |
 | Gate H            | `npm run test:webauthn`                                    | RLS on `webauthn_credentials`/`webauthn_challenges`, the `webauthn` Edge Function's auth/verification rejection paths, and a live smoke test of `generateRegistrationOptions()`/`generateAuthenticationOptions()` against the real Deno runtime (§12.11) |
-| Gate I            | `npm run test:whatsapp`                                    | RLS on `pin_reset_otps` (fully sealed), the `whatsapp-pin-reset` Edge Function's `otp_verify`/`otp_complete` paths against a seeded OTP row (correct/wrong/expired/attempt-lockout/replay), the one `otp_request` path reachable without touching Meta (no phone on file), `claim_attempts.action` widened for `'otp_request'` (§12.12) |
+| Gate I            | `npm run test:pinreset`                                    | RLS on `pin_reset_otps` (fully sealed), `request-pin-reset`'s `otp_verify`/`otp_complete` paths against a seeded OTP row (correct/wrong/expired/attempt-lockout/replay), `otp_request` against a no-subscription guard (clean 404) and a bogus-subscription guard (an honest 502, not a false "ok", and no dangling OTP row left behind), `claim_attempts.action` widened for `'otp_request'`, `notification_log` accepting `pin_reset_otp` without ever storing the plaintext code (§12.12) |
 
 `npm run test:cloud` chains every cloud suite in this table (rls → auth → client → preferences →
-manager → generate → edit → realtime → notifications → webauthn → whatsapp) and stops at the first
+manager → generate → edit → realtime → notifications → webauthn → pinreset) and stops at the first
 failure. `npm run test:compare` asserts CP-SAT never scores below the mock.
 
 ### 14.3 What is left
 
-**v2.21.0's WhatsApp OTP forgot-PIN (§12.12) is code-complete and deployed but not yet live** — Meta
-WhatsApp Business setup is entirely manual, on Ben's side, outside anything a code change can do: a
-verified Meta Business Account, a WhatsApp Business Account, a phone number (Meta's free per-WABA
-test number is enough to start, restricted to pre-approved recipients — fits the stated test plan of
-several mock employees sharing Ben's own real number), a permanent System User access token, and a
-message template approved in the Authentication category. Once those exist, three secrets
-(`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TEMPLATE_NAME`) need setting via
-`supabase secrets set` (the same non-interactive mechanism VAPID keys and `SOLVER_SECRET` already
-use) and a real end-to-end send needs confirming by hand once, the same class of real-device-only
-check push notifications (§12.10) and passkey ceremonies (§12.11) each needed. Until then, every
-`otp_request` for a guard who has a phone on file returns a clean `NO_WHATSAPP` error, and the
-manager-mediated `reset-pin` fallback (§12.4, Step AA) covers every guard regardless. Also still
-deliberately open, unrelated to Meta: a uniqueness constraint on `phone_number` — Ben's explicit
-instruction to defer it until his own multi-mock-employee testing (several sharing one real number)
-is done.
+**v2.22.0's push-notification forgot-PIN (§12.12) is code-complete, deployed, and fully live** — no
+external account or manual setup pending (that was the whole point of dropping WhatsApp/Meta from
+the design). **One real-device check is still open**: a real OTP push arriving on a currently-
+subscribed device and being usable end-to-end from the Login page — the same class of real-device-
+only check push notifications (§12.10) and passkey ceremonies (§12.11) each needed, and genuinely
+lower-stakes to run here (costs nothing, pages only a test account) than the abandoned WhatsApp
+design would have been.
 
 Otherwise nothing blocking. Live in production at `work-organizer-iota.vercel.app`, GitHub
 auto-deploy connected, all suites green except Gate D's known pre-existing date collision (§14.2).

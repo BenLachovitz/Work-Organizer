@@ -3,41 +3,27 @@ import { AppShell } from '@/components/layout/AppShell';
 import { CodeInput } from '@/components/auth/CodeInput';
 import { Alert, Badge, Button, ButtonLink, Card, Spinner, Stepper, cn } from '@/components/ui';
 import { EMPLOYEE_CODE_LENGTH, PIN_MIN_LENGTH, isValidEmployeeCode } from '@/lib/supabase';
-import { formatPhoneForDisplay, isValidIsraeliPhone, normalizeIsraeliPhone } from '@/lib/phone';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRosterCodeStatus, type RosterCodeStatus } from '@/hooks/useManager';
-import {
-  useAddEmployee,
-  useDeleteEmployee,
-  useResetGuardPin,
-  useUpdateDefaultKamut,
-  useUpdateEmployeePhone,
-} from '@/hooks/useTeam';
+import { useAddEmployee, useDeleteEmployee, useResetGuardPin, useUpdateDefaultKamut } from '@/hooks/useTeam';
 import { useViewMode } from '@/contexts/ViewModeContext';
 import { visibleToViewMode } from '@/lib/viewMode';
 
 /**
  * Manager control over who is on the team, as opposed to ManagerDashboard's
- * week-by-week "what are they working". Five operations; only ADD touches
+ * week-by-week "what are they working". Four operations; only ADD touches
  * claim-code, the one publicly-reachable unauthenticated write path in the
  * system, and only by creating the invitation row it reads:
  *
  *   ADD          creates a roster_codes row -- the same thing seed.sql did by
  *                hand for the first eight. The employee still sets their own
- *                PIN through the normal "קוד עובד" login flow. Requires a
- *                phone number (migration 48) -- it's what makes the guard's
- *                own self-service forgot-PIN flow (below) reachable at all.
- *   PHONE        editable per employee, unlike ADD's required field this one
- *                is optional -- an existing real employee has none on file
- *                yet. NULL simply means that guard still relies on the
- *                RESET PIN fallback below instead of the self-service
- *                WhatsApp-OTP flow on the Login page.
- *   RESET PIN    manager-mediated fallback for a guard with no phone number
- *                on file yet, or whose self-service WhatsApp OTP isn't
- *                reachable for some other reason. Goes through the reset-pin
- *                Edge Function to reset just the password on their EXISTING
- *                auth.users row -- profile, roster history and every
- *                submission stay exactly as they were.
+ *                PIN through the normal "קוד עובד" login flow.
+ *   RESET PIN    manager-mediated fallback for a guard who forgot her PIN and
+ *                whose device has no push subscription for the self-service
+ *                forgot-PIN flow (§12.12) to deliver an OTP to. Goes through
+ *                the reset-pin Edge Function to reset just the password on
+ *                their EXISTING auth.users row -- profile, roster history and
+ *                every submission stay exactly as they were.
  *   DELETE       genuinely erases the employee: profile, preferences,
  *                submissions and every roster assignment they were ever part
  *                of, including a published one (delete_employee, migration
@@ -99,24 +85,20 @@ export function TeamManagement() {
 function AddEmployeeCard({ existingCodes }: { existingCodes: string[] }) {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
-  const [phone, setPhone] = useState('');
   const [defaultKamut, setDefaultKamut] = useState(0);
   const add = useAddEmployee();
 
   const codeTaken = existingCodes.includes(code);
-  const phoneValid = isValidIsraeliPhone(phone);
-  const canSubmit = name.trim().length > 0 && isValidEmployeeCode(code) && !codeTaken && phoneValid;
+  const canSubmit = name.trim().length > 0 && isValidEmployeeCode(code) && !codeTaken;
 
   const submit = () => {
-    const normalizedPhone = normalizeIsraeliPhone(phone);
-    if (!canSubmit || !normalizedPhone) return;
+    if (!canSubmit) return;
     add.mutate(
-      { employeeCode: code, displayName: name.trim(), defaultKamut, phoneNumber: normalizedPhone },
+      { employeeCode: code, displayName: name.trim(), defaultKamut },
       {
         onSuccess: () => {
           setName('');
           setCode('');
-          setPhone('');
           setDefaultKamut(0);
         },
       },
@@ -167,33 +149,6 @@ function AddEmployeeCard({ existingCodes }: { existingCodes: string[] }) {
             קוד זה כבר קיים במערכת
           </p>
         )}
-      </div>
-
-      <div>
-        <label
-          className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300"
-          htmlFor="new-emp-phone"
-        >
-          מספר טלפון
-        </label>
-        <input
-          id="new-emp-phone"
-          type="tel"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          placeholder="050-1234567"
-          className={cn(
-            'num w-full rounded-xl border-2 p-3 text-sm text-slate-800',
-            'dark:bg-slate-800 dark:text-slate-100',
-            'placeholder:text-slate-400 focus:outline-none dark:placeholder:text-slate-500',
-            phone.length > 0 && !phoneValid
-              ? 'border-rose-400 focus:border-rose-500'
-              : 'border-slate-200 focus:border-brand-400 dark:border-slate-700',
-          )}
-        />
-        <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-          משמש לשליחת קוד אימות ב-WhatsApp אם העובד ישכח את הסיסמה שלו.
-        </p>
       </div>
 
       <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5 dark:bg-slate-800">
@@ -265,17 +220,13 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
   const updateDefault = useUpdateDefaultKamut();
   const deleteEmployee = useDeleteEmployee();
   const resetPin = useResetGuardPin();
-  const updatePhone = useUpdateEmployeePhone();
   const [confirming, setConfirming] = useState(false);
   const [resettingPin, setResettingPin] = useState(false);
   const [newPin, setNewPin] = useState('');
   const [pinResetDone, setPinResetDone] = useState(false);
-  const [editingPhone, setEditingPhone] = useState(false);
-  const [phoneDraft, setPhoneDraft] = useState('');
 
   const saving = updateDefault.isPending || deleteEmployee.isPending;
   const isSelf = row.profile_id !== null && row.profile_id === profile?.id;
-  const phoneDraftValid = phoneDraft.trim().length === 0 || isValidIsraeliPhone(phoneDraft);
 
   const submitPinReset = () => {
     if (!row.profile_id || newPin.length !== PIN_MIN_LENGTH) return;
@@ -288,15 +239,6 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
           setPinResetDone(true);
         },
       },
-    );
-  };
-
-  const submitPhone = () => {
-    if (!phoneDraftValid) return;
-    const phoneNumber = phoneDraft.trim().length === 0 ? null : normalizeIsraeliPhone(phoneDraft);
-    updatePhone.mutate(
-      { employeeCode: row.employee_code, profileId: row.profile_id, phoneNumber },
-      { onSuccess: () => setEditingPhone(false) },
     );
   };
 
@@ -313,7 +255,6 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
           </div>
           <p className="num mt-0.5 text-xs text-slate-500 dark:text-slate-400">
             {row.employee_code}
-            {row.phone_number && ` · ${formatPhoneForDisplay(row.phone_number)}`}
           </p>
         </div>
 
@@ -341,16 +282,6 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
         </p>
       ) : (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              setPhoneDraft(formatPhoneForDisplay(row.phone_number));
-              setEditingPhone((v) => !v);
-            }}
-          >
-            {editingPhone ? 'ביטול' : row.phone_number ? 'עריכת טלפון' : 'הוספת טלפון'}
-          </Button>
           {row.is_claimed && row.profile_id && (
             <Button
               size="sm"
@@ -392,38 +323,6 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
         </Alert>
       )}
 
-      {editingPhone && (
-        <div className="mt-2 space-y-2 rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800">
-          <p className="text-xs text-slate-600 dark:text-slate-300">
-            מספר טלפון עבור {row.display_name} -- משמש לשליחת קוד אימות ב-WhatsApp אם ישכח/תשכח
-            את הסיסמה. אפשר להשאיר ריק.
-          </p>
-          <input
-            type="tel"
-            value={phoneDraft}
-            onChange={(e) => setPhoneDraft(e.target.value)}
-            placeholder="050-1234567"
-            className={cn(
-              'num w-full rounded-xl border-2 bg-white p-2.5 text-sm text-slate-800',
-              'dark:bg-slate-900 dark:text-slate-100',
-              'placeholder:text-slate-400 focus:outline-none dark:placeholder:text-slate-500',
-              !phoneDraftValid
-                ? 'border-rose-400 focus:border-rose-500'
-                : 'border-slate-200 focus:border-brand-400 dark:border-slate-700',
-            )}
-          />
-          <Button
-            size="sm"
-            fullWidth
-            disabled={!phoneDraftValid}
-            loading={updatePhone.isPending}
-            onClick={submitPhone}
-          >
-            שמירת טלפון
-          </Button>
-        </div>
-      )}
-
       {resettingPin && (
         <div className="mt-2 space-y-2 rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800">
           <p className="text-xs text-slate-600 dark:text-slate-300">
@@ -452,12 +351,9 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
         <Alert tone="success">הסיסמה אופסה. מסור ל{row.display_name} את הקוד החדש שבחרת.</Alert>
       )}
 
-      {(updateDefault.isError ||
-        deleteEmployee.isError ||
-        resetPin.isError ||
-        updatePhone.isError) && (
+      {(updateDefault.isError || deleteEmployee.isError || resetPin.isError) && (
         <p className="mt-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800 dark:bg-rose-950/50 dark:text-rose-400">
-          {[updateDefault.error, deleteEmployee.error, resetPin.error, updatePhone.error]
+          {[updateDefault.error, deleteEmployee.error, resetPin.error]
             .filter((e): e is Error => e instanceof Error)
             .map((e) => e.message)
             .join(' · ') || 'הפעולה נכשלה.'}

@@ -10,14 +10,15 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.21.0:
-# self-service forgot-PIN via WhatsApp OTP (new whatsapp-pin-reset Edge
-# Function, phone_number added to the schema for the first time). Replaces
-# the dead "החלפת קוד עובד" Login button with a real guard-side recovery
-# flow; the manager-only reset-pin fallback (v2.20.2) stays in place for any
-# guard with no phone on file. Code-complete and deployed, but WhatsApp
-# delivery is pending manual Meta Business setup -- see BACKLOG.md.
-next-version: 2.21.0
+# version (see BACKLOG.md's Versioning section). Currently 2.22.0:
+# forgot-PIN OTP delivery pivots from WhatsApp (v2.21.0, never went live --
+# Meta account restricted from Ads over a disputed charge, and Meta requires
+# a Business Portfolio for WhatsApp with no way around it) to a push
+# notification on this app's own send-notifications system instead.
+# phone_number (added in v2.21.0 for the WhatsApp call) is fully reverted --
+# nothing else ever used it. whatsapp-pin-reset renamed request-pin-reset.
+# Fully live, no external setup pending, unlike the version it replaces.
+next-version: 2.22.0
 mode: Mainline
 branches:
   main:

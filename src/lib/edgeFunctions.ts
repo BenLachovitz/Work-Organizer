@@ -8,7 +8,7 @@ import { requireSupabase } from '@/lib/supabase';
  * Hebrew message the function actually produces ("הקוד כבר רשום", "יותר מדי
  * ניסיונות" ...). The real body hangs off error.context, so it's read back
  * out here -- one shared implementation instead of the near-identical copy
- * every caller (claim-code, reset-pin, whatsapp-pin-reset) used to carry.
+ * every caller (claim-code, reset-pin, request-pin-reset) used to carry.
  */
 export async function invokeEdgeFunction<T>(
   name: string,

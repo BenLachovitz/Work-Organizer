@@ -41,7 +41,8 @@ interface AuthValue {
   signIn: (employeeCode: string, pin: string) => Promise<void>;
   claim: (employeeCode: string, pin: string) => Promise<void>;
   signInWithPasskey: () => Promise<void>;
-  /** Sends a WhatsApp OTP to the guard's phone on file (whatsapp-pin-reset). */
+  /** Sends a one-time code via push notification to a device where the guard
+   *  is already subscribed (request-pin-reset). */
   requestPinResetOtp: (employeeCode: string) => Promise<void>;
   /** Verifies the OTP; returns a one-time token required by completePinResetOtp. */
   verifyPinResetOtp: (employeeCode: string, otp: string) => Promise<{ verifyToken: string }>;
@@ -94,7 +95,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // This offline-preview roster is 1:1 with the real seeded mock guards
       // (every code but Ben's), so the flag can just mirror that split.
       is_demo: code !== '005396',
-      phone_number: null,
     };
   }, []);
 
@@ -238,7 +238,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const requestPinResetOtp = useCallback(
     async (employeeCode: string) => {
       if (demoMode) throw new Error('שחזור סיסמה אינו זמין במצב הדגמה');
-      await invokeEdgeFunction('whatsapp-pin-reset', {
+      await invokeEdgeFunction('request-pin-reset', {
         action: 'otp_request',
         employee_code: employeeCode,
       });
@@ -250,7 +250,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (employeeCode: string, otp: string): Promise<{ verifyToken: string }> => {
       if (demoMode) throw new Error('שחזור סיסמה אינו זמין במצב הדגמה');
       const { verify_token } = await invokeEdgeFunction<{ verify_token: string }>(
-        'whatsapp-pin-reset',
+        'request-pin-reset',
         { action: 'otp_verify', employee_code: employeeCode, otp },
       );
       return { verifyToken: verify_token };
@@ -261,7 +261,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const completePinResetOtp = useCallback(
     async (employeeCode: string, verifyToken: string, newPin: string) => {
       if (demoMode) throw new Error('שחזור סיסמה אינו זמין במצב הדגמה');
-      await invokeEdgeFunction('whatsapp-pin-reset', {
+      await invokeEdgeFunction('request-pin-reset', {
         action: 'otp_complete',
         employee_code: employeeCode,
         verify_token: verifyToken,

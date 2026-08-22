@@ -176,7 +176,7 @@ export function Login() {
     }
   }, [claim, code, pin, pinConfirm, maybeAutoRegisterPasskey]);
 
-  // --- forgot PIN: 1) request a WhatsApp OTP ---------------------------------
+  // --- forgot PIN: 1) request an OTP via push notification -------------------
   const submitForgotPin = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -463,7 +463,7 @@ export function Login() {
             </>
           )}
 
-          {/* ---------------- forgot PIN: enter the WhatsApp code ---------------- */}
+          {/* ---------------- forgot PIN: enter the code ---------------- */}
           {step === 'otpVerify' && (
             <>
               <Button variant="ghost" size="sm" onClick={() => setStep('pin')}>
@@ -475,7 +475,7 @@ export function Login() {
                   אימות קוד
                 </h2>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  שלחנו קוד אימות בן {PIN_MIN_LENGTH} ספרות ב-WhatsApp. הזן אותו כאן.
+                  שלחנו קוד אימות בן {PIN_MIN_LENGTH} ספרות בהתראה למכשיר זה. הזן אותו כאן.
                 </p>
               </div>
 
@@ -564,7 +564,7 @@ export function Login() {
 
 /**
  * The "choose a new PIN" pair -- new PIN + confirm + remember-me -- shared
- * verbatim between first-time registration ('setPin') and the WhatsApp-OTP
+ * verbatim between first-time registration ('setPin') and the OTP
  * forgot-PIN flow's last step ('otpNewPin'). Only the surrounding heading,
  * info copy, submit button and back-link differ between the two callers, so
  * only this inner block is factored out rather than the whole step.
