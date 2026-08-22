@@ -18,7 +18,6 @@ import {
   supabase,
 } from '@/lib/supabase';
 import { signInWithPasskeyDevice } from '@/lib/webauthn';
-import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 import type { Profile } from '@/types/database';
 
 export type AuthStatus = 'loading' | 'signedOut' | 'signedIn';
@@ -41,13 +40,6 @@ interface AuthValue {
   signIn: (employeeCode: string, pin: string) => Promise<void>;
   claim: (employeeCode: string, pin: string) => Promise<void>;
   signInWithPasskey: () => Promise<void>;
-  /** Sends a one-time code via push notification to a device where the guard
-   *  is already subscribed (request-pin-reset). */
-  requestPinResetOtp: (employeeCode: string) => Promise<void>;
-  /** Verifies the OTP; returns a one-time token required by completePinResetOtp. */
-  verifyPinResetOtp: (employeeCode: string, otp: string) => Promise<{ verifyToken: string }>;
-  /** Resets the PIN using a verified OTP's token, then signs the guard in. */
-  completePinResetOtp: (employeeCode: string, verifyToken: string, newPin: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -70,6 +62,30 @@ const DEMO_PROFILES: Record<string, Pick<Profile, 'display_name' | 'role'>> = {
 };
 
 const DEMO_KEY = 'wo.demo.code';
+
+/**
+ * Calls the claim-code Edge Function and surfaces ITS error message.
+ *
+ * supabase-js reports any non-2xx as the generic "Edge Function returned a
+ * non-2xx status code" and leaves `data` null -- which would hide every useful
+ * message the function produces ("הקוד כבר רשום", "יותר מדי ניסיונות"). The
+ * real body hangs off error.context, so we read it back out.
+ */
+async function invokeClaimCode<T>(body: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase!.functions.invoke<T>('claim-code', { body });
+  if (!error) return data as T;
+
+  const ctx = (error as { context?: Response }).context;
+  if (ctx && typeof ctx.json === 'function') {
+    try {
+      const parsed = (await ctx.json()) as { error?: string };
+      if (parsed?.error) throw new Error(parsed.error);
+    } catch (e) {
+      if (e instanceof Error && e.message && !/JSON/i.test(e.message)) throw e;
+    }
+  }
+  throw new Error('שגיאת תקשורת. נסה שוב.');
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   // Demo mode is implied when there is no project, and can also be forced with
@@ -177,10 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // roster_codes is sealed from the publishable key (RLS deny-all + no
       // grants), so this cannot be a direct table read -- it must go through
       // the rate-limited function.
-      return invokeEdgeFunction<CodeStatus>('claim-code', {
-        action: 'status',
-        employee_code: employeeCode,
-      });
+      return invokeClaimCode<CodeStatus>({ action: 'status', employee_code: employeeCode });
     },
     [demoMode],
   );
@@ -229,45 +242,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const claim = useCallback(
     async (employeeCode: string, pin: string) => {
       if (demoMode) return signIn(employeeCode, pin);
-      await invokeEdgeFunction('claim-code', { action: 'claim', employee_code: employeeCode, pin });
+      await invokeClaimCode({ action: 'claim', employee_code: employeeCode, pin });
       await signIn(employeeCode, pin);
-    },
-    [demoMode, signIn],
-  );
-
-  const requestPinResetOtp = useCallback(
-    async (employeeCode: string) => {
-      if (demoMode) throw new Error('שחזור סיסמה אינו זמין במצב הדגמה');
-      await invokeEdgeFunction('request-pin-reset', {
-        action: 'otp_request',
-        employee_code: employeeCode,
-      });
-    },
-    [demoMode],
-  );
-
-  const verifyPinResetOtp = useCallback(
-    async (employeeCode: string, otp: string): Promise<{ verifyToken: string }> => {
-      if (demoMode) throw new Error('שחזור סיסמה אינו זמין במצב הדגמה');
-      const { verify_token } = await invokeEdgeFunction<{ verify_token: string }>(
-        'request-pin-reset',
-        { action: 'otp_verify', employee_code: employeeCode, otp },
-      );
-      return { verifyToken: verify_token };
-    },
-    [demoMode],
-  );
-
-  const completePinResetOtp = useCallback(
-    async (employeeCode: string, verifyToken: string, newPin: string) => {
-      if (demoMode) throw new Error('שחזור סיסמה אינו זמין במצב הדגמה');
-      await invokeEdgeFunction('request-pin-reset', {
-        action: 'otp_complete',
-        employee_code: employeeCode,
-        verify_token: verifyToken,
-        new_pin: newPin,
-      });
-      await signIn(employeeCode, newPin);
     },
     [demoMode, signIn],
   );
@@ -294,25 +270,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signIn,
       claim,
       signInWithPasskey,
-      requestPinResetOtp,
-      verifyPinResetOtp,
-      completePinResetOtp,
       signOut,
     }),
-    [
-      status,
-      session,
-      profile,
-      demoMode,
-      lookupCode,
-      signIn,
-      claim,
-      signInWithPasskey,
-      requestPinResetOtp,
-      verifyPinResetOtp,
-      completePinResetOtp,
-      signOut,
-    ],
+    [status, session, profile, demoMode, lookupCode, signIn, claim, signInWithPasskey, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

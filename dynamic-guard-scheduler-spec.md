@@ -1,8 +1,9 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.22.0 (build steps A–Y complete plus the double-shift display setting, the
-draft-preview export change, manager PIN-reset, and the self-service push-notification forgot-PIN
-flow below; live and in daily use; deployed to production)
+**Version:** 2.22.1 (build steps A–Y complete plus the double-shift display setting, the
+draft-preview export change, and manager PIN-reset below; live and in daily use; deployed to
+production — the self-service forgot-PIN feature (§12.12) was fully reverted after a production
+session-persistence regression, see §14.1 Step AB and §14.3)
 **Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 22 August 2026
@@ -202,7 +203,7 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 78  | **`phone_number` added to the schema** (migrations 48, §12.4/§12.12) — the first contact channel that has ever existed for a guard, on both `roster_codes` (pre-claim) and `profiles` (post-claim), carried across at claim time by a dedicated trigger. Required when a manager adds a new employee, optional/editable for an existing one. No uniqueness constraint yet — deliberately deferred on Ben's explicit instruction | Item 77's manual reset worked, but Ben explicitly wants a REAL, self-service "forgot password" system on the guard's own side — "instead of what we currently have, not in addition to it." Self-service needs some verification channel, and none existed anywhere in this schema before now |
 | 79  | **Self-service forgot-PIN via WhatsApp OTP** (§12.12, migration 49, new `whatsapp-pin-reset` Edge Function) — a guard taps "שכחתי סיסמה" on the Login page's PIN step, gets a 6-digit code via WhatsApp (Meta Business Cloud API), enters it, then chooses a new PIN herself — no manager involved on the happy path. The old dead "החלפת קוד עובד" button is gone, replaced (not supplemented) by this plus a small "→ קוד אחר" back-link for the genuinely different "wrong code" case | Ben's explicit design choice among the options discussed: no email/phone existed to build a classic reset-link flow around, and a push-to-manager-approval design was considered and set aside in favor of Ben's own WhatsApp-Business-API idea, which he already has the real phone numbers to support |
-| 80  | The manager-mediated `reset-pin` (item 77) **stays as the permanent fallback**, not a stopgap — for any guard with no phone number on file yet, or if WhatsApp delivery fails for some other reason | Deliberate two-tier design: self-service is the primary path once a guard has a number on file, but nothing about this feature should ever leave a guard with literally no way back in |
+| 80  | The manager-mediated `reset-pin` (item 77) **stays as the permanent fallback**, not a stopgap — for any guard with no phone number on file yet, or if WhatsApp delivery fails for some other reason. (Superseded by item 84/85 in v2.22.1: the self-service tier this row describes was fully reverted, so `reset-pin` is now once again the only path, not a fallback to a second tier) | Deliberate two-tier design: self-service is the primary path once a guard has a number on file, but nothing about this feature should ever leave a guard with literally no way back in |
 
 ---
 
@@ -213,6 +214,15 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | 81  | **Forgot-PIN OTP delivery pivots from WhatsApp to a push notification** (§12.12, migrations 49–50, `whatsapp-pin-reset` renamed `request-pin-reset`) — before any real WhatsApp message was ever sent, Ben discovered his Meta account is restricted from Ads over a disputed fraudulent charge, and Meta requires a Business Portfolio to attach WhatsApp to an app at all, with no way around it ("create an app without a use case" doesn't avoid the requirement either — confirmed directly, not assumed). Rather than wait on the dispute or stand up a new Business Portfolio under a different admin, delivery moves to this app's own already-working `send-notifications` push system instead | Ben's explicit call, once the Meta account restriction was found to be a genuine dead end: reuse infrastructure already live in production rather than depend on an external account he cannot currently unblock |
 | 82  | **`phone_number` fully reverted** (migration 50 — columns, trigger, `roster_code_status` view all undone; `AddEmployeeCard`'s required field and `EmployeeRow`'s edit panel removed from `TeamManagement.tsx`) | Item 78 added it for no reason other than feeding the WhatsApp call — nothing else in the project ever used it, so once WhatsApp was dropped there was nothing left to preserve. A "required" field that does nothing would only confuse a future reader |
 | 83  | **`send-notifications` gains a `pin_reset_otp` type**, cron-secret-only like the original three cron types (no JWT path — its only legitimate caller, `request-pin-reset`, itself has no caller session to check against). `otp_request` confirms a live `push_subscriptions` row exists before generating a code, and treats a `send-notifications` response reporting zero delivered as a real failure — deleting the now-useless OTP row and returning a clean error rather than a false "ok" | The one real trade-off of the new channel versus WhatsApp: delivery needs an existing subscription, which a phone number never did. Made this failure mode honest and clearly reported rather than silently swallowed, so a guard is never left assuming a code is coming when it never will |
+
+---
+
+### 1.23 Changes in Version 2.22.1
+
+| #   | Change                                                                                                                                                                                                                                                        | Rationale                                                                                                                                                                                                                                                                        |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 84  | **Self-service forgot-PIN (items 78–83, §12.12) fully reverted** — `AuthContext.tsx`, `useTeam.ts`, `Login.tsx`, `TeamManagement.tsx`, and `send-notifications` restored to their exact pre-item-78 (v2.20.2) state; `request-pin-reset` Edge Function and its test deleted; migrations 48–50 left in place as historical record (they really ran against the live database), a new migration 51 added on top to reverse their net effect (drops `pin_reset_otps`, restores the two `CHECK` constraints migrations 49/50 had widened) | A session-persistence regression appeared in production after v2.22.0 shipped — every page refresh, on every device (including one with no passkey registered, ruling that gate out), signed Ben back to the Login page. A full diff of every file changed since v2.20.2 showed nothing touching session storage or auth config; root cause was never conclusively identified. Ben's call: stop debugging a live regression against an unconfirmed cause and revert to the last confirmed-stable point instead |
+| 85  | The manager-mediated `reset-pin` (item 77) is once again the **only** PIN-recovery path — the "החלפת קוד עובד" button on the Login page's `'pin'` step goes back to simply resetting local state to the code-entry step, exactly as it behaved before item 79 | Direct consequence of item 84: with the self-service flow gone, there is no second tier left to fall back from |
 
 ---
 
@@ -2408,7 +2418,38 @@ API, neither of which this suite uses — what IS exercised for real is
 Deno Edge Function runtime, which doubles as the "confirm a new runtime dependency actually works
 before trusting it" smoke test §12.10 set the precedent for with `npm:web-push`.
 
-### 12.12 Self-Service Forgot-PIN via a Push-Notification OTP (migrations 49–50, `request-pin-reset`, v2.20.3–v2.22)
+### 12.12 Self-Service Forgot-PIN — Attempted and Reverted (migrations 48–51, v2.21.0–v2.22.1)
+
+> **REVERTED in v2.22.1.** Everything below this notice describes a feature that shipped, in two
+> different designs, and was then **fully reverted** — kept here as a historical record (the same
+> "explain the pivot, don't erase it" discipline §12.11's account of the passkey rebuild already
+> follows), not as a description of current behavior. **The current, actual state**: the Login
+> page's `'pin'` step is back to exactly what it was before either attempt — a "החלפת קוד עובד" link
+> that resets local state back to the code-entry step, and the manager-mediated `reset-pin` (§12.4)
+> is once again the **only** recovery path for a guard who forgot her PIN.
+>
+> **Why it was reverted**: after the second design (push-notification delivery, v2.22.0) shipped, a
+> session-persistence regression appeared in production — every page refresh, on every device
+> (confirmed on one **with** a registered passkey and one **without**), signed Ben back out to the
+> Login page, even with "remember me" on and a fresh login moments earlier. A full diff of every file
+> touched since the last confirmed-stable point (the manager-only `reset-pin` tool, v2.20.2) showed
+> nothing touching session storage, the Supabase client config, or the passkey ceremony at all — the
+> passkey re-verification gate (§12.11) was directly ruled out by the no-passkey-device reproduction,
+> and the Vercel deployment/environment/bundle were all confirmed healthy and current. **No root
+> cause was conclusively identified.** Rather than keep debugging a live regression against an
+> unconfirmed cause, Ben's call: revert the whole feature back to the last confirmed-stable point and
+> revisit self-service PIN recovery later, in isolation, if at all. Migrations 48–50 were **not**
+> deleted or rewritten — they genuinely ran against the live database, and this project's own
+> discipline is that migrations are discovered, never edited after the fact. Migration 51 reverses
+> their net effect (drops `pin_reset_otps`, un-widens the two `CHECK` constraints migrations 49/50
+> touched) the same way any other unwanted schema change gets undone: with a new migration on top.
+> `phone_number` needed no further reversal — migration 50 had already fully reverted it (columns,
+> trigger, view) during the WhatsApp→push pivot, before this regression was even found.
+>
+> **Worth carrying forward if this is attempted a third time**: build and test it on a branch/preview
+> deployment rather than shipping straight to production main, specifically so a regression like this
+> one can be bisected against a controlled set of changes instead of a live session nobody can safely
+> keep debugging in place.
 
 Replaces a dead button. The Login page's `'pin'` step (existing-PIN entry) used to carry a
 "החלפת קוד עובד" link that did nothing but reset local state back to the code-entry step — a guard
@@ -2606,11 +2647,12 @@ test account is used, not a real Meta billing relationship.
 | **Z**     | Per-week 12h/11h double-shift display setting (§2.4d, migration 47, v2.20, items 74–75): a manager toggle that shortens the day12/night12 handover-boundary TEXT by one hour, purely cosmetic (the shift is still scheduled and counted as 12h everywhere it matters), suppressed on any assignment where that guard is the day's only real coverage of the hour it would shorten away from. Same-day follow-up (v2.20.1, item 76): JPEG preview/download un-gated from published-only runs | ✅ complete                                                    |
 | **AA**    | Manager-triggered guard PIN reset (§12.4, `reset-pin` Edge Function, v2.20.2): resets a claimed guard's forgotten PIN in place via the GoTrue admin API, without touching `profiles`/`roster_codes`/roster history — `profiles.id IS auth.users.id` with `ON DELETE CASCADE` rules out a delete-and-re-claim approach. Manager-JWT-gated at both the platform level (deployed without `--no-verify-jwt`) and server-side (`is_manager()`), verified end-to-end against the live project | ✅ complete                                                    |
 | **AB**    | Self-service forgot-PIN, phase 1 (§12.12, migrations 48–49, v2.21.0): first shipped on Meta's WhatsApp Business Cloud API, needing `phone_number` added to the schema for the first time. Superseded the same week (v2.22.0, item AB below) after a Meta account restriction was found to block WhatsApp setup entirely — see the revision row directly below for what actually shipped | ✅ superseded, see next row                                    |
-| **AB rev.** | Self-service forgot-PIN, phase 2 — the design that stuck (§12.12, migrations 49–50, `request-pin-reset`, v2.22.0): `phone_number` fully reverted (nothing else ever used it); delivery moves to a new `pin_reset_otp` push-notification type on the already-live `send-notifications` function instead of Meta. Same 3-action public Edge Function shape (`otp_request`/`otp_verify`/`otp_complete`), same PIN-reset mechanism `reset-pin` already uses, same three new Login.tsx steps replacing the old dead "החלפת קוד עובד" button — none of that guard-facing layer needed to change across the pivot. The manager-mediated `reset-pin` fallback (Step AA) stays in place for any guard whose device has no push subscription | ✅ complete, live in production                                 |
+| **AB rev.** | Self-service forgot-PIN, phase 2 (§12.12, migrations 49–50, `request-pin-reset`, v2.22.0): `phone_number` fully reverted (nothing else ever used it); delivery moved to a new `pin_reset_otp` push-notification type on the already-live `send-notifications` function instead of Meta. Same 3-action public Edge Function shape (`otp_request`/`otp_verify`/`otp_complete`), same PIN-reset mechanism `reset-pin` already uses, same three new Login.tsx steps replacing the old dead "החלפת קוד עובד" button | ⚠️ shipped, then reverted — see next row                        |
+| **AB rev. 2** | **Full revert of Steps AB/AB rev.** (§12.12, migration 51, v2.22.1): a session-persistence regression appeared in production after Step AB rev. shipped, with no root cause pinned down despite a full diff review and device-based elimination of the passkey gate as a cause. `AuthContext.tsx`/`useTeam.ts`/`Login.tsx`/`TeamManagement.tsx`/`send-notifications` restored to their exact Step AA (v2.20.2) state; `request-pin-reset` deleted; migrations 48–50 kept as historical record, migration 51 reverses their net effect. The manager-mediated `reset-pin` (Step AA) is once again the sole PIN-recovery path | ✅ complete, live in production                                 |
 
 ### 14.2 Verification
 
-Fourteen suites, all green. Every gate runs against the live project except the PGlite one. (Gate E
+Thirteen suites, all green. Every gate runs against the live project except the PGlite one. (Gate E
 engines now run 16 golden fixtures, not 8 — two added in v2.4: a segment-weight tie-break and a
 preference tie-break, both empirically constructed and verified against a hand-patched "flat
 weighting" baseline to confirm the tie they test was real before asserting the fix resolves it.
@@ -2660,21 +2702,23 @@ locally, which is expected, not a regression.
 | Gate F (realtime) | `npm run test:realtime`                                   | Live push both directions: roster changes to guards, submissions to the manager                                                                                  |
 | Gate G            | `npm run test:notifications`                              | push_subscriptions RLS, targeting functions (incl. the role-filter fix), tolerance window, send idempotency, two-open-weeks robustness (§12.10)                  |
 | Gate H            | `npm run test:webauthn`                                    | RLS on `webauthn_credentials`/`webauthn_challenges`, the `webauthn` Edge Function's auth/verification rejection paths, and a live smoke test of `generateRegistrationOptions()`/`generateAuthenticationOptions()` against the real Deno runtime (§12.11) |
-| Gate I            | `npm run test:pinreset`                                    | RLS on `pin_reset_otps` (fully sealed), `request-pin-reset`'s `otp_verify`/`otp_complete` paths against a seeded OTP row (correct/wrong/expired/attempt-lockout/replay), `otp_request` against a no-subscription guard (clean 404) and a bogus-subscription guard (an honest 502, not a false "ok", and no dangling OTP row left behind), `claim_attempts.action` widened for `'otp_request'`, `notification_log` accepting `pin_reset_otp` without ever storing the plaintext code (§12.12) |
 
 `npm run test:cloud` chains every cloud suite in this table (rls → auth → client → preferences →
-manager → generate → edit → realtime → notifications → webauthn → pinreset) and stops at the first
-failure. `npm run test:compare` asserts CP-SAT never scores below the mock.
+manager → generate → edit → realtime → notifications → webauthn) and stops at the first failure.
+`npm run test:compare` asserts CP-SAT never scores below the mock. (Gate I, `test:pinreset`, and its
+suite `request-pin-reset.cloud.test.mjs` existed for one version and were removed in the v2.22.1
+revert (§14.1, Step AB rev. 2) along with the feature they tested.)
 
 ### 14.3 What is left
 
-**v2.22.0's push-notification forgot-PIN (§12.12) is code-complete, deployed, and fully live** — no
-external account or manual setup pending (that was the whole point of dropping WhatsApp/Meta from
-the design). **One real-device check is still open**: a real OTP push arriving on a currently-
-subscribed device and being usable end-to-end from the Login page — the same class of real-device-
-only check push notifications (§12.10) and passkey ceremonies (§12.11) each needed, and genuinely
-lower-stakes to run here (costs nothing, pages only a test account) than the abandoned WhatsApp
-design would have been.
+**Self-service forgot-PIN (§12.12) was attempted twice (v2.21.0 on WhatsApp, v2.22.0 on push
+notifications) and fully reverted in v2.22.1** after an unresolved production session-persistence
+regression — see §14.1 Step AB rev. 2 and §12.12's revert notice for the full account. The
+manager-mediated `reset-pin` (§12.4, Step AA) is the only PIN-recovery path going forward; nothing
+about self-service forgot-PIN is open or pending — it is fully removed from the live system, not
+paused. If this is attempted a third time, §12.12's closing note has a specific recommendation
+(build and test on a branch/preview deployment first, so a future regression can be bisected against
+a controlled set of changes rather than live production).
 
 Otherwise nothing blocking. Live in production at `work-organizer-iota.vercel.app`, GitHub
 auto-deploy connected, all suites green except Gate D's known pre-existing date collision (§14.2).

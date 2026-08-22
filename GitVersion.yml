@@ -10,15 +10,19 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.22.0:
-# forgot-PIN OTP delivery pivots from WhatsApp (v2.21.0, never went live --
-# Meta account restricted from Ads over a disputed charge, and Meta requires
-# a Business Portfolio for WhatsApp with no way around it) to a push
-# notification on this app's own send-notifications system instead.
-# phone_number (added in v2.21.0 for the WhatsApp call) is fully reverted --
-# nothing else ever used it. whatsapp-pin-reset renamed request-pin-reset.
-# Fully live, no external setup pending, unlike the version it replaces.
-next-version: 2.22.0
+# version (see BACKLOG.md's Versioning section). Currently 2.22.1: the
+# self-service forgot-PIN feature (v2.21.0 WhatsApp, then v2.22.0 pushed to
+# a notification-based redesign) is FULLY REVERTED. A session-persistence
+# regression appeared in production after it shipped (every page refresh,
+# every device, signed out back to Login) that could not be pinned to any
+# line of the changes made -- confirmed via full diff, and reproduced even
+# on a device with no passkey registered, ruling that gate out too. Ben's
+# call: revert to the last confirmed-stable point (the manager-only
+# reset-pin tool, v2.20.2) rather than keep debugging a live regression with
+# an unconfirmed cause. Migrations 48-50 stay in the repo as historical
+# record (they really did run against the live database); migration 51
+# reverses their net effect instead of rewriting history.
+next-version: 2.22.1
 mode: Mainline
 branches:
   main:

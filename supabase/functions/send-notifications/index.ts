@@ -1,8 +1,8 @@
 /**
  * send-notifications -- fires the weekly broadcast, the two deadline
  * reminders, a manager-triggered "roster published" broadcast (migration
- * 43), a guard's own submit/edit/cancel notifying the manager (migration
- * 45), and a guard's own forgot-PIN OTP code (migration 50).
+ * 43), and a guard's own submit/edit/cancel notifying the manager
+ * (migration 45).
  *
  * The three original types are invoked exclusively by pg_cron's
  * notification_tick (via pg_net), authenticated by a shared secret in a
@@ -18,15 +18,6 @@
  *     their own event, never someone else's.
  * A JWT of either kind unlocks ONLY its own type(s); the cron-only types stay
  * cron-secret-only even for a manager's own browser session.
- *
- * pin_reset_otp is cron-secret-ONLY, like the three original types -- unlike
- * roster_published/guard_submitted/guard_cancelled it has no JWT path at
- * all, because its only legitimate caller is request-pin-reset's
- * otp_request action, which itself runs with NO caller session (the guard
- * triggering it hasn't logged in -- that's the whole point). Trusting a
- * server-to-server secret here, the same way the three cron types already
- * do, is the only option; there is no "caller's own JWT" to check against
- * for someone who isn't signed in yet.
  *
  * guard_submitted/guard_cancelled are deliberately client-triggered rather
  * than a database trigger on weekly_submissions: test:cloud calls
@@ -53,7 +44,7 @@ import webpush from 'npm:web-push@3.6.7';
 
 type NotificationType =
   | 'broadcast' | 'reminder_24h' | 'reminder_2h'
-  | 'roster_published' | 'guard_submitted' | 'guard_cancelled' | 'pin_reset_otp';
+  | 'roster_published' | 'guard_submitted' | 'guard_cancelled';
 const OFFSET_HOURS: Record<'reminder_24h' | 'reminder_2h', number> = {
   reminder_24h: 24,
   reminder_2h: 2,
@@ -64,9 +55,6 @@ const OFFSET_HOURS: Record<'reminder_24h' | 'reminder_2h', number> = {
 // at the roster; guard_submitted/guard_cancelled point at the manager's own
 // preference-review screen. Carried in the payload (not hardcoded in the
 // service worker) so a future type needs no new client-side branch.
-// pin_reset_otp points at the app root -- the guard isn't signed in, there is
-// nowhere authenticated to deep-link into; the notification's whole job is
-// showing the code in its body text for her to read and type in by hand.
 const TARGET_URL: Record<NotificationType, string> = {
   broadcast: '/preferences',
   reminder_24h: '/preferences',
@@ -74,7 +62,6 @@ const TARGET_URL: Record<NotificationType, string> = {
   roster_published: '/roster',
   guard_submitted: '/manage/preferences',
   guard_cancelled: '/manage/preferences',
-  pin_reset_otp: '/',
 };
 
 const CORS = {
@@ -183,7 +170,7 @@ Deno.serve(async (req: Request) => {
 
   let payload: {
     type?: NotificationType; week_start?: string;
-    guard_id?: string; event?: 'new' | 'edited'; otp?: string;
+    guard_id?: string; event?: 'new' | 'edited';
   };
   try {
     payload = await req.json();
@@ -193,8 +180,7 @@ Deno.serve(async (req: Request) => {
   const type = payload.type;
   if (
     type !== 'broadcast' && type !== 'reminder_24h' && type !== 'reminder_2h' &&
-    type !== 'roster_published' && type !== 'guard_submitted' && type !== 'guard_cancelled' &&
-    type !== 'pin_reset_otp'
+    type !== 'roster_published' && type !== 'guard_submitted' && type !== 'guard_cancelled'
   ) {
     return json({ error: 'unknown type' }, 400);
   }
@@ -352,46 +338,6 @@ Deno.serve(async (req: Request) => {
     }
 
     return json({ ok: true, sent, targets: (targets ?? []).length });
-  }
-
-  // ==========================================================================
-  // pin_reset_otp -- a guard's own forgot-PIN verification code (migration
-  // 50), delivered as a push notification instead of an SMS/WhatsApp
-  // message. Cron-secret-only (see header comment) -- the only legitimate
-  // caller is request-pin-reset's otp_request action, itself running with no
-  // caller session. guard_id is trusted here precisely BECAUSE only that
-  // function, holding the cron secret, can reach this branch at all -- it
-  // already resolved guard_id server-side from the employee_code before
-  // calling us, the same discipline every other branch in this file follows
-  // for its own inputs.
-  // ==========================================================================
-  if (type === 'pin_reset_otp') {
-    const guardId = payload.guard_id;
-    const otp = payload.otp;
-    if (!guardId || !otp) return json({ error: 'guard_id and otp required' }, 400);
-
-    const title = 'קוד אימות';
-    const bodyText = `קוד האימות שלך לאיפוס הסיסמה: ${otp}`;
-    const targetUrl = TARGET_URL.pin_reset_otp;
-
-    // Not deduped, not week-scoped -- each request is a genuine, distinct
-    // event, same as guard_submitted/guard_cancelled. The plaintext OTP is
-    // deliberately NOT written into `detail` -- it already lives, hashed,
-    // in pin_reset_otps; there's no reason for the plaintext to also sit in
-    // an audit log a manager can read.
-    const { data: logRow } = await admin
-      .from('notification_log')
-      .insert({
-        notification_type: type, guard_id: guardId,
-        status: 'sent', sent_at: new Date().toISOString(),
-        detail: 'בקשת שחזור סיסמה עצמית',
-      })
-      .select('id')
-      .single();
-    if (!logRow) return json({ error: 'server error' }, 500);
-
-    const sent = await sendToTarget(admin, guardId, title, bodyText, type, targetUrl, logRow.id as number);
-    return json({ ok: true, sent: sent ? 1 : 0 });
   }
 
   // ==========================================================================

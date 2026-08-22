@@ -1,8 +1,8 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.22.0** — §14 there is the
-build status and roadmap, §1.17–§1.22 is the changelog for everything since v2.15. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.22.1** — §14 there is the
+build status and roadmap, §1.17–§1.23 is the changelog for everything since v2.15. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
@@ -39,7 +39,7 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–AB complete, live and in daily use
+## State: build steps A–AB (reverted) complete, live and in daily use
 
 Full list in spec §14.1; changelog for every step is spec §1.1–§1.14. Step P (11 August) — per-day
 morning target override, a morning-priority coverage weight, the roster view stacking every
@@ -632,19 +632,63 @@ generic 401, proving the cron-secret path used by `pg_cron` was never at risk). 
 nothing external is left to configure; one real-device push-delivery confirmation is the only thing
 still open, tracked below.
 
+Step AB, fully reverted (22 August) — **a production session-persistence regression, with no
+confirmed cause, led to pulling the whole self-service forgot-PIN feature back out**. Within the
+same day v2.22.0 shipped, Ben reported that refreshing the page anywhere in the app was signing him
+back out to the Login screen — on every refresh, on every page, on more than one device, including
+one with no passkey registered at all (directly ruling out the passkey restart-lock gate, §8/§12.11,
+as the cause, since a device with no passkey can't reach that code path). A full diff of every file
+changed since the last confirmed-stable point (Step AA, v2.20.2 — 15 files) turned up nothing
+touching session storage, the Supabase client config, or the passkey ceremony. Vercel's deployment
+health, environment variables, and production bundle hashes were all checked and came back clean.
+**No root cause was ever conclusively identified.** Rather than keep debugging a live regression
+against production with an unconfirmed cause, Ben's call: revert the entire feature — both the
+WhatsApp attempt (Step AB) and the push-notification redesign (Step AB revised) — back to exactly
+Step AA's state, and revisit self-service PIN recovery later, in isolation, if at all.
+
+`AuthContext.tsx`, `useTeam.ts`, `Login.tsx`, `TeamManagement.tsx`, and `send-notifications` were
+restored file-for-file to their Step AA (v2.20.2) content (`git checkout 9601093 -- <path>`) —
+`otpVerify`/`otpNewPin`/`PinChooser` gone from Login, the shared `invokeEdgeFunction` helper gone,
+phone-number UI gone, `pin_reset_otp` gone from `send-notifications`. `src/lib/edgeFunctions.ts`,
+`supabase/functions/request-pin-reset/`, and `supabase/tests/request-pin-reset.cloud.test.mjs` were
+deleted outright — none of them existed at Step AA. `request-pin-reset` was deleted from Supabase
+(confirmed gone via a `404` on a direct curl); `send-notifications` was redeployed with the reverted
+code (confirmed its `--no-verify-jwt` cron-secret path survived the redeploy: a bad secret still
+returns this function's own `403`, not the platform's generic `401`).
+
+**Migrations 48–50 were deliberately left in the repo, not deleted or rewritten** — they genuinely
+ran against the live database, and this project's standing discipline is that migrations are
+discovered, never edited after the fact. A new migration 51 reverses their net effect instead: drops
+`pin_reset_otps`, and restores `claim_attempts.action`/`notification_log.notification_type`'s two
+`CHECK` constraints to their pre-feature shape (first deleting the handful of test rows logged under
+the now-disallowed values, since adding a `CHECK` validates every existing row). `phone_number`
+needed no further reversal — migration 50 had already fully reverted it during the WhatsApp→push
+pivot, before this regression was even found. Applied cleanly to the live database on the second
+attempt (the first hit exactly the constraint-violation-from-leftover-test-rows issue the `DELETE`s
+above were added to fix).
+
+Full TypeScript typecheck clean, `npm run build` clean — and notably produced **byte-identical
+bundle hashes** to an earlier confirmed Step AA build (`TeamManagement-*.js`, `ManagerDashboard-*.js`,
+etc.), strong independent evidence the revert was faithful. `test:cloud` (back to ten suites — Gate I
+and `test:pinreset` removed along with the feature) all green except Gate D's known pre-existing
+date-collision flake (unrelated, see below) and one realtime assertion that was flaky on the first
+run and passed clean on an isolated re-run. `test:rls` (55/55) and `test:fixtures` (104/104) both
+green. `package.json`/`GitVersion.yml` bumped to 2.22.1, tagged `v2.22.1`.
+
+**Important, and worth being honest about**: this is a pragmatic mitigation, not a confirmed fix —
+the actual root cause of the session bug was never found, only a broad set of candidate causes ruled
+out. If the bug persists after this revert ships, that's significant new evidence the cause lies
+somewhere this session's changes never touched at all.
+
 ---
 
 ## What is left
 
 Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
-deliberately deferred design choice, not a build gap. Six things still open, not build gaps:
+deliberately deferred design choice, not a build gap. Five things still open, not build gaps
+(self-service forgot-PIN, formerly listed here, was fully reverted — see Step AB, fully reverted,
+above — and is not an open item, it's removed):
 
-- **Real-device push-delivery confirmation for forgot-PIN** (Step AB revised, spec §12.12) — the
-  push-notification OTP flow is code-complete, deployed, and fully live (no external setup pending,
-  unlike the abandoned WhatsApp design). What's still open is the same class of real-device-only
-  check every push-based feature here has needed: confirming a real OTP notification actually arrives
-  on a currently-subscribed phone and the guard can complete the flow end to end from the Login page.
-  Every guard without a live subscription is covered by Step AA's manual fallback regardless.
 - **Passkey real-device registration + unlock confirmation** (Step X, spec §8) — now on the rebuilt
   app-scoped WebAuthn mechanism (own `webauthn` Edge Function, not Supabase's native Passkey API; see
   Step X's same-day revision above). Registering from Preferences on a real iPhone/Android, confirming
@@ -764,19 +808,20 @@ rejected the push — often a stale subscription that's already been pruned by t
 - Credentials in `.env.local` — **gitignored**, never committed
 - ⚠️ Outbound Postgres ports (5432/6543) are **firewalled on this machine**. `DATABASE_URL` will not
   work; migrations go over HTTPS through the Supabase Management API via `npm run db:apply`.
-- Edge Functions `claim-code`, `generate-schedule`, `send-notifications`, `webauthn`, `reset-pin`,
-  and `request-pin-reset` are deployed. (`whatsapp-pin-reset` existed briefly, v2.21.0, and was
-  deleted from Supabase the same day it pivoted to `request-pin-reset` — see Step AB revised.)
+- Edge Functions `claim-code`, `generate-schedule`, `send-notifications`, `webauthn`, and `reset-pin`
+  are deployed. (`whatsapp-pin-reset` and its successor `request-pin-reset` existed briefly,
+  v2.21.0–v2.22.0, and were both deleted from Supabase when the self-service forgot-PIN feature was
+  fully reverted in v2.22.1 — see Step AB, fully reverted.)
 - Solver live at `https://guard-solver.onrender.com`; `SOLVER_URL` and `SOLVER_SECRET` are set as
   Supabase Edge Function secrets
 - `pg_cron`/`pg_net` enabled (first use in this project, spec §12.10); one job, `notification_tick`,
   fires every 15 minutes. `CRON_SHARED_SECRET`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and
   `VAPID_SUBJECT` are set as Supabase Edge Function secrets; the matching `notify_url`/`cron_secret`
   pair lives in the `notification_secrets` table (not a GUC — see spec §12.10 for why), set via a
-  plain `UPDATE`, not committed anywhere. `request-pin-reset` reuses this exact same secret pair to
-  call `send-notifications` server-to-server for the `pin_reset_otp` type — no separate secrets of
-  its own, unlike the abandoned WhatsApp design's three `WHATSAPP_*` secrets (never set, moot now).
-- 50 migrations applied, tracked in a `schema_migrations` ledger
+  plain `UPDATE`, not committed anywhere. (The abandoned WhatsApp design's three `WHATSAPP_*`
+  secrets were never set and are moot now; `request-pin-reset`'s reuse of this cron-secret pair for
+  the `pin_reset_otp` type is moot too — that function is deleted as of the v2.22.1 revert.)
+- 51 migrations applied, tracked in a `schema_migrations` ledger
 
 ### Current database contents
 
@@ -803,9 +848,10 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.22.0**
-(self-service forgot-PIN pivoted to push-notification delivery — fully live, no external setup
-pending), tagged `v2.22.0`.
+state that version describes), matching the spec's own version history. Currently at **2.22.1**
+(self-service forgot-PIN fully reverted after an unresolved production session-persistence
+regression — back to Step AA's manager-only `reset-pin` as the sole PIN-recovery path), tagged
+`v2.22.1`.
 
 ## Commands
 

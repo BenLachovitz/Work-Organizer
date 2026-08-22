@@ -5,7 +5,12 @@ import { Alert, Badge, Button, ButtonLink, Card, Spinner, Stepper, cn } from '@/
 import { EMPLOYEE_CODE_LENGTH, PIN_MIN_LENGTH, isValidEmployeeCode } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRosterCodeStatus, type RosterCodeStatus } from '@/hooks/useManager';
-import { useAddEmployee, useDeleteEmployee, useResetGuardPin, useUpdateDefaultKamut } from '@/hooks/useTeam';
+import {
+  useAddEmployee,
+  useDeleteEmployee,
+  useResetGuardPin,
+  useUpdateDefaultKamut,
+} from '@/hooks/useTeam';
 import { useViewMode } from '@/contexts/ViewModeContext';
 import { visibleToViewMode } from '@/lib/viewMode';
 
@@ -18,11 +23,11 @@ import { visibleToViewMode } from '@/lib/viewMode';
  *   ADD          creates a roster_codes row -- the same thing seed.sql did by
  *                hand for the first eight. The employee still sets their own
  *                PIN through the normal "קוד עובד" login flow.
- *   RESET PIN    manager-mediated fallback for a guard who forgot her PIN and
- *                whose device has no push subscription for the self-service
- *                forgot-PIN flow (§12.12) to deliver an OTP to. Goes through
- *                the reset-pin Edge Function to reset just the password on
- *                their EXISTING auth.users row -- profile, roster history and
+ *   RESET PIN    for a guard who forgot their PIN and has no self-service way
+ *                back in (the PIN IS their GoTrue password -- there is no
+ *                separate "forgot password" flow). Goes through the
+ *                reset-pin Edge Function to reset just the password on their
+ *                EXISTING auth.users row -- profile, roster history and
  *                every submission stay exactly as they were.
  *   DELETE       genuinely erases the employee: profile, preferences,
  *                submissions and every roster assignment they were ever part
