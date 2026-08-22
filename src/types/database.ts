@@ -21,6 +21,10 @@ export interface Profile {
   /** True for a seeded mock guard used to sanity-test the scheduler. Source
    *  of truth for the admin real/test view-mode toggle (src/lib/viewMode.ts). */
   is_demo: boolean;
+  /** E.164 phone number, used by the WhatsApp OTP forgot-PIN flow. NULL means
+   *  this guard has no self-service reset path yet -- the manager-only
+   *  reset-pin fallback still applies. */
+  phone_number: string | null;
 }
 
 export interface RosterWeek {

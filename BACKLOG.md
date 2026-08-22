@@ -1,12 +1,12 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.20.2** — §14 there is the
-build status and roadmap, §1.17–§1.20 is the changelog for everything since v2.15. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.21.0** — §14 there is the
+build status and roadmap, §1.17–§1.21 is the changelog for everything since v2.15. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
-*Last updated: 20 August 2026*
+*Last updated: 22 August 2026*
 
 ---
 
@@ -39,7 +39,7 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–Z complete, live and in daily use
+## State: build steps A–AB complete, live and in daily use
 
 Full list in spec §14.1; changelog for every step is spec §1.1–§1.14. Step P (11 August) — per-day
 morning target override, a morning-priority coverage weight, the roster view stacking every
@@ -396,6 +396,50 @@ Full TypeScript typecheck clean, `test:cloud` all green (unchanged — still no 
 
 Nothing else mid-flight, no open branches.
 
+Step Y (14 August) — **removed the header bell icon that let a guard mute/disable push
+notifications** (spec §12.10). Ben's call: these notifications carry real schedule-affecting
+updates (submission deadlines, roster publishes), and he doesn't want anyone able to silence them
+through the app for any reason. Went further than just hiding the button — the underlying disable
+capability is gone too, not merely unreachable: `useNotifications.ts` lost `disable`/`toggle` in
+favor of a single `enable`, and `src/lib/push.ts` lost `unsubscribeFromPush()` entirely, since
+nothing calls it anymore. `GuardHome`'s existing one-time enable-prompt card (unchanged in shape,
+just now calls `enable` directly instead of `toggle`) is the only in-app notification control left,
+and it was already enable-only in practice — it only ever renders while
+`Notification.permission === 'default'`, so by the time a guard could want to disable something,
+the card is already gone.
+
+Worth being upfront about the actual limit here: this removes the *in-app* way to mute
+notifications. It was never possible, and still isn't, for a web app to prevent a guard from
+disabling notifications for the PWA at the OS/browser level (phone Settings → Notifications, or the
+browser's own site-permission UI) — that control has never belonged to this app and no code change
+here or anywhere else could take it away. What this change removes is the easy, one-tap in-app path
+that made muting them a casual, low-friction choice.
+
+Full TypeScript typecheck clean, `test:cloud` all green (10 suites unchanged — no backend touched;
+one run hit a known-flaky realtime websocket-timing assertion that passed clean on its own and on
+a full re-run immediately after, not a regression). `package.json`/`GitVersion.yml` bumped to
+2.19.0, tagged `v2.19.0`.
+
+**Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
+different underlying mechanism.
+
+**Thirteen test suites, mostly green** (`npm run test:cloud` + `test:fixtures` + `test_scheduler.py` +
+`test:compare` — spec §14.2). Gate E's engine fixtures grew from 8 to 13 in step L/O, then to 15 in
+step P. Gate H (`test:webauthn`, step X's revision) is the newest addition. **Gate D has a known,
+pre-existing, date-driven flake** — spec §14.2 has the full mechanics;
+short version: its dedicated test week (`2026-09-06`) now sits exactly on `ensure_roster_weeks()`'s
+sweep-window boundary, so real production traffic mid-test-run can sweep the test's own fixture row.
+Not a regression, self-resolves as the calendar moves past mid-September 2026; deliberately left
+unfixed (Ben's call, 11 August) rather than touched as part of an unrelated feature branch.
+
+**A real, live production bug was found and fixed in step P**, purely as a side effect of manually
+testing the new features in a browser (spec §12.1, §1.9 item 57): `ensure_roster_weeks()`'s
+"keep every untouched week's deadline live" step performed an unconditional `UPDATE`, and a
+same-value write still broadcasts a Realtime event — which the manager dashboard's own realtime
+subscription reacted to by re-triggering the same call, forever, for as long as `/manage` stayed
+open. Confirmed live against the production project (roughly one `ensure_roster_weeks()` call every
+100ms) before being fixed and re-verified gone.
+
 Step Z (20 August) — **per-week 12h/11h double-shift display setting** (spec §2.4d, migration 47):
 `WeekControlsPanel` gained a two-button toggle, styled identically to the existing morning-target
 2/3 toggle, that shortens the handover-boundary TEXT next to a day12/night12 guard's name by one
@@ -454,57 +498,95 @@ succeeds, the OLD PIN stops signing in immediately, the NEW one signs in, and th
 row (id, employee_code) is provably unchanged throughout. `package.json`/`GitVersion.yml` bumped to
 2.20.2, tagged `v2.20.2`.
 
-Step Y (14 August) — **removed the header bell icon that let a guard mute/disable push
-notifications** (spec §12.10). Ben's call: these notifications carry real schedule-affecting
-updates (submission deadlines, roster publishes), and he doesn't want anyone able to silence them
-through the app for any reason. Went further than just hiding the button — the underlying disable
-capability is gone too, not merely unreachable: `useNotifications.ts` lost `disable`/`toggle` in
-favor of a single `enable`, and `src/lib/push.ts` lost `unsubscribeFromPush()` entirely, since
-nothing calls it anymore. `GuardHome`'s existing one-time enable-prompt card (unchanged in shape,
-just now calls `enable` directly instead of `toggle`) is the only in-app notification control left,
-and it was already enable-only in practice — it only ever renders while
-`Notification.permission === 'default'`, so by the time a guard could want to disable something,
-the card is already gone.
+Step AB (22 August) — **self-service forgot-PIN via WhatsApp OTP** (spec §12.12, migrations 48–49,
+new `whatsapp-pin-reset` Edge Function): Step AA's manual reset worked, but Ben wanted a REAL
+"forgot password" system on the guard's own side — "instead of what we currently have, not in
+addition to it." No email or phone number existed anywhere in this schema before this — the only
+"email" in the whole system is the synthetic `{code}@guards.local` GoTrue login, unreachable by
+anyone — so a genuine self-service flow needed a real contact channel first. Ben's own idea, once
+asked what he had in mind: he already has every employee's real phone number and wants to use Meta's
+WhatsApp Business Cloud API to send a verification code.
 
-Worth being upfront about the actual limit here: this removes the *in-app* way to mute
-notifications. It was never possible, and still isn't, for a web app to prevent a guard from
-disabling notifications for the PWA at the OS/browser level (phone Settings → Notifications, or the
-browser's own site-permission UI) — that control has never belonged to this app and no code change
-here or anywhere else could take it away. What this change removes is the easy, one-tap in-app path
-that made muting them a casual, low-friction choice.
+`phone_number` (migration 48) added to `roster_codes`/`profiles`, following the exact dual-column
+pre-claim/post-claim shape `default_kamut` and `is_demo` already established, carried across at
+claim time by a dedicated `copy_phone_number()`/`trg_profiles_phone_number` trigger. **Required**
+when a manager adds a new employee (`AddEmployeeCard`), **optional and editable** for an existing
+one (`EmployeeRow`'s new phone toggle panel, same interaction shape as the existing PIN-reset one) —
+an existing guard with none on file simply keeps relying on Step AA's manual fallback until one is
+set. Deliberately **no uniqueness constraint** — Ben's explicit instruction: he'll test with several
+mock employees sharing his own real phone number first, and will ask for the constraint once that
+testing is done.
 
-Full TypeScript typecheck clean, `test:cloud` all green (10 suites unchanged — no backend touched;
-one run hit a known-flaky realtime websocket-timing assertion that passed clean on its own and on
-a full re-run immediately after, not a regression). `package.json`/`GitVersion.yml` bumped to
-2.19.0, tagged `v2.19.0`.
+New `whatsapp-pin-reset` Edge Function (not a third action bolted onto `claim-code` — a
+categorically bigger addition than anything added to that function since it was written, and it
+doesn't fit `reset-pin`'s manager-JWT auth model either), deployed `--no-verify-jwt` like
+`claim-code` since the guard has no session yet — now the **second** publicly-reachable
+unauthenticated write path in the system. Three actions: `otp_request` (looks up the phone on file,
+sends a 6-digit WhatsApp code, stores its SHA-256 hash — rate-limited by reusing
+`claim_rate_ok`/`record_claim_attempt` unmodified, migration 49 widening `claim_attempts.action` to
+add `'otp_request'`), `otp_verify` (5 wrong guesses kills that specific code — a per-row attempt
+counter, a different job from `claim_attempts`' rolling per-code/IP window — a correct guess mints a
+one-time `verify_token`), `otp_complete` (requires that token, resets the password via the same
+`admin.auth.admin.updateUserById()` call Step AA's `reset-pin` already uses, consumes the OTP row).
+New `pin_reset_otps` table (migration 49) follows the exact "fully sealed" RLS shape
+`webauthn_challenges`/`notification_secrets` already use — zero policies, `REVOKE ALL`, unreachable
+via PostgREST regardless of role.
 
-**Investigated and rejected:** a tiered כמות penalty — spec §13 item 9, don't re-attempt without a
-different underlying mechanism.
+One real ordering bug caught and fixed before shipping: the first draft checked whether
+`WHATSAPP_*` secrets were configured *before* checking whether the guard even has a phone number on
+file — meaning, with Meta not yet configured (see below), every `otp_request` would return the same
+generic "not configured" error regardless of the actual reason, masking the more specific "no phone
+on file" case and making it untestable until Meta setup was complete. Reordered so the business-logic
+check (does this guard have a phone?) runs first — simply the more correct order regardless of the
+Meta-configuration timing, and confirmed against production immediately after (Ben's own account,
+`005396`, correctly returns "no phone on file" rather than the generic config error).
 
-**Thirteen test suites, mostly green** (`npm run test:cloud` + `test:fixtures` + `test_scheduler.py` +
-`test:compare` — spec §14.2). Gate E's engine fixtures grew from 8 to 13 in step L/O, then to 15 in
-step P. Gate H (`test:webauthn`, step X's revision) is the newest addition. **Gate D has a known,
-pre-existing, date-driven flake** — spec §14.2 has the full mechanics;
-short version: its dedicated test week (`2026-09-06`) now sits exactly on `ensure_roster_weeks()`'s
-sweep-window boundary, so real production traffic mid-test-run can sweep the test's own fixture row.
-Not a regression, self-resolves as the calendar moves past mid-September 2026; deliberately left
-unfixed (Ben's call, 11 August) rather than touched as part of an unrelated feature branch.
+Login.tsx's old dead "החלפת קוד עובד" button — which did nothing but reset local state back to the
+code-entry step — is gone from the `'pin'` step, replaced by two honest, separate actions: a small
+"→ קוד אחר" back-link moved to the top (for "this isn't my code"), and a real "שכחתי סיסמה" button
+(for "this is my code, I forgot the PIN") that fires the OTP request immediately on tap and walks
+through two new steps — `'otpVerify'` (enter the code, unmasked since it's read off WhatsApp rather
+than recalled) and `'otpNewPin'` (choose a new PIN, exactly `'setPin'`'s shape, factored into a
+shared internal `PinChooser` component used by both). A successful reset signs the guard in
+immediately, same as `claim()` already does for first-time registration. `invokeClaimCode`
+(`AuthContext.tsx`) and `invokeResetPin` (`useTeam.ts`) — already near-identical copies of the same
+Edge-Function-error-unwrapping logic — were extracted into one shared `invokeEdgeFunction()`
+(`src/lib/edgeFunctions.ts`) rather than adding a third copy for this feature.
 
-**A real, live production bug was found and fixed in step P**, purely as a side effect of manually
-testing the new features in a browser (spec §12.1, §1.9 item 57): `ensure_roster_weeks()`'s
-"keep every untouched week's deadline live" step performed an unconditional `UPDATE`, and a
-same-value write still broadcasts a Realtime event — which the manager dashboard's own realtime
-subscription reacted to by re-triggering the same call, forever, for as long as `/manage` stayed
-open. Confirmed live against the production project (roughly one `ensure_roster_weeks()` call every
-100ms) before being fixed and re-verified gone.
+New Gate I (`npm run test:whatsapp`, `supabase/tests/whatsapp-pin-reset.cloud.test.mjs`, 19
+assertions) — same deliberate scope as Gate G never invoking `send-notifications` for a real push: a
+real WhatsApp send costs money and must never fire inside `test:cloud`. `otp_verify`/`otp_complete`
+are exercised for real by seeding a `pin_reset_otps` row directly via SQL with a known OTP's hash
+(correct/wrong/expired/5-guess-lockout/replay-after-consumption); `otp_request` is exercised for
+real on the one path reachable without touching Meta (a claimed guard with no phone on file) — the
+same path that doubles as confirmation of the ordering fix above. Migrations applied to the live
+database, full TypeScript typecheck clean, `test:cloud` (11 suites now, Gate I new) + `test:fixtures`
++ `test:rls` all green. `package.json`/`GitVersion.yml` bumped to 2.21.0, tagged `v2.21.0`.
+
+**Not yet live** — Meta WhatsApp Business setup (a verified Business Account, a WhatsApp Business
+Account, a phone number, a permanent System User access token, and a message template approved in
+the Authentication category) is entirely manual, on Ben's side; nothing here can do it. Until three
+secrets (`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TEMPLATE_NAME`) are set, every
+`otp_request` for a guard who does have a phone on file returns a clean `NO_WHATSAPP` error — Step
+AA's manual `reset-pin` covers every guard regardless in the meantime. Once Meta setup is done, a
+real end-to-end send needs confirming by hand once, the same class of real-device-only check push
+notifications and passkey ceremonies each needed.
 
 ---
 
 ## What is left
 
 Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
-deliberately deferred design choice, not a build gap. Five things still open, not build gaps:
+deliberately deferred design choice, not a build gap. Six things still open, not build gaps:
 
+- **Meta WhatsApp Business setup** (Step AB, spec §12.12) — the WhatsApp-OTP forgot-PIN feature is
+  code-complete and deployed but not yet live: a verified Meta Business Account, a WhatsApp Business
+  Account, a phone number, a permanent System User access token, and a message template approved in
+  the Authentication category are all manual, on Ben's side. Once those exist, three secrets
+  (`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TEMPLATE_NAME`) need setting and a
+  real send needs confirming by hand once. Every guard is covered by Step AA's manual fallback in the
+  meantime. Also still open, separately: the `phone_number` uniqueness constraint, deliberately
+  deferred until Ben's own multi-mock-employee testing is done.
 - **Passkey real-device registration + unlock confirmation** (Step X, spec §8) — now on the rebuilt
   app-scoped WebAuthn mechanism (own `webauthn` Edge Function, not Supabase's native Passkey API; see
   Step X's same-day revision above). Registering from Preferences on a real iPhone/Android, confirming
@@ -624,8 +706,8 @@ rejected the push — often a stale subscription that's already been pruned by t
 - Credentials in `.env.local` — **gitignored**, never committed
 - ⚠️ Outbound Postgres ports (5432/6543) are **firewalled on this machine**. `DATABASE_URL` will not
   work; migrations go over HTTPS through the Supabase Management API via `npm run db:apply`.
-- Edge Functions `claim-code`, `generate-schedule`, `send-notifications`, `webauthn`, and `reset-pin`
-  are deployed
+- Edge Functions `claim-code`, `generate-schedule`, `send-notifications`, `webauthn`, `reset-pin`,
+  and `whatsapp-pin-reset` are deployed
 - Solver live at `https://guard-solver.onrender.com`; `SOLVER_URL` and `SOLVER_SECRET` are set as
   Supabase Edge Function secrets
 - `pg_cron`/`pg_net` enabled (first use in this project, spec §12.10); one job, `notification_tick`,
@@ -633,7 +715,10 @@ rejected the push — often a stale subscription that's already been pruned by t
   `VAPID_SUBJECT` are set as Supabase Edge Function secrets; the matching `notify_url`/`cron_secret`
   pair lives in the `notification_secrets` table (not a GUC — see spec §12.10 for why), set via a
   plain `UPDATE`, not committed anywhere
-- 47 migrations applied, tracked in a `schema_migrations` ledger
+- ⚠️ `WHATSAPP_ACCESS_TOKEN`/`WHATSAPP_PHONE_NUMBER_ID`/`WHATSAPP_TEMPLATE_NAME` are **not yet set**
+  — `whatsapp-pin-reset` is deployed and returns a clean `NO_WHATSAPP` error until Ben completes the
+  Meta Business setup described in "What is left" above
+- 49 migrations applied, tracked in a `schema_migrations` ledger
 
 ### Current database contents
 
@@ -660,8 +745,9 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.20.2**
-(manager-triggered guard PIN reset), tagged `v2.20.2`.
+state that version describes), matching the spec's own version history. Currently at **2.21.0**
+(self-service forgot-PIN via WhatsApp OTP — code-complete, WhatsApp delivery pending Meta setup),
+tagged `v2.21.0`.
 
 ## Commands
 

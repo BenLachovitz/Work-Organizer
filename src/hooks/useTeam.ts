@@ -1,36 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { requireSupabase } from '@/lib/supabase';
+import { invokeEdgeFunction } from '@/lib/edgeFunctions';
 import { managerKeys } from '@/hooks/useManager';
-
-/**
- * Calls the reset-pin Edge Function and surfaces ITS error message -- same
- * reasoning as webauthn.ts's invokeWebauthn / AuthContext's invokeClaimCode:
- * supabase-js reports any non-2xx as a generic "Edge Function returned a
- * non-2xx status code" and leaves `data` null, which would hide every useful
- * Hebrew message the function actually produces. The real body hangs off
- * error.context.
- */
-async function invokeResetPin(body: {
-  guard_id: string;
-  new_pin: string;
-}): Promise<{ ok: true; displayName: string }> {
-  const { data, error } = await requireSupabase().functions.invoke<{
-    ok: true;
-    displayName: string;
-  }>('reset-pin', { body });
-  if (!error) return data!;
-
-  const ctx = (error as { context?: Response }).context;
-  if (ctx && typeof ctx.json === 'function') {
-    try {
-      const parsed = (await ctx.json()) as { error?: string };
-      if (parsed?.error) throw new Error(parsed.error);
-    } catch (e) {
-      if (e instanceof Error && e.message && !/JSON/i.test(e.message)) throw e;
-    }
-  }
-  throw new Error('שגיאת תקשורת. נסה שוב.');
-}
 
 /**
  * Team CRUD -- add an employee, delete one (claimed or still pending), and
@@ -48,6 +19,9 @@ export interface AddEmployeeInput {
   employeeCode: string;
   displayName: string;
   defaultKamut: number;
+  /** E.164, required for a new employee (§ TeamManagement) -- feeds the
+   *  WhatsApp OTP forgot-PIN flow once they claim their code. */
+  phoneNumber: string;
 }
 
 /**
@@ -64,6 +38,7 @@ export function useAddEmployee() {
         display_name: input.displayName,
         initial_role: 'guard',
         default_kamut: input.defaultKamut,
+        phone_number: input.phoneNumber,
       });
       if (error) {
         if (error.code === '23505') throw new Error('קוד עובד זה כבר קיים במערכת.');
@@ -121,7 +96,10 @@ export function useDeleteEmployee() {
 export function useResetGuardPin() {
   return useMutation({
     mutationFn: (input: { guardId: string; newPin: string }) =>
-      invokeResetPin({ guard_id: input.guardId, new_pin: input.newPin }),
+      invokeEdgeFunction<{ ok: true; displayName: string }>('reset-pin', {
+        guard_id: input.guardId,
+        new_pin: input.newPin,
+      }),
   });
 }
 
@@ -150,6 +128,38 @@ export function useUpdateDefaultKamut() {
         : await db
             .from('roster_codes')
             .update({ default_kamut: input.value })
+            .eq('employee_code', input.employeeCode);
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => void invalidateCodes(qc),
+  });
+}
+
+/**
+ * Sets/edits an existing employee's phone number -- optional, unlike
+ * AddEmployeeCard's required field, so an existing guard with none on file
+ * simply keeps using the manager-only reset-pin fallback until one is set.
+ * Same dual-table write as useUpdateDefaultKamut: profiles once claimed
+ * (trg_profiles_phone_number has already copied it there and it's the live,
+ * editable value from then on), roster_codes before.
+ */
+export function useUpdateEmployeePhone() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      employeeCode: string;
+      profileId: string | null;
+      phoneNumber: string | null;
+    }) => {
+      const db = requireSupabase();
+      const { error } = input.profileId
+        ? await db
+            .from('profiles')
+            .update({ phone_number: input.phoneNumber })
+            .eq('id', input.profileId)
+        : await db
+            .from('roster_codes')
+            .update({ phone_number: input.phoneNumber })
             .eq('employee_code', input.employeeCode);
       if (error) throw new Error(error.message);
     },

@@ -219,6 +219,9 @@ export interface RosterCodeStatus {
   /** Same real/demo flag as Profile.is_demo, from whichever of roster_codes
    *  / profiles currently holds the truth for this row. */
   is_demo: boolean;
+  /** E.164 phone number, from whichever of roster_codes / profiles currently
+   *  holds the truth for this row. NULL until the manager sets one. */
+  phone_number: string | null;
 }
 
 /** Registration status per badge code, for chasing guards who never signed up

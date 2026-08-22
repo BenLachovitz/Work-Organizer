@@ -14,10 +14,19 @@ import {
 } from '@/lib/supabase';
 import { registerPasskeyDevice } from '@/lib/webauthn';
 
-type Step = 'code' | 'pin' | 'setPin';
+type Step = 'code' | 'pin' | 'setPin' | 'otpVerify' | 'otpNewPin';
 
 export function Login() {
-  const { lookupCode, signIn, claim, signInWithPasskey, demoMode } = useAuth();
+  const {
+    lookupCode,
+    signIn,
+    claim,
+    signInWithPasskey,
+    requestPinResetOtp,
+    verifyPinResetOtp,
+    completePinResetOtp,
+    demoMode,
+  } = useAuth();
   // Hardware capability only -- the button is now hybrid (see tryPasskey), so
   // it's shown even on a device with nothing registered yet.
   const passkeySupported = usePasskeySupport();
@@ -28,6 +37,9 @@ export function Login() {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [pin, setPin] = useState('');
   const [pinConfirm, setPinConfirm] = useState('');
+  const [otp, setOtp] = useState('');
+  const [verifyToken, setVerifyToken] = useState<string | null>(null);
+  const [resendDisabled, setResendDisabled] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
@@ -95,6 +107,8 @@ export function Login() {
     setStep('code');
     setPin('');
     setPinConfirm('');
+    setOtp('');
+    setVerifyToken(null);
     setError(null);
   };
 
@@ -161,6 +175,81 @@ export function Login() {
       setBusy(false);
     }
   }, [claim, code, pin, pinConfirm, maybeAutoRegisterPasskey]);
+
+  // --- forgot PIN: 1) request a WhatsApp OTP ---------------------------------
+  const submitForgotPin = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await requestPinResetOtp(code);
+      setOtp('');
+      setStep('otpVerify');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'שליחת הקוד נכשלה');
+    } finally {
+      setBusy(false);
+    }
+  }, [code, requestPinResetOtp]);
+
+  const resendOtp = useCallback(async () => {
+    setResendDisabled(true);
+    setError(null);
+    try {
+      await requestPinResetOtp(code);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'שליחת הקוד נכשלה');
+    } finally {
+      setTimeout(() => setResendDisabled(false), 30_000);
+    }
+  }, [code, requestPinResetOtp]);
+
+  // --- forgot PIN: 2) verify the OTP -----------------------------------------
+  const submitOtp = useCallback(
+    async (value: string) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const { verifyToken: token } = await verifyPinResetOtp(code, value);
+        setVerifyToken(token);
+        setOtp('');
+        setStep('otpNewPin');
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'קוד שגוי');
+        setOtp('');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [code, verifyPinResetOtp],
+  );
+
+  // --- forgot PIN: 3) choose a new PIN ---------------------------------------
+  const submitOtpNewPin = useCallback(async () => {
+    if (pin.length < PIN_MIN_LENGTH) {
+      setError(`הסיסמה חייבת להכיל לפחות ${PIN_MIN_LENGTH} ספרות`);
+      return;
+    }
+    if (pin !== pinConfirm) {
+      setError('הסיסמאות אינן תואמות');
+      setPinConfirm('');
+      return;
+    }
+    if (!verifyToken) {
+      setError('האימות פג תוקף. התחל שוב.');
+      setStep('pin');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await completePinResetOtp(code, verifyToken, pin);
+      await maybeAutoRegisterPasskey();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'איפוס הסיסמה נכשל');
+    } finally {
+      setBusy(false);
+    }
+  }, [code, pin, pinConfirm, verifyToken, completePinResetOtp, maybeAutoRegisterPasskey]);
 
   return (
     // svh, not dvh: on first paint some mobile browsers resolve `dvh` against
@@ -280,6 +369,10 @@ export function Login() {
           {/* ---------------- step: existing PIN ---------------- */}
           {step === 'pin' && (
             <>
+              <Button variant="ghost" size="sm" onClick={reset}>
+                → קוד אחר
+              </Button>
+
               <div className="text-center">
                 <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
                   שלום{displayName ? `, ${displayName}` : ''}
@@ -319,8 +412,14 @@ export function Login() {
               >
                 התחבר
               </Button>
-              <Button variant="ghost" fullWidth size="sm" onClick={reset}>
-                החלפת קוד עובד
+              <Button
+                variant="secondary"
+                fullWidth
+                size="sm"
+                loading={busy}
+                onClick={() => void submitForgotPin()}
+              >
+                שכחתי סיסמה
               </Button>
             </>
           )}
@@ -337,45 +436,14 @@ export function Login() {
                 </p>
               </div>
 
-              <Alert tone="info">
-                הסיסמה מונעת מאחרים להיכנס עם קוד העובד שלך. שמור אותה לעצמך.
-              </Alert>
-
-              <div className="space-y-2">
-                <p className="text-center text-sm font-semibold text-slate-700 dark:text-slate-300">
-                  סיסמה חדשה
-                </p>
-                <CodeInput
-                  value={pin}
-                  onChange={setPin}
-                  length={PIN_MIN_LENGTH}
-                  masked
-                  autoFocus
-                  disabled={busy}
-                  ariaLabel="סיסמה חדשה"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-center text-sm font-semibold text-slate-700 dark:text-slate-300">
-                  אימות סיסמה
-                </p>
-                <CodeInput
-                  value={pinConfirm}
-                  onChange={setPinConfirm}
-                  length={PIN_MIN_LENGTH}
-                  masked
-                  disabled={busy}
-                  invalid={pinConfirm.length === PIN_MIN_LENGTH && pin !== pinConfirm}
-                  ariaLabel="אימות סיסמה"
-                />
-              </div>
-
-              <Toggle
-                checked={rememberMe}
-                onChange={toggleRememberMe}
-                label="הישאר מחובר במכשיר זה"
-                description="ללא כך, המערכת תבקש התחברות מחדש בכל פתיחה. בטל אם זה מכשיר משותף."
+              <PinChooser
+                pin={pin}
+                pinConfirm={pinConfirm}
+                onPinChange={setPin}
+                onPinConfirmChange={setPinConfirm}
+                busy={busy}
+                rememberMe={rememberMe}
+                onToggleRememberMe={toggleRememberMe}
               />
 
               {error && <Alert tone="error">{error}</Alert>}
@@ -394,6 +462,96 @@ export function Login() {
               </Button>
             </>
           )}
+
+          {/* ---------------- forgot PIN: enter the WhatsApp code ---------------- */}
+          {step === 'otpVerify' && (
+            <>
+              <Button variant="ghost" size="sm" onClick={() => setStep('pin')}>
+                → חזרה
+              </Button>
+
+              <div className="text-center">
+                <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                  אימות קוד
+                </h2>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  שלחנו קוד אימות בן {PIN_MIN_LENGTH} ספרות ב-WhatsApp. הזן אותו כאן.
+                </p>
+              </div>
+
+              <CodeInput
+                value={otp}
+                onChange={setOtp}
+                length={PIN_MIN_LENGTH}
+                autoFocus
+                disabled={busy}
+                invalid={Boolean(error)}
+                onComplete={(v) => void submitOtp(v)}
+                ariaLabel="קוד אימות"
+              />
+
+              {error && <Alert tone="error">{error}</Alert>}
+
+              <Button
+                fullWidth
+                size="lg"
+                loading={busy}
+                disabled={otp.length < PIN_MIN_LENGTH}
+                onClick={() => void submitOtp(otp)}
+              >
+                אימות
+              </Button>
+              <Button
+                variant="ghost"
+                fullWidth
+                size="sm"
+                disabled={resendDisabled}
+                onClick={() => void resendOtp()}
+              >
+                לא קיבלת קוד? שלח שוב
+              </Button>
+            </>
+          )}
+
+          {/* ---------------- forgot PIN: choose a new PIN ---------------- */}
+          {step === 'otpNewPin' && (
+            <>
+              <Button variant="ghost" size="sm" onClick={() => setStep('otpVerify')}>
+                → חזרה
+              </Button>
+
+              <div className="text-center">
+                <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                  בחירת סיסמה חדשה
+                </h2>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  הקוד אומת בהצלחה. בחר סיסמה אישית חדשה בת {PIN_MIN_LENGTH} ספרות.
+                </p>
+              </div>
+
+              <PinChooser
+                pin={pin}
+                pinConfirm={pinConfirm}
+                onPinChange={setPin}
+                onPinConfirmChange={setPinConfirm}
+                busy={busy}
+                rememberMe={rememberMe}
+                onToggleRememberMe={toggleRememberMe}
+              />
+
+              {error && <Alert tone="error">{error}</Alert>}
+
+              <Button
+                fullWidth
+                size="lg"
+                loading={busy}
+                disabled={pin.length < PIN_MIN_LENGTH || pinConfirm.length < PIN_MIN_LENGTH}
+                onClick={() => void submitOtpNewPin()}
+              >
+                שמירת הסיסמה
+              </Button>
+            </>
+          )}
         </Card>
 
         <p className="mt-6 text-center text-xs text-slate-500">
@@ -401,5 +559,73 @@ export function Login() {
         </p>
       </div>
     </div>
+  );
+}
+
+/**
+ * The "choose a new PIN" pair -- new PIN + confirm + remember-me -- shared
+ * verbatim between first-time registration ('setPin') and the WhatsApp-OTP
+ * forgot-PIN flow's last step ('otpNewPin'). Only the surrounding heading,
+ * info copy, submit button and back-link differ between the two callers, so
+ * only this inner block is factored out rather than the whole step.
+ */
+function PinChooser({
+  pin,
+  pinConfirm,
+  onPinChange,
+  onPinConfirmChange,
+  busy,
+  rememberMe,
+  onToggleRememberMe,
+}: {
+  pin: string;
+  pinConfirm: string;
+  onPinChange: (v: string) => void;
+  onPinConfirmChange: (v: string) => void;
+  busy: boolean;
+  rememberMe: boolean;
+  onToggleRememberMe: (v: boolean) => void;
+}) {
+  return (
+    <>
+      <Alert tone="info">הסיסמה מונעת מאחרים להיכנס עם קוד העובד שלך. שמור אותה לעצמך.</Alert>
+
+      <div className="space-y-2">
+        <p className="text-center text-sm font-semibold text-slate-700 dark:text-slate-300">
+          סיסמה חדשה
+        </p>
+        <CodeInput
+          value={pin}
+          onChange={onPinChange}
+          length={PIN_MIN_LENGTH}
+          masked
+          autoFocus
+          disabled={busy}
+          ariaLabel="סיסמה חדשה"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-center text-sm font-semibold text-slate-700 dark:text-slate-300">
+          אימות סיסמה
+        </p>
+        <CodeInput
+          value={pinConfirm}
+          onChange={onPinConfirmChange}
+          length={PIN_MIN_LENGTH}
+          masked
+          disabled={busy}
+          invalid={pinConfirm.length === PIN_MIN_LENGTH && pin !== pinConfirm}
+          ariaLabel="אימות סיסמה"
+        />
+      </div>
+
+      <Toggle
+        checked={rememberMe}
+        onChange={onToggleRememberMe}
+        label="הישאר מחובר במכשיר זה"
+        description="ללא כך, המערכת תבקש התחברות מחדש בכל פתיחה. בטל אם זה מכשיר משותף."
+      />
+    </>
   );
 }
