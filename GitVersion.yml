@@ -10,19 +10,17 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.22.1: the
-# self-service forgot-PIN feature (v2.21.0 WhatsApp, then v2.22.0 pushed to
-# a notification-based redesign) is FULLY REVERTED. A session-persistence
-# regression appeared in production after it shipped (every page refresh,
-# every device, signed out back to Login) that could not be pinned to any
-# line of the changes made -- confirmed via full diff, and reproduced even
-# on a device with no passkey registered, ruling that gate out too. Ben's
-# call: revert to the last confirmed-stable point (the manager-only
-# reset-pin tool, v2.20.2) rather than keep debugging a live regression with
-# an unconfirmed cause. Migrations 48-50 stay in the repo as historical
-# record (they really did run against the live database); migration 51
-# reverses their net effect instead of rewriting history.
-next-version: 2.22.1
+# version (see BACKLOG.md's Versioning section). Currently 2.22.2: fixed
+# useVisibleRosters() (src/hooks/useGuardPortal.ts) leaking every historical
+# published week into the guard-facing roster pages for a manager+guard
+# account (Ben) -- the is_manager() RLS branch has no date floor at all (by
+# design, for the /manage archive), so this hook now applies the same
+# guard_visible_from()-equivalent floor itself (src/lib/dates.ts's new
+# guardVisibleWeekFloor()) instead of trusting RLS alone to narrow it. Also
+# fixed RosterView.tsx/GuardHome.tsx mislabeling a genuinely past week (the
+# Sunday-morning grace window, or the stale-week symptom above) as "next
+# week" / "future week" instead of "last week". No schema/RLS change.
+next-version: 2.22.2
 mode: Mainline
 branches:
   main:

@@ -125,6 +125,29 @@ export function submissionDeadline(weekStart: DateKey): Date {
 }
 
 /**
+ * Earliest week_start a guard may see a published roster for -- mirrors the
+ * DB's guard_visible_from() (migration 16). Reaches back one week only until
+ * 07:00 on Sunday, Asia/Jerusalem, so an in-progress Saturday night shift
+ * stays visible; otherwise it's just the current week.
+ *
+ * useVisibleRosters() applies this itself rather than trusting RLS alone to
+ * narrow the result: a manager's own RLS policy has no date floor at all (by
+ * design, for the /manage archive), so a manager who is also an active guard
+ * (spec 2.1) would otherwise see every historical published week on their own
+ * guard-facing pages.
+ */
+export function guardVisibleWeekFloor(now: Date = new Date()): DateKey {
+  const current = weekStartOf(todayInIsrael());
+  const [y, m, d] = current.split('-').map(Number);
+  const naiveUtc = Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1, 7, 0, 0);
+  const probe = new Date(naiveUtc);
+  const local = new Date(probe.toLocaleString('en-US', { timeZone: ISRAEL_TZ }));
+  const utc = new Date(probe.toLocaleString('en-US', { timeZone: 'UTC' }));
+  const sevenAmIsrael = new Date(naiveUtc - (local.getTime() - utc.getTime()));
+  return now.getTime() < sevenAmIsrael.getTime() ? addDays(current, -7) : current;
+}
+
+/**
  * Converts between "day of week" (how a manager thinks about the submission
  * window, spec §12.4/migration 22) and "days before week_start" (how the
  * database stores it -- the same `week_start - N days` arithmetic

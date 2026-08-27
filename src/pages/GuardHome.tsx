@@ -89,10 +89,20 @@ export function GuardHome() {
               .sort((a, b) => a.target_date.localeCompare(b.target_date));
             // Label from the actual date, not from position in the list. With
             // no roster published for the current week, the first card is NEXT
-            // week and calling it "current" would be a lie.
+            // week and calling it "current" would be a lie -- and during the
+            // Sunday-morning grace window (useVisibleRosters/
+            // guardVisibleWeekFloor), the first card can genuinely be LAST
+            // week instead, which needs its own label rather than falling
+            // into "future".
             const isCurrent = wk.weekStart === currentStart;
             const isNext = wk.weekStart === addDays(currentStart, 7);
-            const label = isCurrent ? 'השבוע' : isNext ? 'שבוע הבא' : 'שבוע עתידי';
+            const label = isCurrent
+              ? 'השבוע'
+              : isNext
+                ? 'שבוע הבא'
+                : wk.weekStart < currentStart
+                  ? 'שבוע שעבר'
+                  : 'שבוע עתידי';
 
             return (
               <Card

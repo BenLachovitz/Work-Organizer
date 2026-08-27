@@ -6,6 +6,7 @@ import { useVisibleRosters, type WeekRoster } from '@/hooks/useGuardPortal';
 import { useRosterRealtime } from '@/hooks/useRosterRealtime';
 import {
   HEBREW_DAYS,
+  addDays,
   dayIndex,
   formatDayMonth,
   formatWeekRange,
@@ -73,16 +74,26 @@ export function RosterView() {
           </Alert>
         )}
 
-        {weeks.map((week) => (
-          <WeekSection
-            key={week.runId}
-            week={week}
-            guards={guards}
-            profileId={profile?.id}
-            isCurrent={week.weekStart === currentStart}
-            today={today}
-          />
-        ))}
+        {weeks.map((week) => {
+          const isCurrent = week.weekStart === currentStart;
+          const isNext = week.weekStart === addDays(currentStart, 7);
+          const title = isCurrent
+            ? 'השבוע'
+            : isNext
+              ? `שבוע הבא · ${formatWeekRange(week.weekStart)}`
+              : `שבוע שעבר · ${formatWeekRange(week.weekStart)}`;
+          return (
+            <WeekSection
+              key={week.runId}
+              week={week}
+              guards={guards}
+              profileId={profile?.id}
+              isCurrent={isCurrent}
+              title={title}
+              today={today}
+            />
+          );
+        })}
       </div>
     </AppShell>
   );
@@ -93,12 +104,14 @@ function WeekSection({
   guards,
   profileId,
   isCurrent,
+  title,
   today,
 }: {
   week: WeekRoster;
   guards: Profile[];
   profileId: string | undefined;
   isCurrent: boolean;
+  title: string;
   today: string;
 }) {
   const mine = week.assignments
@@ -108,7 +121,7 @@ function WeekSection({
   return (
     <div className="space-y-3">
       <RosterGrid
-        title={isCurrent ? 'השבוע' : `שבוע הבא · ${formatWeekRange(week.weekStart)}`}
+        title={title}
         weekStart={week.weekStart}
         morningTarget={week.morningTarget}
         morningTargetOverrides={week.morningTargetOverrides}

@@ -8,7 +8,7 @@ import type {
   WeeklySubmission,
   WishPreference,
 } from '@/types/database';
-import type { DateKey } from '@/lib/dates';
+import { guardVisibleWeekFloor, type DateKey } from '@/lib/dates';
 import type {
   BaseShift,
   DoubleShiftHours,
@@ -228,12 +228,17 @@ export interface WeekRoster {
 }
 
 /**
- * Every published roster this user is allowed to see, oldest week first.
+ * Every published roster this user is allowed to see, oldest week first --
+ * meant to be the current week and the next one, once both are published.
  *
- * Deliberately asks no question about weeks: RLS already answers it. A guard
- * gets the current week and anything after it (plus the previous week until
- * 07:00 on Sunday, so an in-progress night shift stays readable); a manager
- * gets everything. In practice that is the current week and the next one.
+ * Filtered here to guardVisibleWeekFloor() (current week, or last week only
+ * during the Sunday-morning grace window) rather than trusting RLS alone to
+ * narrow it: RLS's own guard-visible floor only applies to the `guard` role
+ * branch -- the `is_manager()` branch is a deliberate, unconditional bypass
+ * for the /manage archive browser, with no date floor at all. Ben is both
+ * manager and an active guard (spec 2.1), so without this filter his own
+ * guard-facing pages would silently show every historical published week
+ * instead of degrading to just the current one.
  *
  * This exists because the guard home page used to ask "which week is open for
  * SUBMISSIONS?" and then look for a roster on that week. Those are two
@@ -257,7 +262,10 @@ export function useVisibleRosters() {
         .order('week_start', { ascending: true });
       if (error) throw new Error(error.message);
 
-      const list = (runs ?? []) as { id: string; week_start: string }[];
+      const floor = guardVisibleWeekFloor();
+      const list = ((runs ?? []) as { id: string; week_start: string }[]).filter(
+        (r) => r.week_start >= floor,
+      );
       if (!list.length) return { weeks: [], guards: [] };
 
       const [assignRes, guardRes, weekRes, overrideRes, segmentOverrideRes] = await Promise.all([
