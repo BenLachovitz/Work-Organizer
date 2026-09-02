@@ -68,11 +68,14 @@ export function buildAfternoonRows(
   // A placeholder (guard_id === null) renders as an extra row but is not a
   // real body -- it must never count against the target, or a cosmetic note
   // could silently hide a real coverage gap underneath it. So padding is
-  // driven by how many REAL rows exist, not by rows.length.
-  const realFull = full.filter((a) => a.guard_id != null).length;
+  // driven by how many REAL (or explicitly coverage-occupying, §12.9
+  // migration 52) rows exist, not by rows.length.
+  const occupies = (a: ScheduleAssignment | null | undefined) =>
+    a != null && (a.guard_id != null || a.occupies_slot);
+  const realFull = full.filter(occupies).length;
   let realPairs = 0;
   for (let i = 0; i < pairs; i++) {
-    if (early[i]?.guard_id != null || late[i]?.guard_id != null) realPairs++;
+    if (occupies(early[i]) || occupies(late[i])) realPairs++;
   }
   const realRows = realFull + realPairs;
 
@@ -188,9 +191,12 @@ export function RosterGrid({
   const onDay = (date: DateKey) => assignments.filter((a) => a.target_date === date);
 
   /** Coverage of one segment on one day, for the shortfall colouring. A
-   *  placeholder (§12.9) is not a real body and must never count toward it. */
+   *  placeholder (§12.9) is not a real body and must never count toward it,
+   *  unless it's explicitly marked as occupying a slot (migration 52). */
   const covers = (date: DateKey, seg: Segment) =>
-    onDay(date).filter((a) => a.guard_id && SHIFTS[a.shift].covers.includes(seg)).length;
+    onDay(date).filter(
+      (a) => (a.guard_id || a.occupies_slot) && SHIFTS[a.shift].covers.includes(seg),
+    ).length;
 
   const cellTone = (date: DateKey, dayIndex: number, segs: Segment[]) => {
     const floors = segmentFloors(
@@ -304,9 +310,10 @@ export function RosterGrid({
                       segmentTargetOverrides,
                     ).S1;
                     // A placeholder (§12.9) renders as an extra chip but is
-                    // not a real body -- gap padding is driven by the REAL
-                    // count, or a cosmetic note could hide a genuine shortfall.
-                    const realCount = rows.filter((a) => a.guard_id != null).length;
+                    // not a real body -- gap padding is driven by the REAL (or
+                    // explicitly coverage-occupying, migration 52) count, or a
+                    // cosmetic note could hide a genuine shortfall.
+                    const realCount = rows.filter((a) => a.guard_id != null || a.occupies_slot).length;
                     content = rows.length ? (
                       <>
                         {rows.map((a) => (
@@ -344,7 +351,7 @@ export function RosterGrid({
                       morningTargetOverrides,
                       segmentTargetOverrides,
                     ).S4;
-                    const realCount = rows.filter((a) => a.guard_id != null).length;
+                    const realCount = rows.filter((a) => a.guard_id != null || a.occupies_slot).length;
                     content = rows.length ? (
                       <>
                         {rows.map((a) => (

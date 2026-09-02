@@ -109,5 +109,7 @@ export interface ScheduleAssignment {
   guard_id: string | null;
   note_before: string | null;
   note_after: string | null;
+  /** Placeholder-only: TRUE counts this guard-less row toward coverage like a real assignment. Always FALSE when guard_id is set. */
+  occupies_slot: boolean;
   created_at: string;
 }

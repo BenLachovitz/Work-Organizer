@@ -163,6 +163,42 @@ console.log('Placeholder (guard-less) assignment rows (§12.9, migration 39)');
   ]});
   error ? ok('a placeholder with no note at all is rejected') : bad('blank placeholder','succeeded');
 }
+
+console.log('');
+console.log('Placeholder occupies_slot (§12.9, migration 52)');
+{
+  // A placeholder marked as occupying a slot still needs a note (Ben's call:
+  // occupies_slot does not relax placeholder_needs_a_note) -- with one, it
+  // saves and persists occupies_slot = true.
+  await mgr.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[
+    {date:WEEK,shift:'night',guard_id:null,note_before:'מכוסה - לא רשום',occupies_slot:true},
+  ]});
+  const rows=await sql(`SELECT guard_id gid, occupies_slot os FROM schedule_assignments WHERE run_id='${RUN}' AND target_date='${WEEK}'::date AND shift='night'`);
+  rows.length===1 && rows[0].gid===null && rows[0].os===true
+    ? ok('a placeholder with a note and occupies_slot:true saves and persists the flag')
+    : bad('occupies_slot true placeholder',JSON.stringify(rows));
+}
+{
+  // A REAL assignment can never set occupies_slot -- it's meaningless there
+  // (a real assignment already occupies its own slot), enforced by the new
+  // occupies_slot_only_on_placeholder CHECK.
+  const { error } = await mgr.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[
+    {date:WEEK,shift:'morning',guard_id:idOf(G1),occupies_slot:true},
+  ]});
+  error ? ok('occupies_slot:true on a real assignment is rejected') : bad('occupies_slot on real row','succeeded');
+}
+{
+  // Omitting occupies_slot entirely (old-shaped client payload) defaults to
+  // false -- backward compatible with a client that predates this column.
+  await mgr.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[
+    {date:WEEK,shift:'night',guard_id:null,note_before:'הערה בלבד'},
+  ]});
+  const rows=await sql(`SELECT occupies_slot os FROM schedule_assignments WHERE run_id='${RUN}' AND target_date='${WEEK}'::date AND shift='night'`);
+  rows.length===1 && rows[0].os===false
+    ? ok('occupies_slot defaults to false when omitted from the payload')
+    : bad('occupies_slot default',JSON.stringify(rows));
+}
+
 {
   const { error } = await g1.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[]});
   error?ok('a guard cannot edit a roster'):bad('guard edit','succeeded');

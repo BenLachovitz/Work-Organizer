@@ -10,17 +10,20 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.22.2: fixed
-# useVisibleRosters() (src/hooks/useGuardPortal.ts) leaking every historical
-# published week into the guard-facing roster pages for a manager+guard
-# account (Ben) -- the is_manager() RLS branch has no date floor at all (by
-# design, for the /manage archive), so this hook now applies the same
-# guard_visible_from()-equivalent floor itself (src/lib/dates.ts's new
-# guardVisibleWeekFloor()) instead of trusting RLS alone to narrow it. Also
-# fixed RosterView.tsx/GuardHome.tsx mislabeling a genuinely past week (the
-# Sunday-morning grace window, or the stale-week symptom above) as "next
-# week" / "future week" instead of "last week". No schema/RLS change.
-next-version: 2.22.2
+# version (see BACKLOG.md's Versioning section). Currently 2.23.0: a
+# placeholder (guard-less schedule_assignments row, migration 39/§12.9) can
+# now optionally be marked occupies_slot -- a new BOOLEAN column, migration
+# 52, meaningful only on a placeholder row (CHECK-enforced FALSE on any real
+# assignment) -- so it counts toward segment coverage (floor/target/ceiling)
+# like a real assignment while still carrying no guard identity, staying
+# excluded from availability/rest/one-shift-per-day/the weekly ceiling/any
+# guard's own כמות. src/lib/validate.ts's referee gained its first-ever
+# guard_id === null branch to support this (coverageBySegment() already
+# counted guard-agnostically; only the guard-specific loops needed a skip).
+# RosterEditor.tsx/RosterGrid.tsx/exportRoster.ts's existing placeholder-
+# exclusion predicates widened accordingly. Default FALSE, so every existing
+# placeholder keeps its prior behaviour unchanged.
+next-version: 2.23.0
 mode: Mainline
 branches:
   main:

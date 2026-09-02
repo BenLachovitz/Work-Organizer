@@ -74,6 +74,8 @@ export interface DraftAssignment {
   /** Free text rendered before/after the guard's name on this cell (§2.2c) -- empty string, not undefined, so the SlotEditor's inputs stay controlled. */
   noteBefore: string;
   noteAfter: string;
+  /** Placeholder-only (§12.9, migration 52): counts this guard-less row toward coverage like a real assignment. Always false when guard_id is set. */
+  occupiesSlot: boolean;
 }
 
 let seq = 0;
@@ -116,6 +118,7 @@ export function RosterEditor({
       date: a.target_date,
       noteBefore: a.note_before ?? '',
       noteAfter: a.note_after ?? '',
+      occupiesSlot: a.occupies_slot,
     })),
   );
   const [openCell, setOpenCell] = useState<{ date: DateKey; block: BlockKey } | null>(null);
@@ -158,17 +161,19 @@ export function RosterEditor({
 
   // --- referee -------------------------------------------------------------
   // A placeholder is not a real guard: it never marked availability, can't be
-  // double-booked, and doesn't need rest. It's excluded here entirely rather
-  // than taught to every hard rule -- the referee never learns placeholders
-  // exist, the same way it never learns about a guard who isn't in the roster.
-  const isReal = (d: DraftAssignment): d is DraftAssignment & { guard_id: string } =>
-    d.guard_id !== null;
+  // double-booked, and doesn't need rest -- so it's never taught to those
+  // hard rules (validate.ts skips a null guard_id there entirely). But if the
+  // manager has marked it as occupying a slot (§12.9, migration 52), it should
+  // still count toward the referee's guard-agnostic coverage math (H6
+  // ceiling, floor/target gaps) -- so it's included here, with guard_id left
+  // null, rather than excluded outright.
+  const countsTowardCoverage = (d: DraftAssignment) => d.guard_id !== null || d.occupiesSlot;
   const verdict = useMemo(
     () =>
       verifySchedule(solverInput, {
         status: 'EDITED',
         objective_value: 0,
-        assignments: draft.filter(isReal).map((d) => ({
+        assignments: draft.filter(countsTowardCoverage).map((d) => ({
           day: dayIndexInWeek(weekStart, d.date),
           date: d.date,
           shift: d.shift,
@@ -195,7 +200,8 @@ export function RosterEditor({
         orig.guard_id !== d.guard_id ||
         orig.shift !== d.shift ||
         (orig.note_before ?? '') !== d.noteBefore ||
-        (orig.note_after ?? '') !== d.noteAfter
+        (orig.note_after ?? '') !== d.noteAfter ||
+        orig.occupies_slot !== d.occupiesSlot
       );
     });
 
@@ -203,10 +209,10 @@ export function RosterEditor({
   const update = (key: string, patch: Partial<DraftAssignment>) =>
     setDraft((prev) => prev.map((d) => (d.key === key ? { ...d, ...patch } : d)));
   const remove = (key: string) => setDraft((prev) => prev.filter((d) => d.key !== key));
-  const add = (date: DateKey, shift: ShiftType, guard_id: string | null) =>
+  const add = (date: DateKey, shift: ShiftType, guard_id: string | null, occupiesSlot = false) =>
     setDraft((prev) => [
       ...prev,
-      { key: newKey(), guard_id, shift, date, noteBefore: '', noteAfter: '' },
+      { key: newKey(), guard_id, shift, date, noteBefore: '', noteAfter: '', occupiesSlot },
     ]);
 
   const onDate = (date: DateKey) => draft.filter((d) => d.date === date);
@@ -226,9 +232,11 @@ export function RosterEditor({
     );
     // A placeholder chip is not a real body -- it must never count toward
     // coverage, or a cosmetic note could paint a genuinely short-staffed cell
-    // green.
+    // green. Unless the manager explicitly marked it as occupying a slot
+    // (§12.9, migration 52), in which case it should behave exactly like one.
     const cov = (s: Segment) =>
-      onDate(date).filter((d) => d.guard_id && SHIFTS[d.shift].covers.includes(s)).length;
+      onDate(date).filter((d) => (d.guard_id || d.occupiesSlot) && SHIFTS[d.shift].covers.includes(s))
+        .length;
     if (segs.some((s) => cov(s) < floors[s]))
       return 'bg-rose-50 ring-rose-300 dark:bg-rose-950/40 dark:ring-rose-800';
     if (segs.some((s) => cov(s) < targets[s]))
@@ -499,11 +507,12 @@ function SlotEditor({
   onClose: () => void;
   onUpdate: (key: string, patch: Partial<DraftAssignment>) => void;
   onRemove: (key: string) => void;
-  onAdd: (date: DateKey, shift: ShiftType, guardId: string | null) => void;
+  onAdd: (date: DateKey, shift: ShiftType, guardId: string | null, occupiesSlot?: boolean) => void;
 }) {
   const dayIdx = dayIndexInWeek(weekStart, date);
   const [addGuard, setAddGuard] = useState('');
   const [addShift, setAddShift] = useState<ShiftType>(block.shifts[0]!);
+  const [addOccupiesSlot, setAddOccupiesSlot] = useState(false);
 
   /** Did this guard actually mark this shift? Shown, never enforced. Meaningless for a placeholder, so it's always "yes" -- there's no warning to show. */
   const marked = (guardId: string | null, shift: ShiftType) => {
@@ -572,14 +581,17 @@ function SlotEditor({
               <div className="flex gap-2">
                 <select
                   value={r.guard_id ?? PLACEHOLDER_OPTION}
-                  onChange={(e) =>
-                    onUpdate(r.key, {
-                      guard_id: e.target.value === PLACEHOLDER_OPTION ? null : e.target.value,
-                    })
-                  }
+                  onChange={(e) => {
+                    const guard_id = e.target.value === PLACEHOLDER_OPTION ? null : e.target.value;
+                    // occupiesSlot only ever means something on a placeholder
+                    // (the DB rejects it otherwise) -- force it off the moment
+                    // a real guard is picked, so the draft never carries a
+                    // combination the save would be refused for.
+                    onUpdate(r.key, { guard_id, occupiesSlot: guard_id === null ? r.occupiesSlot : false });
+                  }}
                   className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 >
-                  <option value={PLACEHOLDER_OPTION}>— ריק (הערה בלבד, לא נספר בכיסוי)</option>
+                  <option value={PLACEHOLDER_OPTION}>— ריק (הערה בלבד)</option>
                   {guards.map((g) => (
                     <option key={g.id} value={g.id}>
                       {g.display_name}
@@ -629,6 +641,17 @@ function SlotEditor({
                   className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                 />
               </div>
+              {r.guard_id === null && (
+                <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
+                  <input
+                    type="checkbox"
+                    checked={r.occupiesSlot}
+                    onChange={(e) => onUpdate(r.key, { occupiesSlot: e.target.checked })}
+                    className="rounded border-slate-300 dark:border-slate-600"
+                  />
+                  תופס משבצת בכיסוי (נספר ברצפה/יעד כאילו יש כאן מאבטח)
+                </label>
+              )}
               {!marked(r.guard_id, r.shift) && (
                 <p className="text-xs text-amber-700 dark:text-amber-400">
                   ⚠ לא סומן על ידי המאבטח - שיבוץ ידני
@@ -655,11 +678,16 @@ function SlotEditor({
           <div className="flex gap-2">
             <select
               value={addGuard}
-              onChange={(e) => setAddGuard(e.target.value)}
+              onChange={(e) => {
+                setAddGuard(e.target.value);
+                // Same rule as the per-row select: occupiesSlot only ever
+                // applies to a placeholder.
+                if (e.target.value !== PLACEHOLDER_OPTION) setAddOccupiesSlot(false);
+              }}
               className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
             >
               <option value="">בחר מאבטח…</option>
-              <option value={PLACEHOLDER_OPTION}>— ריק (הערה בלבד, לא נספר בכיסוי)</option>
+              <option value={PLACEHOLDER_OPTION}>— ריק (הערה בלבד)</option>
               {guards.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.display_name}
@@ -683,13 +711,30 @@ function SlotEditor({
               size="sm"
               disabled={!addGuard}
               onClick={() => {
-                onAdd(date, addShift, addGuard === PLACEHOLDER_OPTION ? null : addGuard);
+                onAdd(
+                  date,
+                  addShift,
+                  addGuard === PLACEHOLDER_OPTION ? null : addGuard,
+                  addGuard === PLACEHOLDER_OPTION ? addOccupiesSlot : false,
+                );
                 setAddGuard('');
+                setAddOccupiesSlot(false);
               }}
             >
               הוסף
             </Button>
           </div>
+          {addGuard === PLACEHOLDER_OPTION && (
+            <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
+              <input
+                type="checkbox"
+                checked={addOccupiesSlot}
+                onChange={(e) => setAddOccupiesSlot(e.target.checked)}
+                className="rounded border-slate-300 dark:border-slate-600"
+              />
+              תופס משבצת בכיסוי (נספר ברצפה/יעד כאילו יש כאן מאבטח)
+            </label>
+          )}
           {block.key === 'afternoon' && (
             <p className="text-xs text-slate-500 dark:text-slate-400">
               משמרת 12 שעות מתווספת דרך הבוקר (עד 18:45) או דרך הלילה (מ-18:45).
@@ -697,7 +742,9 @@ function SlotEditor({
           )}
           <p className="text-xs text-slate-500 dark:text-slate-400">
             ״ריק״ מוסיף תא ללא מאבטח אמיתי, לכתיבת הערה חופשית בלבד -- למשל כדי לתאר חפיפה בתוך
-            משמרת אחת בלי לפצל אותה. לא נבדק מול זמינות ולא נספר בכיסוי או בכמות.
+            משמרת אחת בלי לפצל אותה. לא נבדק מול זמינות. באופן רגיל גם לא נספר בכיסוי או בכמות,
+            אלא אם מסמנים ״תופס משבצת בכיסוי״ -- ואז הוא נספר לרצפה/יעד בלי להיות משויך למאבטח
+            מסוים.
           </p>
         </div>
 

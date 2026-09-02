@@ -313,6 +313,50 @@ for (const file of files) {
   console.log(`    ${summarise(verdict.report).join(' · ')}\n`);
 }
 
+// --- referee-only check: coverage-occupying placeholders (§12.9, migration 52) ---
+//
+// A placeholder (guard_id: null) is never produced by either engine -- it only
+// ever exists as a manual edit -- so no golden fixture above can exercise it;
+// every fixture's `output` comes straight from mockSolve(). This hand-builds
+// a SolverOutput instead, reusing fixture 02's already-valid input (every
+// guard at effective_kamut 0 with zero availability, morning_target_slots 2,
+// so day 0 (Sunday)'s S1 floor is 1 and target is 2 -- see segmentFloors()).
+{
+  console.log('\x1b[1mreferee-only: placeholder marked occupies_slot\x1b[0m');
+  const raw = JSON.parse(await readFile(join(dir, '02-all-empty.json'), 'utf8'));
+  const input = solverInputSchema.parse(raw);
+  const output = solverOutputSchema.parse({
+    status: 'EDITED',
+    objective_value: 0,
+    assignments: [{ day: 0, date: input.week_start, shift: 'morning', guard_id: null }],
+    coverage_report: { floor_breaches: [], target_gaps: [], unmet_kamut: [], rest_violations: [] },
+  });
+  const verdict = verifySchedule(input, output);
+
+  verdict.violations.length === 0
+    ? ok('a coverage-occupying placeholder triggers no H1-H7 violation')
+    : bad('placeholder hard rules', verdict.violations.map((v) => `${v.rule}: ${v.message}`).join(' | '));
+
+  // S1/day0's floor is 1 -- one placeholder should be enough to resolve it
+  // outright, proving it counts as real coverage even with no guard behind it.
+  const floorStillBreached = verdict.report.floor_breaches.some((b) => b.day === 0 && b.segment === 'S1');
+  !floorStillBreached
+    ? ok('the placeholder alone closes the S1/day0 floor breach (floor is 1)')
+    : bad('placeholder floor resolution', 'S1/day0 still reported as a floor breach');
+
+  // S1/day0's target is 2 -- still short by one, but assigned should now read
+  // 1, not 0, showing the placeholder was actually counted rather than the
+  // floor coincidentally clearing some other way.
+  const s1Target = verdict.report.target_gaps.find((b) => b.day === 0 && b.segment === 'S1');
+  s1Target && s1Target.assigned === 1
+    ? ok(`the placeholder counts toward S1/day0 coverage (assigned: ${s1Target.assigned}, target: ${s1Target.target})`)
+    : bad('placeholder coverage count', JSON.stringify(s1Target));
+
+  verdict.report.unmet_kamut.length === 0
+    ? ok('the placeholder is attributed to no guard, so no כמות is affected')
+    : bad('placeholder kamut leak', JSON.stringify(verdict.report.unmet_kamut));
+}
+
 console.log(`\x1b[1mResult:\x1b[0m \x1b[32m${passed} passed\x1b[0m, ` +
   (failures.length ? `\x1b[31m${failures.length} failed\x1b[0m` : '0 failed'));
 if (failures.length) {

@@ -340,6 +340,7 @@ export function ManagerDashboard() {
                             guard_id: d.guard_id,
                             note_before: d.noteBefore,
                             note_after: d.noteAfter,
+                            occupies_slot: d.occupiesSlot,
                           })),
                         },
                         { onSuccess: () => setEditing(false) },

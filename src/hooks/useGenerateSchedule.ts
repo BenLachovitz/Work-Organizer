@@ -346,6 +346,8 @@ export function useSaveRunAssignments() {
         guard_id: string | null;
         note_before?: string;
         note_after?: string;
+        /** Placeholder-only: counts a guard-less row toward coverage (§12.9, migration 52). */
+        occupies_slot?: boolean;
       }[];
     }) => {
       const { error } = await requireSupabase().rpc('save_run_assignments', {

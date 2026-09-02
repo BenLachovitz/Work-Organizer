@@ -62,7 +62,11 @@ export function verifySchedule(input: SolverInput, output: SolverOutput): Verify
   const assignments = output.assignments;
 
   // --- H1 availability, H2 12h eligibility ---------------------------------
+  // A coverage-occupying placeholder (guard_id === null, §12.9/migration 52)
+  // has no guard behind it -- nothing to check availability or 12h opt-in
+  // against, so it's skipped entirely here rather than taught to H1/H2.
   for (const a of assignments) {
+    if (a.guard_id === null) continue;
     const g = guards.get(a.guard_id);
     if (!g) {
       violations.push({
@@ -105,9 +109,14 @@ export function verifySchedule(input: SolverInput, output: SolverOutput): Verify
   }
 
   // --- H3 one shift per day, H4 weekly ceiling -----------------------------
+  // A coverage-occupying placeholder is nobody's shift -- it can't double-book
+  // a guard, doesn't count toward any guard's weekly ceiling, and (via
+  // `totals`, reused below for unmet_kamut and in scoreSchedule's stretch
+  // bonus) doesn't count toward any guard's כמות either.
   const byGuardDay = new Map<string, ShiftType[]>();
   const totals = new Map<string, number>();
   for (const a of assignments) {
+    if (a.guard_id === null) continue;
     const k = `${a.guard_id}|${a.day}`;
     const list = byGuardDay.get(k) ?? [];
     list.push(a.shift);
@@ -139,7 +148,11 @@ export function verifySchedule(input: SolverInput, output: SolverOutput): Verify
   // --- H5 rest between consecutive days, H7 carry-in ------------------------
   const restViolations: CoverageReport['rest_violations'] = [];
   const shiftOn = new Map<string, ShiftType>();
-  for (const a of assignments) shiftOn.set(`${a.guard_id}|${a.day}`, a.shift);
+  // Excludes coverage-occupying placeholders -- there's no guard to rest.
+  for (const a of assignments) {
+    if (a.guard_id === null) continue;
+    shiftOn.set(`${a.guard_id}|${a.day}`, a.shift);
+  }
 
   for (const g of input.guards) {
     // H7: previous Saturday -> this Sunday.
@@ -287,8 +300,10 @@ export function scoreSchedule(
   const kamutGap = report.unmet_kamut.reduce((s, b) => s + (b.effective_kamut - b.assigned), 0);
 
   // Each assignment scores the flat pref weight, plus the preferred bonus if
-  // it matches a slot the guard marked עדיפות (strength 2) that day.
+  // it matches a slot the guard marked עדיפות (strength 2) that day. A
+  // coverage-occupying placeholder has no guard's preference to score.
   const prefScore = assignments.reduce((s, a) => {
+    if (a.guard_id === null) return s;
     const g = guards.get(a.guard_id);
     const preferred = g?.preferred[String(a.day)]?.includes(SHIFTS[a.shift].requiresBase);
     return s + w.pref + (preferred ? w.preferred : 0);
@@ -297,9 +312,12 @@ export function scoreSchedule(
   // Stretch bonus: shifts a guard worked beyond their effective_kamut, up to
   // their own stretch_target -- count-based like kamutGap, not per-assignment
   // like prefScore, since it's inherently about total volume rather than
-  // which specific slot was matched.
+  // which specific slot was matched. Placeholders excluded, same as above.
   const totals = new Map<string, number>();
-  for (const a of assignments) totals.set(a.guard_id, (totals.get(a.guard_id) ?? 0) + 1);
+  for (const a of assignments) {
+    if (a.guard_id === null) continue;
+    totals.set(a.guard_id, (totals.get(a.guard_id) ?? 0) + 1);
+  }
   const stretchBonus = input.guards.reduce((s, g) => {
     const worked = totals.get(g.id) ?? 0;
     return s + Math.max(0, Math.min(worked, g.stretch_target) - g.effective_kamut);

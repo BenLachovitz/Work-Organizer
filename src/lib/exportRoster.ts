@@ -206,9 +206,10 @@ function rowsFor(
     }));
     if (rows.length > 0) {
       // A placeholder (§12.9) renders as an extra chip but is not a real
-      // body -- padding is driven by the REAL count, or a cosmetic note
-      // could hide a genuine shortfall.
-      const realCount = dayRows.filter((a) => a.guard_id != null).length;
+      // body -- padding is driven by the REAL (or explicitly coverage-
+      // occupying, migration 52) count, or a cosmetic note could hide a
+      // genuine shortfall.
+      const realCount = dayRows.filter((a) => a.guard_id != null || a.occupies_slot).length;
       for (let i = realCount; i < target; i++) rows.push({ kind: 'gap' });
     }
     return rows;
@@ -224,7 +225,7 @@ function rowsFor(
       noteSuffix: a.note_after ?? undefined,
     }));
     if (rows.length > 0) {
-      const realCount = dayRows.filter((a) => a.guard_id != null).length;
+      const realCount = dayRows.filter((a) => a.guard_id != null || a.occupies_slot).length;
       for (let i = realCount; i < target; i++) rows.push({ kind: 'gap' });
     }
     return rows;
@@ -269,11 +270,14 @@ function rowsFor(
   // drawn by the caller when rows.length === 0 (checked before any padding).
   if (rows.length > 0) {
     // Same real-vs-rendered split as morning/night, generalised to the
-    // handover pairing: a pair counts as real if either half is real.
-    const realFull = fullAssignments.filter((a) => a.guard_id != null).length;
+    // handover pairing: a pair counts as real if either half is real (or
+    // explicitly coverage-occupying, migration 52).
+    const occupies = (a: ScheduleAssignment | undefined) =>
+      a != null && (a.guard_id != null || a.occupies_slot);
+    const realFull = fullAssignments.filter(occupies).length;
     let realPairs = 0;
     for (let i = 0; i < Math.max(early.length, late.length); i++) {
-      if (early[i]?.guard_id != null || late[i]?.guard_id != null) realPairs++;
+      if (occupies(early[i]) || occupies(late[i])) realPairs++;
     }
     const realRows = realFull + realPairs;
     for (let i = realRows; i < target; i++) rows.push({ kind: 'gap' });
@@ -482,9 +486,11 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
 
       // Coverage tint, same thresholds the grid uses: red below the floor,
       // amber below target, green otherwise. A placeholder (§12.9) is not a
-      // real body and must never count toward it.
+      // real body and must never count toward it, unless explicitly marked
+      // as occupying a slot (migration 52).
       const covers = (seg: Segment) =>
-        day.filter((a) => a.guard_id && SHIFTS[a.shift].covers.includes(seg)).length;
+        day.filter((a) => (a.guard_id || a.occupies_slot) && SHIFTS[a.shift].covers.includes(seg))
+          .length;
       const floors = segmentFloors(morningTarget, di, morningTargetOverrides, segmentTargetOverrides);
       const targets = segmentTargets(morningTarget, di, morningTargetOverrides, segmentTargetOverrides);
       const below = block.segs.some((s) => covers(s) < floors[s]);

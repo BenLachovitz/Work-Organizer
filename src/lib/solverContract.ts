@@ -134,7 +134,8 @@ export const assignmentSchema = z.object({
   day: z.number().int().min(0).max(6),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   shift: shiftTypeSchema,
-  guard_id: z.string().min(1),
+  /** null is a coverage-occupying placeholder (§12.9, migration 52) -- never produced by the solver, manual edits only. */
+  guard_id: z.string().min(1).nullable(),
 });
 
 export const coverageReportSchema = z.object({
