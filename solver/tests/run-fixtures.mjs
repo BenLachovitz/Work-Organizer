@@ -357,6 +357,83 @@ for (const file of files) {
     : bad('placeholder kamut leak', JSON.stringify(verdict.report.unmet_kamut));
 }
 
+// --- referee-only check: afternoon segment shifts (afternoon_early/afternoon_late, migration 53) ---
+//
+// Also never produced by either engine -- manual edits only, same as the
+// placeholder check above. Two things to prove: (1) a segment shift counts
+// toward its OWN segment only, not the other half of the afternoon block,
+// and (2) rest-hour classification against an adjacent day falls out
+// correctly from the shift's startH/endH with no dedicated rest-rule code.
+{
+  console.log('\x1b[1mreferee-only: afternoon_early / afternoon_late\x1b[0m');
+
+  // (1) Coverage isolation -- reuses fixture 02 the same way the placeholder
+  // check does: a guard-less, occupies_slot-style row on day 0 with shift
+  // afternoon_late should count toward S3 alone, leaving S2 untouched.
+  {
+    const raw = JSON.parse(await readFile(join(dir, '02-all-empty.json'), 'utf8'));
+    const input = solverInputSchema.parse(raw);
+    const output = solverOutputSchema.parse({
+      status: 'EDITED',
+      objective_value: 0,
+      assignments: [{ day: 0, date: input.week_start, shift: 'afternoon_late', guard_id: null }],
+      coverage_report: { floor_breaches: [], target_gaps: [], unmet_kamut: [], rest_violations: [] },
+    });
+    const verdict = verifySchedule(input, output);
+
+    const s3Target = verdict.report.target_gaps.find((b) => b.day === 0 && b.segment === 'S3');
+    s3Target && s3Target.assigned === 1
+      ? ok(`afternoon_late counts toward S3 (assigned: ${s3Target.assigned}, target: ${s3Target.target})`)
+      : bad('afternoon_late S3 coverage', JSON.stringify(s3Target));
+
+    const s2Target = verdict.report.target_gaps.find((b) => b.day === 0 && b.segment === 'S2');
+    s2Target && s2Target.assigned === 0
+      ? ok('afternoon_late leaves S2 untouched (assigned: 0)')
+      : bad('afternoon_late S2 isolation', JSON.stringify(s2Target));
+  }
+
+  // (2) Rest-hour derivation -- a guard works afternoon_late (ends 22:45) on
+  // day 0, then day12 (starts 06:45) on day 1: 24 + 6.75 - 22.75 = 8h exactly,
+  // the same "penalised, not blocked" class the full afternoon->morning pair
+  // already has, since afternoon_late shares afternoon's own end/start clock
+  // times for S3/S1's boundary.
+  {
+    const input = solverInputSchema.parse({
+      week_start: '2026-08-09',
+      morning_target_slots: 2,
+      guards: [
+        {
+          id: 'g1',
+          effective_kamut: 0,
+          availability: { '0': ['afternoon'], '1': ['morning'] },
+          twelve_hour_day: [1],
+        },
+      ],
+    });
+    const output = solverOutputSchema.parse({
+      status: 'EDITED',
+      objective_value: 0,
+      assignments: [
+        { day: 0, date: '2026-08-09', shift: 'afternoon_late', guard_id: 'g1' },
+        { day: 1, date: '2026-08-10', shift: 'day12', guard_id: 'g1' },
+      ],
+      coverage_report: { floor_breaches: [], target_gaps: [], unmet_kamut: [], rest_violations: [] },
+    });
+    const verdict = verifySchedule(input, output);
+
+    verdict.violations.length === 0
+      ? ok('afternoon_late -> day12 (8h rest) triggers no hard violation (H1/H2/H5 all clear)')
+      : bad('segment-shift rest', verdict.violations.map((v) => `${v.rule}: ${v.message}`).join(' | '));
+
+    verdict.report.rest_violations.length === 1 &&
+    verdict.report.rest_violations[0].from === 'afternoon_late' &&
+    verdict.report.rest_violations[0].to === 'day12' &&
+    verdict.report.rest_violations[0].hours === 8
+      ? ok('the exact-8h rest is correctly reported as penalised, derived from the shift\'s own clock times')
+      : bad('segment-shift rest classification', JSON.stringify(verdict.report.rest_violations));
+  }
+}
+
 console.log(`\x1b[1mResult:\x1b[0m \x1b[32m${passed} passed\x1b[0m, ` +
   (failures.length ? `\x1b[31m${failures.length} failed\x1b[0m` : '0 failed'));
 if (failures.length) {

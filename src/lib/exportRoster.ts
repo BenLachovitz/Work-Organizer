@@ -240,14 +240,19 @@ function rowsFor(
     noteSuffix: a.note_after ?? undefined,
   }));
 
-  const early = day.filter((a) => a.shift === 'day12');
-  const late = day.filter((a) => a.shift === 'night12');
+  // afternoon_early/afternoon_late (migration 53) occupy just one half of the
+  // handover, same as day12/night12 already do -- paired the identical way.
+  const early = day.filter((a) => a.shift === 'day12' || a.shift === 'afternoon_early');
+  const late = day.filter((a) => a.shift === 'night12' || a.shift === 'afternoon_late');
   for (let i = 0; i < Math.max(early.length, late.length); i++) {
     rows.push({
       kind: 'handover',
+      // The row's OWN shift, not a hardcoded 'day12'/'night12' literal -- a
+      // genuine afternoon_early/afternoon_late row needs its own value here
+      // so colors[row.early.shift] (drawChip) resolves the right colour.
       early: early[i]
         ? {
-            shift: 'day12',
+            shift: early[i]!.shift,
             name: nameOf(early[i]!.guard_id),
             notePrefix: early[i]!.note_before ?? undefined,
             noteSuffix: early[i]!.note_after ?? undefined,
@@ -255,7 +260,7 @@ function rowsFor(
         : null,
       late: late[i]
         ? {
-            shift: 'night12',
+            shift: late[i]!.shift,
             name: nameOf(late[i]!.guard_id),
             notePrefix: late[i]!.note_before ?? undefined,
             noteSuffix: late[i]!.note_after ?? undefined,
@@ -532,9 +537,10 @@ export async function renderRosterImage(input: RosterImageInput): Promise<Blob> 
         } else if (row.kind === 'gap') {
           drawGap(ctx, innerX, ry, innerW);
         } else {
-          // The 18:45 handover. Early (day12) on the right, late (night12) on
-          // the left, matching the RTL flex order on screen -- the slash IS the
-          // boundary, so neither half repeats the time.
+          // The 18:45 handover. Early (day12 or afternoon_early) on the right,
+          // late (night12 or afternoon_late) on the left, matching the RTL
+          // flex order on screen -- the slash IS the boundary, so neither
+          // half repeats the time.
           const half = (innerW - SLASH_W - HANDOVER_GAP * 2) / 2;
           const rightX = innerX + innerW - half;
           if (row.early) {

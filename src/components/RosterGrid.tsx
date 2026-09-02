@@ -55,8 +55,10 @@ export function buildAfternoonRows(
   lateSlots: number,
 ): AfternoonRow[] {
   const full = dayAssignments.filter((a) => a.shift === 'afternoon');
-  const early = dayAssignments.filter((a) => a.shift === 'day12');
-  const late = dayAssignments.filter((a) => a.shift === 'night12');
+  // afternoon_early/afternoon_late (migration 53) occupy just one half of the
+  // handover, same as day12/night12 already do -- paired the identical way.
+  const early = dayAssignments.filter((a) => a.shift === 'day12' || a.shift === 'afternoon_early');
+  const late = dayAssignments.filter((a) => a.shift === 'night12' || a.shift === 'afternoon_late');
 
   const rows: AfternoonRow[] = full.map((a) => ({ early: null, late: null, full: a }));
 

@@ -199,6 +199,35 @@ console.log('Placeholder occupies_slot (§12.9, migration 52)');
     : bad('occupies_slot default',JSON.stringify(rows));
 }
 
+console.log('');
+console.log('Afternoon segment shifts: afternoon_early / afternoon_late (migration 53)');
+{
+  // The exact scenario this feature exists for: a real guard occupying just
+  // S2 (afternoon_early), and a coverage-occupying placeholder for just S3
+  // (afternoon_late), on the same cell -- neither tied to the full 8h
+  // afternoon shift or a 12h day12/night12.
+  await mgr.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[
+    {date:WEEK,shift:'afternoon_early',guard_id:idOf(G1)},
+    {date:WEEK,shift:'afternoon_late',guard_id:null,note_before:'מכוסה עד הסגירה',occupies_slot:true},
+  ]});
+  const rows=await sql(`SELECT shift::text s, guard_id gid, occupies_slot os FROM schedule_assignments WHERE run_id='${RUN}' AND target_date='${WEEK}'::date AND shift IN ('afternoon_early','afternoon_late') ORDER BY shift`);
+  rows.length===2 && rows[0].s==='afternoon_early' && rows[0].gid===idOf(G1) &&
+  rows[1].s==='afternoon_late' && rows[1].gid===null && rows[1].os===true
+    ? ok('a real guard on afternoon_early and an occupies_slot placeholder on afternoon_late coexist in one cell')
+    : bad('afternoon_early + afternoon_late in one cell',JSON.stringify(rows));
+}
+{
+  // The same guard can't hold BOTH halves of the same day -- the
+  // one_shift_per_guard_per_day unique index is keyed by (run_id,
+  // target_date, guard_id), so it collides regardless of which two distinct
+  // shift values are involved, same guard-rail as any other double-booking.
+  const { error } = await mgr.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[
+    {date:WEEK,shift:'afternoon_early',guard_id:idOf(G1)},
+    {date:WEEK,shift:'afternoon_late',guard_id:idOf(G1)},
+  ]});
+  error ? ok('the same guard cannot hold both afternoon halves the same day') : bad('same-guard double half','succeeded');
+}
+
 {
   const { error } = await g1.rpc('save_run_assignments',{p_run_id:RUN,p_assignments:[]});
   error?ok('a guard cannot edit a roster'):bad('guard edit','succeeded');

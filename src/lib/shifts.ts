@@ -13,8 +13,30 @@
 export const BASE_SHIFTS = ['morning', 'afternoon', 'night'] as const;
 export type BaseShift = (typeof BASE_SHIFTS)[number];
 
-export const SHIFT_TYPES = ['morning', 'afternoon', 'night', 'day12', 'night12'] as const;
+export const SHIFT_TYPES = [
+  'morning',
+  'afternoon',
+  'night',
+  'day12',
+  'night12',
+  'afternoon_early',
+  'afternoon_late',
+] as const;
 export type ShiftType = (typeof SHIFT_TYPES)[number];
+
+/**
+ * The shift types the SOLVER may actually assign -- mirrors
+ * solver/models.py's own (independently hand-maintained, never generated)
+ * SHIFT_TYPES list, still just the original five. afternoon_early/
+ * afternoon_late (migration 53) are manual-edit only, the same as a
+ * placeholder guard_id -- deliberately excluded here so mockSolver.ts's
+ * candidate-move search never proposes one on its own. `SHIFT_TYPES` itself
+ * stays the full list for everywhere else that needs it: the roster editor's
+ * shift picker (where these two ARE meant to be selectable), shiftTypeSchema
+ * (must accept them once manually saved), and REST_MATRIX (must classify
+ * rest against them correctly regardless of who produced the assignment).
+ */
+export const SOLVER_SHIFT_TYPES = ['morning', 'afternoon', 'night', 'day12', 'night12'] as const;
 
 export const SEGMENTS = ['S1', 'S2', 'S3', 'S4'] as const;
 export type Segment = (typeof SEGMENTS)[number];
@@ -47,7 +69,7 @@ export interface ShiftDef {
   readonly startH: number;
   readonly endH: number;
   readonly label: string;
-  readonly hours: 8 | 12;
+  readonly hours: 4 | 8 | 12;
   /** True for day12 / night12 -- requires the matching week-level opt-in. */
   readonly isExtended: boolean;
   /** The base availability a guard must have marked to be eligible (spec 3.3). */
@@ -118,6 +140,40 @@ export const SHIFTS: Record<ShiftType, ShiftDef> = {
     requiresBase: 'night',
     covers: ['S3', 'S4'],
     colorVar: 'var(--color-shift-night12)',
+  },
+  // Manual-edit only (§12.9-style, never produced by the solver): lets the
+  // roster editor put a guard or a coverage-occupying placeholder into just
+  // one half of the afternoon block, instead of the full 8h `afternoon`
+  // shift or a 12h day12/night12 that also commits them to the morning or
+  // night. Same requiresBase as `afternoon` -- guards only ever mark
+  // availability by base shift, never by segment -- and isExtended: false,
+  // since these are shorter than normal, not longer, so no 12h opt-in check
+  // applies. Reuses `afternoon`'s colour and SEGMENT_DEFS' S2/S3 copy: the
+  // segment split is already visually conveyed by which half of the
+  // handover row a chip lands in (RosterGrid.tsx/exportRoster.ts).
+  afternoon_early: {
+    id: 'afternoon_early',
+    he: 'צהריים מוקדם',
+    startH: H(14, 45),
+    endH: H(18, 45),
+    label: '14:45-18:45',
+    hours: 4,
+    isExtended: false,
+    requiresBase: 'afternoon',
+    covers: ['S2'],
+    colorVar: 'var(--color-shift-afternoon)',
+  },
+  afternoon_late: {
+    id: 'afternoon_late',
+    he: 'צהריים מאוחר',
+    startH: H(18, 45),
+    endH: H(22, 45),
+    label: '18:45-22:45',
+    hours: 4,
+    isExtended: false,
+    requiresBase: 'afternoon',
+    covers: ['S3'],
+    colorVar: 'var(--color-shift-afternoon)',
   },
 };
 

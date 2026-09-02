@@ -1,6 +1,6 @@
 import {
   SHIFTS,
-  SHIFT_TYPES,
+  SOLVER_SHIFT_TYPES,
   classifyRest,
   segmentFloors,
   segmentPenaltyWeight,
@@ -132,12 +132,12 @@ export function mockSolve(input: SolverInput): SolverOutput {
   }
 
   // Hill-climb until no move improves the score.
-  for (let iteration = 0; iteration < 7 * SHIFT_TYPES.length * input.guards.length; iteration++) {
+  for (let iteration = 0; iteration < 7 * SOLVER_SHIFT_TYPES.length * input.guards.length; iteration++) {
     let best: { guardId: string; day: number; shift: ShiftType; gain: number } | null = null;
 
     for (const g of input.guards) {
       for (let day = 0; day < 7; day++) {
-        for (const shift of SHIFT_TYPES) {
+        for (const shift of SOLVER_SHIFT_TYPES) {
           if (!isLegal(g.id, day, shift)) continue;
           const value = gain(g.id, day, shift);
           if (value > 0 && (!best || value > best.gain)) {

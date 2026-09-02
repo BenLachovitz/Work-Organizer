@@ -10,20 +10,24 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.23.0: a
-# placeholder (guard-less schedule_assignments row, migration 39/§12.9) can
-# now optionally be marked occupies_slot -- a new BOOLEAN column, migration
-# 52, meaningful only on a placeholder row (CHECK-enforced FALSE on any real
-# assignment) -- so it counts toward segment coverage (floor/target/ceiling)
-# like a real assignment while still carrying no guard identity, staying
-# excluded from availability/rest/one-shift-per-day/the weekly ceiling/any
-# guard's own כמות. src/lib/validate.ts's referee gained its first-ever
-# guard_id === null branch to support this (coverageBySegment() already
-# counted guard-agnostically; only the guard-specific loops needed a skip).
-# RosterEditor.tsx/RosterGrid.tsx/exportRoster.ts's existing placeholder-
-# exclusion predicates widened accordingly. Default FALSE, so every existing
-# placeholder keeps its prior behaviour unchanged.
-next-version: 2.23.0
+# version (see BACKLOG.md's Versioning section). Currently 2.24.0: two new
+# manual-edit-only shift types, afternoon_early/afternoon_late (migration 53),
+# let the roster editor put a guard or an occupies_slot placeholder into just
+# S2 or just S3 of the afternoon block, instead of the full 8h afternoon
+# shift or a 12h day12/night12 that also commits them to the morning/night.
+# Added to the shift catalogue (src/lib/shifts.ts) like any other shift type
+# -- coverage counting, rest-hour derivation, and eligibility all fell out
+# for free since those are already generic over SHIFT_TYPES/SHIFTS[x].covers,
+# not hardcoded to the original five. One real bug caught before shipping:
+# mockSolver.ts's candidate-move search also iterates SHIFT_TYPES generically,
+# so it started proposing the new half-shifts on its own until a new
+# SOLVER_SHIFT_TYPES constant (the original five only) was introduced and
+# swapped in -- confirmed fixed via test:compare regaining exact mock/CP-SAT
+# parity. RosterGrid.tsx/exportRoster.ts's existing day12/night12 handover-
+# pairing widened to include the new types (exportRoster.ts also had a
+# latent hardcoded 'day12'/'night12' literal fixed while widening it).
+# Bundled on the same feature/placeholder-occupies-slot branch as v2.23.0.
+next-version: 2.24.0
 mode: Mainline
 branches:
   main:

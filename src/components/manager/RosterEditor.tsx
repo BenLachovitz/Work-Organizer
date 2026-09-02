@@ -455,7 +455,9 @@ const BLOCKS: BlockDef[] = [
     he: 'צהריים',
     label: '14:45-22:45',
     segs: ['S2', 'S3'],
-    shifts: ['afternoon'],
+    // afternoon_early/afternoon_late (migration 53) let a row occupy just S2
+    // or just S3, instead of the whole block.
+    shifts: ['afternoon', 'afternoon_early', 'afternoon_late'],
   },
   { key: 'night', he: 'לילה', label: '22:45-06:45', segs: ['S4'], shifts: ['night', 'night12'] },
 ];
@@ -737,7 +739,8 @@ function SlotEditor({
           )}
           {block.key === 'afternoon' && (
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              משמרת 12 שעות מתווספת דרך הבוקר (עד 18:45) או דרך הלילה (מ-18:45).
+              משמרת 12 שעות מתווספת דרך הבוקר (עד 18:45) או דרך הלילה (מ-18:45). ״צהריים
+              מוקדם/מאוחר״ מאייש רק את המחצית הרלוונטית, בלי לשבץ למשמרת 12 שעות.
             </p>
           )}
           <p className="text-xs text-slate-500 dark:text-slate-400">
