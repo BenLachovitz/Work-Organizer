@@ -1,12 +1,12 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.22.1** — §14 there is the
-build status and roadmap, §1.17–§1.23 is the changelog for everything since v2.15. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.24.0** — §14 there is the
+build status and roadmap, §1.17–§1.26 is the changelog for everything since v2.15. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
-*Last updated: 22 August 2026*
+*Last updated: 3 September 2026*
 
 ---
 
@@ -39,7 +39,7 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–AB (reverted) complete, live and in daily use
+## State: build steps A–AE complete, live and in daily use
 
 Full list in spec §14.1; changelog for every step is spec §1.1–§1.14. Step P (11 August) — per-day
 morning target override, a morning-priority coverage weight, the roster view stacking every
@@ -426,11 +426,14 @@ different underlying mechanism.
 **Thirteen test suites, mostly green** (`npm run test:cloud` + `test:fixtures` + `test_scheduler.py` +
 `test:compare` — spec §14.2). Gate E's engine fixtures grew from 8 to 13 in step L/O, then to 15 in
 step P. Gate H (`test:webauthn`, step X's revision) is the newest addition. **Gate D has a known,
-pre-existing, date-driven flake** — spec §14.2 has the full mechanics;
-short version: its dedicated test week (`2026-09-06`) now sits exactly on `ensure_roster_weeks()`'s
-sweep-window boundary, so real production traffic mid-test-run can sweep the test's own fixture row.
-Not a regression, self-resolves as the calendar moves past mid-September 2026; deliberately left
-unfixed (Ben's call, 11 August) rather than touched as part of an unrelated feature branch.
+pre-existing, date-driven hazard, not merely a flake** — spec §14.2 has the full mechanics, and
+Step AE below has the full account of what it actually did on 3 September 2026: its dedicated test
+week (`2026-09-06`) was chosen as "well clear of the live weeks" back in August, but a hardcoded
+calendar date doesn't stay clear as the calendar advances — its `setup()`'s unconditional `DELETE`
+against that date reached real, live data once it became the real "next week," not just the
+originally-documented risk of real traffic sweeping the test's own fixture row.
+**Check `2026-09-06`/`2026-07-19` against real `roster_weeks` rows before running Gate D or
+`test:cloud`** — this is not optional housekeeping, see Step AE.
 
 **A real, live production bug was found and fixed in step P**, purely as a side effect of manually
 testing the new features in a browser (spec §12.1, §1.9 item 57): `ensure_roster_weeks()`'s
@@ -680,6 +683,76 @@ the actual root cause of the session bug was never found, only a broad set of ca
 out. If the bug persists after this revert ships, that's significant new evidence the cause lies
 somewhere this session's changes never touched at all.
 
+Step AC (27 August) — **fixed a stale-past-week leak in the guard-facing roster views**: `Auth`Context
+aside, `useVisibleRosters()` trusted RLS alone to scope published runs to "current + next," but the
+`is_manager()` RLS branch has no date floor at all, by design, since that's what lets the
+manager-only archive (spec §7) work at all. Ben is both manager and an active guard, so his own
+`/roster` and `/` (GuardHome) pages were silently inheriting the archive's unbounded read instead of
+degrading to just the current week whenever next week wasn't published yet — and the extra week was
+mislabelled "next week" regardless of whether it was actually in the future. New
+`guardVisibleWeekFloor()` (`src/lib/dates.ts`), a client-side mirror of the database's
+`guard_visible_from()`, filters `useVisibleRosters()` to it; `RosterView.tsx`/`GuardHome.tsx` also
+stopped assuming "not current" means "next." `package.json`/`GitVersion.yml` bumped to 2.22.2, tagged
+`v2.22.2`.
+
+Step AD (3 September) — **a placeholder row can optionally occupy a coverage slot** (spec §12.9,
+migration 52): a placeholder (Step S, migration 39) was always excluded from every hard-rule check
+and all coverage counting, unconditionally — right for a pure annotation, but there was no way to say
+"someone genuinely covers this slot, I don't want to name who" without the roster reading as
+short-staffed underneath a note that said otherwise. New `schedule_assignments.occupies_slot`,
+meaningful only when `guard_id IS NULL` (CHECK-enforced FALSE on any real row — one already occupies
+its own slot), defaults FALSE so every existing placeholder is unaffected. When set, the placeholder
+counts toward that segment's floor/target/ceiling like a real assignment while staying invisible to
+H1–H5/H7 and any guard's own כמות — `validate.ts`'s referee gained its first-ever `guard_id === null`
+branch, since `coverageBySegment()` already summed guard-agnostically and only the guard-specific
+loops needed an explicit skip. New per-row "תופס משבצת בכיסוי" checkbox in `RosterEditor.tsx`,
+shown only on a placeholder row and reset the moment it's switched to a real guard. Confirmed with
+Ben up front: a placeholder still requires at least one note regardless of the flag — occupying a
+slot doesn't relax `placeholder_needs_a_note`. New referee-only checks in `run-fixtures.mjs` and Gate
+E (edit) assertions in `edit.cloud.test.mjs`; full browser walkthrough against a disposable,
+fully-cleaned-up test fixture confirmed the editor and grid tone both behave correctly.
+`package.json`/`GitVersion.yml` bumped to 2.23.0, tagged `v2.23.0`.
+
+Step AE (3 September) — **afternoon block segment shifts** (spec §12.13, migration 53): the afternoon
+block is really two coverage segments, S2 (early) and S3 (late), but the only way to occupy just one
+manually was a 12h `day12`/`night12` shift that also commits the guard to the morning or night — the
+full 8h `afternoon` shift always covers both halves, with no way to scope it down. Two new
+manual-edit-only shift types, `afternoon_early` (covers S2) and `afternoon_late` (covers S3), added to
+the shift catalogue (`src/lib/shifts.ts`) exactly like the original five — coverage counting, rest-hour
+derivation, and eligibility all fell out for free, since none of that is hardcoded to five values.
+Migration 53 is two bare `ALTER TYPE shift_type ADD VALUE` statements, the first time this enum has
+ever been extended. **One real bug caught before shipping**: `mockSolver.ts`'s candidate-move search
+also iterates the shift catalogue generically, so it started proposing the new manual-only types on
+its own the moment they existed — caught by a changed golden-fixture assignment count on a re-run,
+before a dedicated test even existed for it. Fixed with a new `SOLVER_SHIFT_TYPES` constant (the
+original five only, mirroring `solver/models.py`'s own independent, untouched list) swapped into
+`mockSolver.ts`; confirmed fixed via `test:compare` regaining exact mock/CP-SAT parity on every
+fixture. `RosterGrid.tsx`/`exportRoster.ts`'s existing day12/night12 handover-pairing widened to pair
+the new types the same way — `exportRoster.ts` also had a latent hardcoded `'day12'`/`'night12'`
+shift literal fixed while widening it, or a genuine half-shift row would have exported with the wrong
+colour. New referee-only checks and Gate E (edit) assertions; full browser walkthrough (editor, the
+read-only roster grid, and the JPEG export) all confirmed rendering correctly against a disposable,
+fully-cleaned-up test fixture. Both Step AD and AE shipped on the same `feature/placeholder-occupies-
+slot` branch and merged to `main` together. `package.json`/`GitVersion.yml` bumped to 2.24.0, tagged
+`v2.24.0`.
+
+**A real incident happened between Step AD and Step AE, worth recording plainly**: verifying Step AD
+included running `npm run test:cloud`, which chains through Gate D
+(`supabase/tests/manager.cloud.test.mjs`). Gate D's fixture week, `2026-09-06`, was "well clear of the
+live weeks" when that test was written in August — by 3 September it had become the real, live "next
+week" real guards were submitting to. Gate D's `setup()` runs `DELETE FROM roster_weeks WHERE
+week_start IN (...)` against that date unconditionally, first thing, before any assertion — which
+cascades to every real row tied to it: submissions, preferences, the generated draft roster, and its
+assignments. This project has no separate test database and no PITR on its Supabase plan, so none of
+it was recoverable from a backup; the fix was asking every guard to manually resubmit. The previously-
+documented "Gate D flake" (above, and spec §14.2, both now corrected) undersold this — it described
+real traffic sweeping the *test's* fixture row, not the test's own `DELETE` reaching *real* data,
+which is what actually happened. **Before running Gate D, or `test:cloud`, check its fixture dates (`2026-09-06`,
+`2026-07-19`) against real `roster_weeks` rows first** — this now happens as a matter of course before
+any cloud test runs in this project, not just for Gate D. The real fix — computing fixture dates
+relative to "today" instead of a hardcoded calendar date, across every cloud test file that has one —
+is still open.
+
 ---
 
 ## What is left
@@ -821,7 +894,7 @@ rejected the push — often a stale subscription that's already been pruned by t
   plain `UPDATE`, not committed anywhere. (The abandoned WhatsApp design's three `WHATSAPP_*`
   secrets were never set and are moot now; `request-pin-reset`'s reuse of this cron-secret pair for
   the `pin_reset_otp` type is moot too — that function is deleted as of the v2.22.1 revert.)
-- 51 migrations applied, tracked in a `schema_migrations` ledger
+- 53 migrations applied, tracked in a `schema_migrations` ledger
 
 ### Current database contents
 
@@ -848,10 +921,9 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.22.1**
-(self-service forgot-PIN fully reverted after an unresolved production session-persistence
-regression — back to Step AA's manager-only `reset-pin` as the sole PIN-recovery path), tagged
-`v2.22.1`.
+state that version describes), matching the spec's own version history. Currently at **2.24.0**
+(afternoon block segment shifts, Step AE — a manager can occupy just S2 or just S3 of the afternoon
+block manually, without the full `afternoon` shift or a 12h day12/night12), tagged `v2.24.0`.
 
 ## Commands
 
@@ -868,7 +940,7 @@ npm run generate:icons   # regenerate public/icons/* from materials/Work-Organiz
 
 ---
 
-## Six habits worth keeping
+## Seven habits worth keeping
 
 **Nothing is trusted on the solver's word.** Both engines hand their assignments to an independent
 referee (`src/lib/validate.ts` and its Python twin `solver/verify.py`) which re-derives the coverage
@@ -917,6 +989,20 @@ inside a function a realtime-subscribed table's listener can indirectly re-trigg
 guard (`WHERE ... IS DISTINCT FROM ...`), the same discipline the two status-reconciliation `UPDATE`s
 in that same function already used correctly — one unguarded write among several guarded ones was
 enough.
+
+**There is no separate test database, so a cloud test's fixture is a real write against production —
+read what it actually does before running it.** Step AE's incident (3 September 2026): Gate D
+(`manager.cloud.test.mjs`) hardcoded its fixture week to a date that was safely in the future when
+the test was written, and its `setup()` unconditionally `DELETE`s `roster_weeks` for that date before
+any assertion runs. Nobody revisited that assumption as the calendar advanced; by the time it was
+run again, the date had become the real, live "next week," and the test's own `DELETE` reached real
+guards' submitted preferences and a generated draft roster — gone, no PITR on this project's plan, no
+way back except asking every guard to manually resubmit. A past "known flake, not a regression" note
+(this file, and spec §14.2, both corrected after the fact) had already described this exact test as a
+risk, but under a milder mechanism than what actually happened — the lesson generalizes past this one
+test: before running any cloud test here, check what its `setup()` actually does to data scoped by a
+fixed value (a date, an email pattern, an ID range), and don't trust a past characterization of "which
+kind of risk" without re-deriving it from the test's current code.
 
 ---
 

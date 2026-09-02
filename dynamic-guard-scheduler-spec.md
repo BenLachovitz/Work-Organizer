@@ -1,12 +1,14 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.22.1 (build steps A–Y complete plus the double-shift display setting, the
-draft-preview export change, and manager PIN-reset below; live and in daily use; deployed to
-production — the self-service forgot-PIN feature (§12.12) was fully reverted after a production
-session-persistence regression, see §14.1 Step AB and §14.3)
-**Roster Context:** Flexible team size, 6–12 registered guards, 8 currently active
+**Version:** 2.24.0 (build steps A–Y complete plus the double-shift display setting, the
+draft-preview export change, manager PIN-reset, a stale-past-week guard-view fix, and two roster-
+editor polish items below — an optionally coverage-occupying placeholder and split afternoon-
+segment shifts; live and in daily use; deployed to production — the self-service forgot-PIN
+feature (§12.12) was fully reverted after a production session-persistence regression, see §14.1
+Step AB and §14.3)
+**Roster Context:** Flexible team size, 6–12 registered guards, 15 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
-**Document Date:** 22 August 2026
+**Document Date:** 3 September 2026
 
 ---
 
@@ -226,6 +228,38 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 
 ---
 
+### 1.24 Changes in Version 2.22.2
+
+| #   | Change                                                                                                                                                                                                                                                        | Rationale                                                                                                                                                                                                                                                                        |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 86  | Fixed: `useVisibleRosters()` was leaking every historical published week into the guard-facing `/roster` and `/` (GuardHome) pages for a manager-and-guard account, instead of degrading to just the current week when next week wasn't published yet — the extra week was also mislabelled "next week" regardless of whether it was actually in the future | It trusted RLS alone to scope published runs to "current + next," but the `is_manager()` RLS branch has no date floor at all, by design, since it's what lets the manager-only archive (§7) work. Ben is both manager and an active guard, so his own guard-facing pages inherited the archive's unbounded read instead of the guard-scoped one |
+| 87  | New `guardVisibleWeekFloor()` (`src/lib/dates.ts`) — a client-side mirror of the database's `guard_visible_from()` — filters `useVisibleRosters()` to it; `RosterView.tsx`/`GuardHome.tsx` now also label a genuinely past week correctly instead of assuming "not current" means "next" | The fix has to live client-side because the RLS policy itself is correct for its actual purpose (the manager archive) — narrowing it would break that; the guard-facing hook needed its own floor on top, not a schema change |
+
+---
+
+### 1.25 Changes in Version 2.23.0
+
+| #   | Change                                                                                                                                                                                                                                                        | Rationale                                                                                                                                                                                                                                                                        |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 88  | **A placeholder row can optionally occupy a coverage slot** (`schedule_assignments.occupies_slot`, migration 52, §12.9) — a manager editing the roster can now mark a specific guard-less placeholder to count toward that segment's floor/target/ceiling exactly like a real assignment, while it still carries no guard identity | A placeholder (migration 39) was always excluded from every hard-rule check and all coverage counting, unconditionally — useful for a pure annotation, but there was no way to say "someone genuinely covers this slot, I don't want to name who" without it silently reading as short-staffed |
+| 89  | `occupies_slot` is meaningful only when `guard_id IS NULL`, enforced by a `CHECK` (`occupies_slot = FALSE OR guard_id IS NULL`) — defaults `FALSE`, so every placeholder that existed before this migration keeps its prior behaviour unchanged. A placeholder still requires at least one note regardless of the flag (Ben's explicit call — occupying a slot does not relax `placeholder_needs_a_note`) | Same defence-in-depth pattern migration 39 used for `placeholder_needs_a_note` — the invariant is enforced at the database layer, not just trusted from the client |
+| 90  | `src/lib/validate.ts`'s referee gained its first-ever `guard_id === null` branch — `coverageBySegment()` already counted every assignment guard-agnostically (it never reads `guard_id`), so only the guard-specific loops (H1/H2 availability, H3/H4 one-shift-per-day and the weekly ceiling, H5/H7 rest, and `scoreSchedule()`'s preference/stretch terms) needed an explicit skip for a null `guard_id` | Confirms the coverage model was already generic enough that a coverage-occupying, guard-less row didn't need new hard-rule logic — only an exemption from the rules that inherently require a real guard to check against |
+| 91  | New per-row "תופס משבצת בכיסוי" checkbox in `RosterEditor.tsx`'s `SlotEditor`, shown only on a placeholder row and reset to `false` the moment the row is switched to a real guard | UI mirrors the data model exactly: the checkbox only ever means something on a placeholder, so it disappears rather than staying visible-but-inert once a real guard is picked |
+
+---
+
+### 1.26 Changes in Version 2.24.0
+
+| #   | Change                                                                                                                                                                                                                                                        | Rationale                                                                                                                                                                                                                                                                        |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 92  | **Afternoon block segment shifts** — two new manual-edit-only shift types, `afternoon_early` (covers S2, 14:45-18:45) and `afternoon_late` (covers S3, 18:45-22:45), migration 53, §12.13 — a manager can now put a real guard or an `occupies_slot` placeholder into just one half of the afternoon block, without tying them to the full 8h `afternoon` shift or a 12h `day12`/`night12` that also commits them to the morning or night | Until now the only way to occupy just S2 or just S3 manually was a 12h shift, which drags in a morning or night commitment the manager may not want; the full `afternoon` shift always covers both halves, with no way to scope it down |
+| 93  | Added to the shift catalogue (`src/lib/shifts.ts`) exactly like the original five shift types — `covers: ['S2']`/`['S3']`, `requiresBase: 'afternoon'` (same base-availability slot the full `afternoon` shift already requires — guards only ever mark availability by base shift, never by segment), `isExtended: false` (shorter than normal, not longer, so no 12h opt-in applies) | Coverage counting, rest-hour derivation (`restHours`/`classifyRest`, *derived* from each shift's `startH`/`endH`), and eligibility are all already generic over the shift catalogue, not hardcoded to five values — extending the catalogue was enough on its own, no new rule code |
+| 94  | New `SOLVER_SHIFT_TYPES` constant (`src/lib/shifts.ts`) — the original five shift types only, mirroring `solver/models.py`'s own independent, hand-maintained list — swapped into `mockSolver.ts`'s candidate-move search in place of the full shift catalogue | Caught before shipping: the mock solver's candidate search also iterates the shift catalogue generically, so the moment the two new types existed it started proposing them on its own — a golden fixture's assignment count changed on a re-run. Both new types are manual-edit only, same as a placeholder; `SOLVER_SHIFT_TYPES` is what actually keeps the automatic generator from ever producing one. Confirmed fixed via `test:compare` regaining exact mock/CP-SAT parity on every fixture |
+| 95  | `RosterGrid.tsx`/`exportRoster.ts`'s existing day12/night12 handover-pairing (`buildAfternoonRows`/`rowsFor`) widened to pair the two new types the identical way — a lone half renders as "name / –", two halves pair as "name / name," same as day12/night12 already do, just without the 12h boundary-time suffix (not extended shifts, nothing ambiguous about their hours to annotate) | Reuses 100% of the existing handover-rendering machinery rather than adding a new visual pattern — the segment split was already a solved rendering problem for day12/night12, this just widens which shift types feed it |
+| 96  | Fixed in the same pass: `exportRoster.ts`'s handover-row constructor had a latent hardcoded `shift: 'day12'`/`'night12'` literal (harmless while only those two values ever reached it) instead of reading the row's own `.shift` — would have mislabelled a genuine `afternoon_early`/`afternoon_late` row's colour in the exported JPEG | Found while widening the early/late filters to include the new types — `colors[row.early.shift]` (the canvas colour lookup) needed the row's real shift value to resolve correctly |
+
+---
+
 ## 2. OPERATIONAL SCHEDULING RULES
 
 ### 2.1 Dynamic Roster Size
@@ -246,28 +280,40 @@ All constraints scale to the number of guards flagged `is_active = TRUE`, suppor
 
 ### 2.2 Shift Catalogue
 
-Five shift types across two grids. **A guard works at most ONE shift type per calendar day.**
+Five shift types across two grids, plus two manual-edit-only segment shifts (v2.24.0, §12.13).
+**A guard works at most ONE shift type per calendar day.**
 
-| Code        | Hebrew    | Window             | Hours | Grid     | Eligibility                                         |
-| ----------- | --------- | ------------------ | ----- | -------- | --------------------------------------------------- |
-| `morning`   | בוקר      | 06:45 – 14:45      | 8     | Standard | All guards                                          |
-| `afternoon` | צהריים    | 14:45 – 22:45      | 8     | Standard | All guards                                          |
-| `night`     | לילה      | 22:45 – 06:45 (+1) | 8     | Standard | All guards                                          |
-| `day12`     | יום 12ש׳  | 06:45 – 18:45      | 12    | Extended | Requires `allows_12h` on that day's **morning** row |
-| `night12`   | לילה 12ש׳ | 18:45 – 06:45 (+1) | 12    | Extended | Requires `allows_12h` on that day's **night** row   |
+| Code               | Hebrew         | Window             | Hours | Grid     | Eligibility                                         |
+| ------------------ | -------------- | ------------------ | ----- | -------- | --------------------------------------------------- |
+| `morning`          | בוקר           | 06:45 – 14:45      | 8     | Standard | All guards                                          |
+| `afternoon`        | צהריים         | 14:45 – 22:45      | 8     | Standard | All guards                                          |
+| `night`            | לילה           | 22:45 – 06:45 (+1) | 8     | Standard | All guards                                          |
+| `day12`            | יום 12ש׳       | 06:45 – 18:45      | 12    | Extended | Requires `allows_12h` on that day's **morning** row |
+| `night12`          | לילה 12ש׳      | 18:45 – 06:45 (+1) | 12    | Extended | Requires `allows_12h` on that day's **night** row   |
+| `afternoon_early`† | צהריים מוקדם   | 14:45 – 18:45      | 4     | Standard | All guards — same `afternoon` base requirement      |
+| `afternoon_late`†  | צהריים מאוחר   | 18:45 – 22:45      | 4     | Standard | All guards — same `afternoon` base requirement      |
 
-> **Shift weight:** a 12h shift counts as **1** shift against the guard's כמות and against the 5-shift weekly ceiling — identical to an 8h shift. It is _not_ 1.5.
+> **Shift weight:** a 12h shift counts as **1** shift against the guard's כמות and against the 5-shift weekly ceiling — identical to an 8h shift. It is _not_ 1.5. The two 4h segment shifts follow the
+> same rule: **1** shift, not a fraction, consistent with the existing hours-agnostic count.
+
+> † **Manual-edit only** (migration 53, §12.13) — never produced by either engine, same status as a
+> placeholder row (§12.9). `SOLVER_SHIFT_TYPES` (`src/lib/shifts.ts`) is the original five shift
+> types only, and is what `mockSolver.ts`'s candidate search actually iterates; the CP-SAT solver
+> (`solver/models.py`) has no notion of these two at all. Lets a manager occupy just S2 or just S3 of
+> the afternoon block without the full `afternoon` shift or a 12h `day12`/`night12`.
 
 ### 2.3 Segment Coverage Model
 
 Both grids tile the same 24 hours on four boundaries: **06:45 / 14:45 / 18:45 / 22:45**. Coverage is therefore enforced per _segment_, which lets 8h and 12h guards be mixed freely on the same day.
 
-| Segment | Window        | Length | Covered by             |
-| ------- | ------------- | ------ | ---------------------- |
-| **S1**  | 06:45 – 14:45 | 8h     | `morning`, `day12`     |
-| **S2**  | 14:45 – 18:45 | 4h     | `afternoon`, `day12`   |
-| **S3**  | 18:45 – 22:45 | 4h     | `afternoon`, `night12` |
-| **S4**  | 22:45 – 06:45 | 8h     | `night`, `night12`     |
+| Segment | Window        | Length | Covered by                                |
+| ------- | ------------- | ------ | ------------------------------------------ |
+| **S1**  | 06:45 – 14:45 | 8h     | `morning`, `day12`                         |
+| **S2**  | 14:45 – 18:45 | 4h     | `afternoon`, `day12`, `afternoon_early`†   |
+| **S3**  | 18:45 – 22:45 | 4h     | `afternoon`, `night12`, `afternoon_late`†  |
+| **S4**  | 22:45 – 06:45 | 8h     | `night`, `night12`                         |
+
+† Manual-edit only — see §2.2.
 
 ### 2.4 Targets vs. Critical Floors
 
@@ -894,7 +940,10 @@ Its one sharp edge: a contradictory _hard_ constraint yields `INFEASIBLE` with n
 ### 6.1 Types
 
 ```sql
-CREATE TYPE shift_type  AS ENUM ('morning', 'afternoon', 'night', 'day12', 'night12');
+-- 'afternoon_early'/'afternoon_late' added by migration 53 (v2.24.0, §12.13) --
+-- manual-edit only, never produced by either engine; see §2.2.
+CREATE TYPE shift_type  AS ENUM ('morning', 'afternoon', 'night', 'day12', 'night12',
+                                  'afternoon_early', 'afternoon_late');
 CREATE TYPE base_shift  AS ENUM ('morning', 'afternoon', 'night');
 CREATE TYPE user_role   AS ENUM ('admin', 'manager', 'guard');
 CREATE TYPE week_status AS ENUM ('open', 'locked', 'generated', 'published');
@@ -1054,6 +1103,13 @@ CREATE TABLE schedule_assignments (
   -- blank row with no purpose.
   CONSTRAINT placeholder_needs_a_note
     CHECK (guard_id IS NOT NULL OR note_before IS NOT NULL OR note_after IS NOT NULL),
+  -- v2.23.0 §12.9, migration 52: TRUE makes a placeholder count toward
+  -- coverage like a real assignment, while still carrying no guard identity.
+  -- Meaningless (and refused) on a real row -- one already occupies its own
+  -- slot. Defaults FALSE, so every pre-migration placeholder is unaffected.
+  occupies_slot BOOLEAN NOT NULL DEFAULT FALSE,
+  CONSTRAINT occupies_slot_only_on_placeholder
+    CHECK (occupies_slot = FALSE OR guard_id IS NULL),
   UNIQUE (run_id, target_date, shift, guard_id)
 );
 
@@ -2171,10 +2227,42 @@ placeholder chip is styled exactly like a real one, coloured by its shift the sa
 text itself is what tells the reader what it means.
 
 **Manager UI**: the guard `<select>` in `SlotEditor` — both the per-row editor and the "הוספת
-מאבטח" add flow — gained a leading "— ריק (הערה בלבד, לא נספר בכיסוי)" option. Selecting it and
-adding a note (either or both fields) creates a placeholder row; the marked/carried-in-from-Saturday
-hints, which are meaningless for a non-guard, are silently skipped for one rather than showing a
-false "לא סימן" warning.
+מאבטח" add flow — gained a leading "— ריק (הערה בלבד)" option (label text updated in v2.23.0, see
+below — it no longer unconditionally says "not counted in coverage," since that's no longer always
+true). Selecting it and adding a note (either or both fields) creates a placeholder row; the
+marked/carried-in-from-Saturday hints, which are meaningless for a non-guard, are silently skipped
+for one rather than showing a false "לא סימן" warning.
+
+**Coverage-occupying placeholders, migration 52 (v2.23.0, §1.25).** A placeholder was, until here,
+*unconditionally* excluded from coverage — the right default for a pure annotation, but it left no
+way to say "someone genuinely covers this slot, I don't want to name who" without the roster reading
+as short-staffed underneath a note that says otherwise. `schedule_assignments.occupies_slot BOOLEAN
+NOT NULL DEFAULT FALSE` (migration 52), meaningful only when `guard_id IS NULL`
+(`CHECK (occupies_slot = FALSE OR guard_id IS NULL)` — a real assignment already occupies its own
+slot, so the flag is meaningless there and the database refuses to let it be set). Defaults `FALSE`,
+so every placeholder that existed before this migration is completely unaffected. A placeholder
+still requires at least one note regardless of the flag — Ben's explicit call, occupying a slot does
+not relax `placeholder_needs_a_note`.
+
+When set, the placeholder counts toward that segment's floor/target/ceiling **exactly like a real
+assignment** — `validate.ts`'s `coverageBySegment()` already summed every assignment by `day`+`shift`
+alone, never reading `guard_id`, so it needed no change at all to pick this up once a `guard_id:
+null` row reaches it. What *does* need to change is everywhere that previously used "has a
+`guard_id`" as its coverage-inclusion test: `RosterEditor.tsx`'s referee-input filter and its
+`cellTone` closure, `RosterGrid.tsx`'s `covers()`/`realCount`/`realFull`/`realPairs`, and
+`exportRoster.ts`'s equivalents — each widened from `guard_id != null` to
+`guard_id != null || occupies_slot`. The placeholder still never becomes a real guard for any
+guard-specific purpose: `validate.ts` gained its first `guard_id === null` branch, explicitly
+skipping H1/H2 (availability, 12h opt-in), H3/H4 (one-shift-per-day, the weekly ceiling), H5/H7
+(rest), and `scoreSchedule()`'s preference/stretch terms whenever `guard_id` is null — a
+coverage-occupying placeholder fills a floor/target/ceiling slot and can resolve a shortfall in the
+manager's live verdict, but is invisible to every rule and every number that requires a real person
+behind it.
+
+A new per-row "תופס משבצת בכיסוי" checkbox in `SlotEditor` — shown only while the row's guard is
+the placeholder sentinel, in both the per-row editor and the "הוספת מאבטח" add panel — sets the
+flag. Switching a row's guard picker from the placeholder to a real guard resets it to `false` in
+the same `onChange`, so the draft can never carry a combination the database would refuse.
 
 ### 12.10 Push Notifications (migrations 40–42, `send-notifications`, v2.12)
 
@@ -2595,6 +2683,78 @@ test account is used, not a real Meta billing relationship.
 
 ---
 
+### 12.13 Afternoon Segment Shifts (migration 53, v2.24.0, §1.26)
+
+The afternoon block (14:45-22:45) is really two coverage segments, S2 (early, 14:45-18:45) and S3
+(late, 18:45-22:45) — §2.3. Until this version the only way to occupy just one manually was a 12h
+`day12`/`night12` shift, whose morning/night half is a real, unavoidable commitment; the full 8h
+`afternoon` shift always covers both halves at once, with no way to scope it down. A manager
+sometimes just needs one specific person in S2 or S3 alone — covering for someone's late arrival or
+early departure — without either overstating what they're actually working or dragging in a shift
+they didn't ask for.
+
+**Two new shift types**, `afternoon_early` (covers S2 only) and `afternoon_late` (covers S3 only),
+added to the shift catalogue (`src/lib/shifts.ts`) exactly like the original five — `startH`/`endH`
+set to the exact S2/S3 clock boundaries, `requiresBase: 'afternoon'` (guards only ever mark
+availability by base shift, never by segment, so this is the same base slot the full `afternoon`
+shift already requires), `isExtended: false` (4h, shorter than normal rather than longer, so no 12h
+opt-in check applies — §3.3). Reuses `afternoon`'s own colour and `SEGMENT_DEFS`' S2/S3 Hebrew copy
+rather than introducing new ones.
+
+**Manual-edit only, deliberately** — same status as a placeholder row (§12.9): never produced by
+either engine. This mattered more than expected. Coverage counting
+(`coverageBySegment`/`covers()`/`realCount`), rest-hour classification (`restHours`/`classifyRest`/
+`REST_MATRIX`, all *derived* from each shift's clock times, per §2.6), and eligibility (`isEligible`)
+are already generic over the shift catalogue rather than hardcoded to five values, so extending the
+catalogue was enough on its own for those — no new rule code anywhere. But `mockSolver.ts`'s
+candidate-move search is *also* generic over the same catalogue, and nothing had excluded manual-only
+types from it — the moment the two new shift types existed, the mock solver started proposing them
+on its own during automatic generation (caught by a changed golden-fixture assignment count before a
+dedicated test even existed for it). Fixed with a new `SOLVER_SHIFT_TYPES` constant — the original
+five shift types only, mirroring `solver/models.py`'s own independent, hand-maintained list, which
+was never at risk since it has no notion of the new types at all — swapped into both of
+`mockSolver.ts`'s candidate-enumeration sites. Confirmed via `npm run test:compare`: exact mock/CP-SAT
+parity restored on every fixture.
+
+**Schema**: migration 53 is two bare `ALTER TYPE shift_type ADD VALUE` statements and nothing else —
+the first time this enum (unchanged since migration 1) has ever been extended. `save_run_assignments`
+already casts the shift value generically (`(e->>'shift')::shift_type`) with no hardcoded literals, so
+it needed no change; the two values just had to exist. Kept to its own migration file on purpose:
+Postgres forbids using a newly-added enum value inside the same transaction that added it, and this
+project's `db:apply` runs one transaction per migration file.
+
+**Editor UI**: `RosterEditor.tsx`'s afternoon block widens its shift `<select>` options (both the
+per-row editor, which already iterated the full shift catalogue, and the "הוספת מאבטח" add panel,
+which needed its own array widened) to include "צהריים מוקדם"/"צהריים מאוחר" alongside the existing
+"צהריים." No new control beyond that — which sector(s) a row covers is just which shift type is
+selected, the same axis the morning/night blocks already use for `day12`/`night12`. Composes with
+`occupies_slot` (§12.9) for free: a placeholder row set to `afternoon_early` with the box checked
+counts toward S2 alone, with no guard identity behind it — exactly the "placeholder into only one
+sector" case that motivated the feature.
+
+**Read-only rendering**: `RosterGrid.tsx`'s `buildAfternoonRows()` and `exportRoster.ts`'s `rowsFor()`
+already pair an "early half" and a "late half" into one handover row for `day12`/`night12` (§10.1) —
+widening their `early`/`late` filters to also match the two new types makes that existing
+pairing/rendering machinery handle them automatically, rendered as "name / –" (a lone half) or
+"name / name" (two halves), with no 12h boundary-time suffix (not extended shifts, nothing ambiguous
+about their hours to annotate — the same reasoning §12.9's afternoon-slash convention already
+established). One real bug caught while widening `exportRoster.ts`: its handover-row constructor had
+a latent hardcoded `shift: 'day12'`/`'night12'` literal (harmless while only those two values ever
+reached it) instead of the row's own `.shift` — fixed, since the canvas colour lookup
+(`colors[row.early.shift]`) needs the real value to resolve correctly for a genuine
+`afternoon_early`/`afternoon_late` row.
+
+**Testing**: neither type can ever appear in a golden-fixture engine output (manual-edit only, same
+as a placeholder), so `solver/tests/run-fixtures.mjs` gained referee-only checks alongside the
+placeholder ones (§12.9) — hand-built `SolverOutput`s proving segment isolation (an `afternoon_late`
+assignment counts toward S3, leaves S2 untouched) and correct rest-hour derivation against an
+adjacent day. New Gate E (edit) assertions in `edit.cloud.test.mjs` cover persistence of both types
+together in one cell and confirm the same guard still cannot hold both halves of one day (the
+`one_shift_per_guard_per_day` index is keyed by guard + date, not by shift, so it collides regardless
+of which two distinct shift values are involved).
+
+---
+
 ## 13. OPEN ITEMS
 
 | #   | Item                                                                                                                                          | Status / default                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -2649,6 +2809,9 @@ test account is used, not a real Meta billing relationship.
 | **AB**    | Self-service forgot-PIN, phase 1 (§12.12, migrations 48–49, v2.21.0): first shipped on Meta's WhatsApp Business Cloud API, needing `phone_number` added to the schema for the first time. Superseded the same week (v2.22.0, item AB below) after a Meta account restriction was found to block WhatsApp setup entirely — see the revision row directly below for what actually shipped | ✅ superseded, see next row                                    |
 | **AB rev.** | Self-service forgot-PIN, phase 2 (§12.12, migrations 49–50, `request-pin-reset`, v2.22.0): `phone_number` fully reverted (nothing else ever used it); delivery moved to a new `pin_reset_otp` push-notification type on the already-live `send-notifications` function instead of Meta. Same 3-action public Edge Function shape (`otp_request`/`otp_verify`/`otp_complete`), same PIN-reset mechanism `reset-pin` already uses, same three new Login.tsx steps replacing the old dead "החלפת קוד עובד" button | ⚠️ shipped, then reverted — see next row                        |
 | **AB rev. 2** | **Full revert of Steps AB/AB rev.** (§12.12, migration 51, v2.22.1): a session-persistence regression appeared in production after Step AB rev. shipped, with no root cause pinned down despite a full diff review and device-based elimination of the passkey gate as a cause. `AuthContext.tsx`/`useTeam.ts`/`Login.tsx`/`TeamManagement.tsx`/`send-notifications` restored to their exact Step AA (v2.20.2) state; `request-pin-reset` deleted; migrations 48–50 kept as historical record, migration 51 reverses their net effect. The manager-mediated `reset-pin` (Step AA) is once again the sole PIN-recovery path | ✅ complete, live in production                                 |
+| **AC**    | Fixed a stale-past-week leak in the guard-facing roster views (v2.22.2, §1.24): `useVisibleRosters()` was trusting RLS alone to scope published runs to current+next, but the `is_manager()` RLS branch has no date floor at all, by design, for the manager archive — a manager-and-guard account (Ben) inherited the unbounded archive read on their own guard-facing pages. New `guardVisibleWeekFloor()` (`src/lib/dates.ts`) filters client-side; `RosterView.tsx`/`GuardHome.tsx` also stopped mislabelling a genuinely past week as "next week" | ✅ complete                                                    |
+| **AD**    | Placeholder rows can optionally occupy a coverage slot (§12.9, migration 52, v2.23.0, §1.25): new `schedule_assignments.occupies_slot`, meaningful only on a `guard_id IS NULL` row (CHECK-enforced), counts a guard-less placeholder toward segment floor/target/ceiling like a real assignment while it stays invisible to every guard-specific rule (H1–H5, H7, קמות). `validate.ts` gained its first `guard_id === null` branch; a new per-row checkbox in `RosterEditor.tsx` drives it | ✅ complete                                                    |
+| **AE**    | Afternoon block segment shifts (§12.13, migration 53, v2.24.0, §1.26): two new manual-edit-only shift types, `afternoon_early`/`afternoon_late`, let the roster editor occupy just S2 or just S3 without the full `afternoon` shift or a 12h `day12`/`night12`. One real bug caught and fixed before shipping: `mockSolver.ts`'s candidate search also iterates the shift catalogue generically and started proposing the new manual-only types on its own, fixed with a new `SOLVER_SHIFT_TYPES` constant, confirmed via `test:compare` regaining exact mock/CP-SAT parity | ✅ complete                                                    |
 
 ### 14.2 Verification
 
@@ -2673,13 +2836,29 @@ in Gate E (edit) instead: a note round-trip through `save_run_assignments`, the 
 being enforced, the DELETE+INSERT rolling back cleanly when that CHECK rejects the save, a real
 guard and an unrelated placeholder coexisting in one cell, two placeholders sharing a day without
 colliding, and — the contrast that matters — a genuine second REAL shift for the same guard still
-being refused exactly as before.)
+being refused exactly as before. Same reasoning in v2.23.0/v2.24.0 (§12.9's `occupies_slot`, §12.13's
+afternoon segment shifts): neither can ever appear in an engine's output, so instead of new JSON
+fixtures, `run-fixtures.mjs` gained hand-built **referee-only** checks appended after the fixture
+loop — constructing a `SolverOutput` by hand and calling `verifySchedule()` directly to prove
+coverage isolation and correct rest-hour derivation for shift/guard combinations no engine would ever
+produce.)
 
-Gate D (`manager.cloud.test.mjs`) has a known, pre-existing, date-driven flake unrelated to any
-of the above: its dedicated test week (`2026-09-06`) sits exactly on `ensure_roster_weeks()`'s
-sweep-window boundary (`current_week_start() + 28`) as of August 2026, so real production traffic
-calling `ensure_roster_weeks()` mid-test-run can sweep the test's own fixture row. Self-resolving
-once the calendar moves the boundary past mid-September 2026; not a regression if seen before then.
+Gate D (`manager.cloud.test.mjs`) has a known, pre-existing, date-driven **hazard**, not merely a
+flake — worth stating plainly after it cost real data once (2 September 2026): its `setup()` runs
+`DELETE FROM roster_weeks WHERE week_start IN (...)` against its dedicated test week
+(`2026-09-06`) unconditionally, first thing, before any assertion. That date was chosen as "well
+clear of the live weeks" when the test was written, but a hardcoded calendar date does not stay
+clear as the calendar advances — by the date above it had become the real, live "next week," and
+running `test:cloud` deleted the real guards' submitted preferences and that week's already-generated
+draft roster, with no way to recover them (no PITR on this project's plan). The originally-documented
+mechanism (`ensure_roster_weeks()`'s sweep-window boundary at `current_week_start() + 28` colliding
+with the test's own fixture row, self-resolving past mid-September 2026) is real but was never the
+main risk — the test's own `DELETE` against a now-live date is. **Before running Gate D, or
+`test:cloud`, confirm `2026-09-06` — and this test's other fixture date, `2026-07-19` — aren't
+real live weeks**; more generally, check any cloud test's hardcoded fixture dates against
+`roster_weeks` before trusting a "known flake" note at face value, here or elsewhere. The real fix —
+computing fixture dates relative to the current date instead of a fixed calendar date, across every
+cloud test file that has one — is still open.
 
 Gate A (local) has its own known, permanent caveat since migration 41 (v2.12, §12.10): `pg_cron`
 requires a background-worker process PGlite's single-process WASM Postgres can never provide.
@@ -2697,8 +2876,8 @@ locally, which is expected, not a regression.
 | Gate C            | `node supabase/tests/preferences.cloud.test.mjs`          | Persistence, atomicity, deadline, isolation, notes (§3.6), cancelling a submission outright (§3.7), guard-requested shift count round-trip and isolation (§3.10) |
 | Gate D            | `node supabase/tests/manager.cloud.test.mjs`              | Week controls, כמות, lock/reopen override                                                                                                                        |
 | Gate E (cloud)    | `npm run test:generate`                                   | Generate → verify stored rows → publish                                                                                                                          |
-| Gate E (engines)  | `npm run test:fixtures`, `solver/tests/test_scheduler.py` | 16 golden fixtures, both engines                                                                                                                                 |
-| Gate E (edit)     | `npm run test:edit`                                       | Draft and published-roster editing, deletion, assignment-note round-trip and length cap, placeholder rows coexisting with real ones without collision (§12.9)    |
+| Gate E (engines)  | `npm run test:fixtures`, `solver/tests/test_scheduler.py` | 16 golden fixtures, both engines, plus referee-only checks (no fixture) for `occupies_slot` and afternoon segment shifts (§12.9, §12.13)                        |
+| Gate E (edit)     | `npm run test:edit`                                       | Draft and published-roster editing, deletion, assignment-note round-trip and length cap, placeholder rows coexisting with real ones without collision (§12.9), `occupies_slot` persistence and its real-row CHECK (§12.9), afternoon segment shifts coexisting and the same-guard-both-halves rejection (§12.13) |
 | Gate F (realtime) | `npm run test:realtime`                                   | Live push both directions: roster changes to guards, submissions to the manager                                                                                  |
 | Gate G            | `npm run test:notifications`                              | push_subscriptions RLS, targeting functions (incl. the role-filter fix), tolerance window, send idempotency, two-open-weeks robustness (§12.10)                  |
 | Gate H            | `npm run test:webauthn`                                    | RLS on `webauthn_credentials`/`webauthn_challenges`, the `webauthn` Edge Function's auth/verification rejection paths, and a live smoke test of `generateRegistrationOptions()`/`generateAuthenticationOptions()` against the real Deno runtime (§12.11) |
@@ -2721,13 +2900,19 @@ paused. If this is attempted a third time, §12.12's closing note has a specific
 a controlled set of changes rather than live production).
 
 Otherwise nothing blocking. Live in production at `work-organizer-iota.vercel.app`, GitHub
-auto-deploy connected, all suites green except Gate D's known pre-existing date collision (§14.2).
-Open item 9
+auto-deploy connected, all suites green except Gate D's date hazard (§14.2) — check its fixture
+dates against real `roster_weeks` rows before running it, not after. Open item 9
 (§13, tiered כמות penalty) was investigated and rejected — not something to revisit unless the
 hard-constraint set changes. Open item 1 (2-level preference strength) shipped in v2.4 (§3.8). Open
 item 10 (guard-requested shift count) shipped in v2.7 (§3.10), both the general mechanism and the
 5→6 exception. Everything else in §13 is either decided or a deliberately deferred design choice,
 not a build gap. v2.8's four features (§1.9) were a single requested batch, all shipped together.
+
+**v2.23.0's coverage-occupying placeholders (§12.9) and v2.24.0's afternoon segment shifts
+(§12.13) — resolved, not open.** Both are pure roster-editor features with no device-specific
+behaviour, verified end-to-end in the browser against a disposable test fixture (created and fully
+cleaned up afterward) — the editor, the read-only roster grid, and the JPEG export all confirmed
+rendering correctly. Nothing pending on either.
 
 **v2.9's PWA support (§10.4) has one item still open**: real "Add to Home Screen" verification on a
 physical Android Chrome device and a physical iOS Safari device. Everything checkable from this
@@ -2789,4 +2974,4 @@ password — both appear in the development transcript.
 
 ---
 
-_Specification v2.9 — revised 11 August 2026._
+_Specification v2.24.0 — revised 3 September 2026._
