@@ -1,45 +1,35 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
-import { CoverageMatrix } from '@/components/manager/CoverageMatrix';
-import { TeamTable } from '@/components/manager/TeamTable';
 import { WeekControlsPanel } from '@/components/manager/WeekControlsPanel';
 import { WeekExceptionsPanel } from '@/components/manager/WeekExceptionsPanel';
-import { RosterGrid } from '@/components/RosterGrid';
-import { RosterEditor } from '@/components/manager/RosterEditor';
-import { RosterExport } from '@/components/manager/RosterExport';
-import { RosterPublishNotify } from '@/components/manager/RosterPublishNotify';
-import { CoverageReportPanel } from '@/components/manager/CoverageReportPanel';
-import { RunVersions } from '@/components/manager/RunVersions';
-import { Alert, Button, ButtonLink, Card, Spinner } from '@/components/ui';
-import {
-  buildSolverInput,
-  useCarryIn,
-  useDeleteRun,
-  useGenerateSchedule,
-  usePublishRun,
-  useSaveRunAssignments,
-  useScheduleRuns,
-  useUnpublishRun,
-} from '@/hooks/useGenerateSchedule';
+import { Alert, Card, Spinner } from '@/components/ui';
 import { useSplitWeeks } from '@/hooks/useWeeks';
-import { useManagerSubmissionsRealtime, useRosterRealtime } from '@/hooks/useRosterRealtime';
+import { useManagerSubmissionsRealtime } from '@/hooks/useRosterRealtime';
 import {
-  buildCoverage,
   buildGuardRows,
   useManagerWeek,
   useMorningTargetOverrides,
-  useRosterCodeStatus,
   useSegmentTargetOverrides,
-  useSetGuardTarget,
   useUpdateMorningTargetOverride,
   useUpdateSegmentTargetOverride,
   useUpdateWeek,
 } from '@/hooks/useManager';
-import { formatWeekRange, weekDates } from '@/lib/dates';
-import type { DoubleShiftHours, MorningTarget } from '@/lib/shifts';
+import { formatWeekRange } from '@/lib/dates';
+import type { MorningTarget } from '@/lib/shifts';
 import { useViewMode } from '@/contexts/ViewModeContext';
 import { visibleToViewMode } from '@/lib/viewMode';
 
+/**
+ * The manager's landing page: which week, is it open, and who hasn't
+ * submitted yet -- the things worth seeing on every visit without a click.
+ * Everything else that used to live here (team availability, the כמות table,
+ * generating/reviewing/publishing a roster, team CRUD, guard-preference
+ * detail, standing scheduler defaults) now lives on its own page, reached
+ * from the nav list below -- each carries the currently selected week over
+ * via ?week= where it's relevant, so switching pages doesn't mean re-picking
+ * the week.
+ */
 export function ManagerDashboard() {
   const { data: weeks, live, archive, nextStart, isLoading: weeksLoading } = useSplitWeeks();
   const [selected, setSelected] = useState<string>('');
@@ -55,7 +45,6 @@ export function ManagerDashboard() {
   }, [live, selected, nextStart]);
 
   const { data, isLoading, error } = useManagerWeek(selected);
-  const { data: codes } = useRosterCodeStatus();
   const { data: morningTargetOverridesRaw } = useMorningTargetOverrides(selected);
   const morningTargetOverrides = morningTargetOverridesRaw ?? {};
   const updateDayOverride = useUpdateMorningTargetOverride();
@@ -63,38 +52,14 @@ export function ManagerDashboard() {
   const segmentTargetOverrides = segmentTargetOverridesRaw ?? {};
   const updateSegmentDayOverride = useUpdateSegmentTargetOverride();
   const updateWeek = useUpdateWeek();
-  const setTarget = useSetGuardTarget();
-  const generate = useGenerateSchedule();
-  const publish = usePublishRun();
-  const saveEdits = useSaveRunAssignments();
-  const unpublish = useUnpublishRun();
-  const deleteRun = useDeleteRun();
-  const [editing, setEditing] = useState(false);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const { data: runsRaw } = useScheduleRuns(selected);
-  const { data: carryIn } = useCarryIn(selected);
-  // Not for the manager's own edits -- the mutation already invalidates those --
-  // but so a second device, or the phone in their pocket, stays truthful.
-  useRosterRealtime(selected ? [selected] : []);
   // A guard submitting availability, or writing a note (§3.6), previously sat
   // invisible until the manager reloaded the page.
   useManagerSubmissionsRealtime(selected || null);
 
-  const runsData = runsRaw ?? { runs: [], assignments: [] };
-  // The manager may be looking at any version. Default to the published one if
-  // there is one, otherwise the newest draft; fall back if the chosen run was
-  // just deleted.
-  const defaultRun = runsData.runs.find((r) => r.is_published) ?? runsData.runs[0] ?? null;
-  const latestRun =
-    runsData.runs.find((r) => r.id === selectedRunId) ?? defaultRun;
-
   const { viewMode } = useViewMode();
   const week = weeks?.find((w) => w.week_start === selected) ?? null;
-  const doubleShiftHours = (week?.double_shift_display_hours ?? 12) as DoubleShiftHours;
-  const dates = useMemo(() => (selected ? weekDates(selected) : []), [selected]);
-  // Filtered for DISPLAY only -- generation, RosterGrid and export below all
-  // keep reading `data.guards` unfiltered, since the view-mode toggle changes
-  // what the manager sees in these lists, never who gets scheduled.
+  // Filtered for DISPLAY only, same as every other manager list -- the
+  // view-mode toggle changes what the manager sees, never who gets scheduled.
   const rows = useMemo(
     () =>
       data
@@ -102,11 +67,6 @@ export function ManagerDashboard() {
         : [],
     [data, viewMode],
   );
-  const coverage = useMemo(() => (data ? buildCoverage(data, dates) : []), [data, dates]);
-
-  const unregistered = (codes ?? [])
-    .filter((c) => !c.is_claimed)
-    .filter((c) => visibleToViewMode(c, viewMode));
 
   if (weeksLoading) {
     return (
@@ -179,37 +139,19 @@ export function ManagerDashboard() {
           }
         />
 
-        {/* Compact secondary-nav row -- team CRUD, per-guard preference
-            detail, and standing scheduler defaults are each a distinct task
-            from the weekly workflow below, so they live on their own pages
-            (same reasoning for all three); grouped here as equal-weight
-            links instead of full-width buttons interrupting the workflow
-            further down the page. */}
-        <div className="grid grid-cols-3 gap-2">
-          <ButtonLink to={`/manage/preferences?week=${selected}`} variant="secondary" size="sm">
-            העדפות צוות
-          </ButtonLink>
-          <ButtonLink to="/manage/team" variant="secondary" size="sm">
-            ניהול צוות
-          </ButtonLink>
-          <ButtonLink to="/manage/settings" variant="secondary" size="sm">
-            הגדרות
-          </ButtonLink>
-        </div>
-
         {updateWeek.isError && (
           <Alert tone="error" title="העדכון נכשל">
             {updateWeek.error instanceof Error ? updateWeek.error.message : 'נסה שוב.'}
           </Alert>
         )}
 
-        {/* Week-detail content only, gated on the SELECTED week's own fetch --
-            WeekControlsPanel and WeekExceptionsPanel above stay mounted while
-            it loads or errors, instead of the whole page unmounting and
-            remounting. WeekControlsPanel's "show archive" toggle is local
-            component state; a remount was resetting it to the live-weeks
-            view every time a different week (especially an archived one)
-            was picked, which is exactly the wrong moment for it to reset. */}
+        {/* Gated on the SELECTED week's own fetch -- WeekControlsPanel and
+            WeekExceptionsPanel above stay mounted while it loads or errors,
+            instead of the whole page unmounting and remounting.
+            WeekControlsPanel's "show archive" toggle is local component
+            state; a remount was resetting it to the live-weeks view every
+            time a different week (especially an archived one) was picked,
+            which is exactly the wrong moment for it to reset. */}
         {selected && isLoading ? (
           <div className="grid place-items-center py-16">
             <Spinner className="size-7 text-brand-600" />
@@ -219,210 +161,64 @@ export function ManagerDashboard() {
             {error instanceof Error ? error.message : 'נסה לרענן את הדף.'}
           </Alert>
         ) : (
-          <>
-            {notSubmitted.length > 0 && (
-              <Alert tone="warn" title={`${notSubmitted.length} מאבטחים טרם הגישו`}>
-                {notSubmitted.map((r) => r.guard.display_name).join(', ')}
-              </Alert>
-            )}
-
-            {unregistered.length > 0 && (
-              <Alert tone="info" title={`${unregistered.length} קודים טרם נרשמו למערכת`}>
-                {unregistered.map((c) => `${c.display_name} (${c.employee_code})`).join(', ')}
-              </Alert>
-            )}
-
-            <CoverageMatrix
-              cells={coverage}
-              dates={dates}
-              morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
-              morningTargetOverrides={morningTargetOverrides}
-              segmentTargetOverrides={segmentTargetOverrides}
-            />
-
-            <TeamTable
-              rows={rows}
-              savingGuardId={setTarget.isPending ? setTarget.variables?.guardId : null}
-              onSetKamut={(guardId, kamut) =>
-                setTarget.mutate({ weekStart: selected, guardId, kamut })
-              }
-            />
-
-            {setTarget.isError && (
-              <Alert tone="error" title="שמירת הכמות נכשלה">
-                {setTarget.error instanceof Error ? setTarget.error.message : 'נסה שוב.'}
-              </Alert>
-            )}
-
-            {/* ---------------- generate ---------------- */}
-            <Card className="space-y-3">
-              <div>
-                <p className="font-bold text-slate-900 dark:text-slate-100">יצירת סידור</p>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  המנוע קורא את הזמינות והכמויות שלמעלה ומחזיר סידור יחד עם דוח כיסוי. כל הרצה
-                  נשמרת כגרסה חדשה - אפשר לייצר שוב ולהשוות.
-                </p>
-              </div>
-
-              {generate.isError && (
-                <Alert tone="error" title="היצירה נכשלה">
-                  <span className="whitespace-pre-line">
-                    {generate.error instanceof Error ? generate.error.message : 'נסה שוב.'}
-                  </span>
-                </Alert>
-              )}
-
-              {generate.isSuccess && generate.data && (
-                <Alert tone="success" title={`נוצרה גרסה ${generate.data.version}`}>
-                  {generate.data.engine === 'cp-sat'
-                    ? `מנוע CP-SAT · ${generate.data.status}`
-                    : 'מנוע מקומי (mock)'}{' '}
-                  · ניקוד {generate.data.objective}
-                </Alert>
-              )}
-
-              <Button
-                fullWidth
-                size="lg"
-                loading={generate.isPending}
-                disabled={!data || rows.length === 0}
-                onClick={() =>
-                  data &&
-                  generate.mutate({
-                    weekStart: selected,
-                    morningTarget: (week?.morning_target_slots ?? 2) as MorningTarget,
-                    data,
-                    morningTargetOverrides,
-                    secondaryTargetOverrides: segmentTargetOverrides,
-                  })
-                }
-              >
-                {generate.isPending ? 'מחשב סידור…' : 'צור סידור אוטומטי'}
-              </Button>
-            </Card>
-
-            {/* ---------------- result ---------------- */}
-            {latestRun && (
-              <>
-                <CoverageReportPanel
-                  report={latestRun.coverage_report}
-                  guards={data?.guards ?? []}
-                />
-
-                {editing && data ? (
-                  <RosterEditor
-                    weekStart={selected}
-                    morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
-                    morningTargetOverrides={morningTargetOverrides}
-                    segmentTargetOverrides={segmentTargetOverrides}
-                    doubleShiftHours={doubleShiftHours}
-                    assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
-                    guards={data.guards}
-                    // The referee must judge an edit against exactly what the solver
-                    // saw -- including last Saturday's shifts, or a manual Sunday
-                    // assignment could create a clopen across the week boundary
-                    // that nothing would catch.
-                    solverInput={buildSolverInput(
-                      selected,
-                      (week?.morning_target_slots ?? 2) as MorningTarget,
-                      data,
-                      carryIn ?? {},
-                      morningTargetOverrides,
-                      segmentTargetOverrides,
-                    )}
-                    saving={saveEdits.isPending}
-                    onCancel={() => setEditing(false)}
-                    onSave={(draft) =>
-                      saveEdits.mutate(
-                        {
-                          runId: latestRun.id,
-                          weekStart: selected,
-                          assignments: draft.map((d) => ({
-                            date: d.date,
-                            shift: d.shift,
-                            guard_id: d.guard_id,
-                            note_before: d.noteBefore,
-                            note_after: d.noteAfter,
-                            occupies_slot: d.occupiesSlot,
-                          })),
-                        },
-                        { onSuccess: () => setEditing(false) },
-                      )
-                    }
-                  />
-                ) : (
-                  <RosterGrid
-                    weekStart={selected}
-                    morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
-                    morningTargetOverrides={morningTargetOverrides}
-                    segmentTargetOverrides={segmentTargetOverrides}
-                    doubleShiftHours={doubleShiftHours}
-                    assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
-                    guards={data?.guards ?? []}
-                  />
-                )}
-
-                {/* Available for any selected version, draft or published --
-                    only gated on not-mid-edit, since the on-screen grid it
-                    mirrors is itself mid-edit and would be stale to export. */}
-                {!editing && (
-                  <RosterExport
-                    weekStart={selected}
-                    morningTarget={(week?.morning_target_slots ?? 2) as MorningTarget}
-                    morningTargetOverrides={morningTargetOverrides}
-                    segmentTargetOverrides={segmentTargetOverrides}
-                    doubleShiftHours={doubleShiftHours}
-                    assignments={runsData.assignments.filter((a) => a.run_id === latestRun.id)}
-                    guards={data?.guards ?? []}
-                  />
-                )}
-
-                {/* Same gate as RosterExport just above -- announcing a draft
-                    makes no sense, and mid-edit the "published" roster on
-                    screen may not match what is actually live. */}
-                {latestRun.is_published && !editing && <RosterPublishNotify weekStart={selected} />}
-
-                {(publish.isError ||
-                  saveEdits.isError ||
-                  deleteRun.isError ||
-                  unpublish.isError) && (
-                  <Alert tone="error" title="הפעולה נכשלה">
-                    {[publish.error, saveEdits.error, deleteRun.error, unpublish.error]
-                      .filter((e): e is Error => e instanceof Error)
-                      .map((e) => e.message)
-                      .join(' · ') || 'נסה שוב.'}
-                  </Alert>
-                )}
-
-                <RunVersions
-                  runs={runsData.runs}
-                  selectedId={latestRun.id}
-                  onSelect={(id) => {
-                    setSelectedRunId(id);
-                    setEditing(false);
-                  }}
-                  onPublish={(id) => publish.mutate({ runId: id, weekStart: selected })}
-                  onUnpublish={(id) => unpublish.mutate({ runId: id, weekStart: selected })}
-                  onEdit={(id) => {
-                    setSelectedRunId(id);
-                    setEditing(true);
-                  }}
-                  onDelete={(id) =>
-                    deleteRun.mutate(
-                      { runId: id, weekStart: selected },
-                      // The deleted run may have been the one on screen; clearing
-                      // the selection lets it fall back to whatever remains.
-                      { onSuccess: () => setSelectedRunId(null) },
-                    )
-                  }
-                  busy={publish.isPending || unpublish.isPending || deleteRun.isPending}
-                  disabled={editing}
-                />
-              </>
-            )}
-          </>
+          notSubmitted.length > 0 && (
+            <Alert tone="warn" title={`${notSubmitted.length} מאבטחים טרם הגישו`}>
+              {notSubmitted.map((r) => r.guard.display_name).join(', ')}
+            </Alert>
+          )
         )}
+
+        <Card className="p-0">
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            <NavRow
+              to={`/manage/summary?week=${selected}`}
+              title="סיכום שבועי"
+              description="זמינות הצוות והכמות השבועית"
+            />
+            <NavRow
+              to={`/manage/roster?week=${selected}`}
+              title="יצירת סידור"
+              description="יצירה, עריכה ופרסום"
+            />
+            <NavRow
+              to={`/manage/preferences?week=${selected}`}
+              title="העדפות הצוות"
+              description="צפייה ועריכה לפי יום ומשמרת"
+            />
+            <NavRow
+              to="/manage/team"
+              title="ניהול צוות"
+              description="הוספה, הסרה ועדכון ברירות מחדל"
+            />
+            <NavRow to="/manage/settings" title="הגדרות" description="ברירות מחדל למערכת" />
+          </div>
+        </Card>
       </div>
     </AppShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+function NavRow({
+  to,
+  title,
+  description,
+}: {
+  to: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <Link
+      to={to}
+      className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800"
+    >
+      <div className="min-w-0">
+        <p className="font-bold text-slate-900 dark:text-slate-100">{title}</p>
+        <p className="mt-0.5 truncate text-sm text-slate-500 dark:text-slate-400">{description}</p>
+      </div>
+      <span className="shrink-0 text-lg text-slate-400 dark:text-slate-500">‹</span>
+    </Link>
   );
 }

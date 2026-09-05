@@ -17,12 +17,17 @@ export function Collapsible({
   title,
   summary,
   defaultExpanded = false,
+  bodyClassName = 'px-4 py-3',
   children,
 }: {
   variant?: 'card' | 'plain';
   title: ReactNode;
   summary?: ReactNode;
   defaultExpanded?: boolean;
+  /** Card variant only. Content that already manages its own internal
+   *  padding (a table, a divide-y row list) should pass "" here to avoid
+   *  doubling up with this wrapper's own padding. */
+  bodyClassName?: string;
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -70,7 +75,9 @@ export function Collapsible({
     <Card className="p-0">
       {header}
       {expanded && (
-        <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">{children}</div>
+        <div className={cn('border-t border-slate-200 dark:border-slate-800', bodyClassName)}>
+          {children}
+        </div>
       )}
     </Card>
   );

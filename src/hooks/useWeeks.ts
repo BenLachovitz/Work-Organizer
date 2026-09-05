@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { requireSupabase } from '@/lib/supabase';
 import type { RosterWeek } from '@/types/database';
@@ -98,6 +100,37 @@ export function useSplitWeeks() {
     currentStart,
     nextStart,
   };
+}
+
+/**
+ * Shared week-selection state for the manager sub-pages that operate on
+ * "whichever week is picked" (Summary, Roster generation, Preferences):
+ * bootstraps from a `?week=` query param if the link that brought the
+ * manager here carried one (e.g. from ManagerDashboard's nav row, so the
+ * week they were already looking at follows them), else defaults to next
+ * week, falling back to whatever is live. Combines live+archive into one
+ * list since nothing about picking a week to inspect or (re)generate is
+ * actually restricted to live weeks -- ManagerDashboard's own week picker
+ * never was either.
+ */
+export function useManagerWeekSelection() {
+  const [searchParams] = useSearchParams();
+  const { live, archive, nextStart, isLoading } = useSplitWeeks();
+  const weeks = [...live, ...archive];
+
+  const [selected, setSelected] = useState(searchParams.get('week') ?? '');
+  useEffect(() => {
+    if (selected || !live.length) return;
+    const fromQuery = searchParams.get('week');
+    const next = live.find((w) => w.week_start === nextStart);
+    setSelected(fromQuery || next?.week_start || live[0]!.week_start);
+    // Only ever bootstraps the initial selection -- searchParams is
+    // intentionally excluded so switching weeks via the dropdown doesn't
+    // get overridden by a stale query string.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, selected, nextStart]);
+
+  return { weeks, live, archive, selected, setSelected, nextStart, isLoading };
 }
 
 export interface ActiveWeek {

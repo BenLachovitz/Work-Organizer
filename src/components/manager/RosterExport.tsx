@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card } from '@/components/ui';
+import { Alert, Button, Collapsible } from '@/components/ui';
 import { downloadBlob, renderRosterImage, rosterFileName } from '@/lib/exportRoster';
 import type { DateKey } from '@/lib/dates';
 import type {
@@ -18,7 +18,7 @@ import type { Profile, ScheduleAssignment } from '@/types/database';
  * the group chat is indistinguishable from a promise once it's out there; he
  * wants the preview/download itself available earlier regardless). The
  * publish-only gate that remains is `RosterPublishNotify` just below this
- * component in ManagerDashboard.tsx -- the push announcement to every guard's
+ * component in ManagerRoster.tsx -- the push announcement to every guard's
  * phone is a materially different action than a manager previewing or saving
  * a picture for themselves, and stays published-only.
  *
@@ -141,14 +141,13 @@ export function RosterExport({
   };
 
   return (
-    <Card className="p-0">
-      <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-        <p className="font-bold text-slate-900 dark:text-slate-100">ייצוא הסידור לתמונה</p>
-        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-          תמונה של הגרסה הנבחרת, מוכנה לתצוגה או לשליחה בוואטסאפ.
-        </p>
-      </div>
-
+    <Collapsible
+      variant="card"
+      title="ייצוא הסידור לתמונה"
+      summary="תמונה של הגרסה הנבחרת, מוכנה לתצוגה או לשליחה בוואטסאפ."
+      defaultExpanded
+      bodyClassName=""
+    >
       {error && (
         <div className="px-4 pt-3">
           <Alert tone="error">{error}</Alert>
@@ -178,7 +177,7 @@ export function RosterExport({
       {open && image && (
         <PreviewModal url={image.url} onClose={() => setOpen(false)} onDownload={onDownload} />
       )}
-    </Card>
+    </Collapsible>
   );
 }
 

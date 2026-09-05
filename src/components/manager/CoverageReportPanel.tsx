@@ -1,4 +1,4 @@
-import { Alert, Card } from '@/components/ui';
+import { Alert, Collapsible } from '@/components/ui';
 import { HEBREW_DAYS } from '@/lib/dates';
 import { SEGMENT_DEFS, SHIFTS, type Segment } from '@/lib/shifts';
 import type { CoverageReport, Profile } from '@/types/database';
@@ -34,61 +34,61 @@ export function CoverageReportPanel({
   }
 
   return (
-    <Card className="space-y-3">
-      <p className="font-bold text-slate-900 dark:text-slate-100">דוח כיסוי</p>
+    <Collapsible variant="card" title="דוח כיסוי" defaultExpanded>
+      <div className="space-y-3">
+        {report.floor_breaches.length > 0 && (
+          <Alert tone="error" title={`${report.floor_breaches.length} משמרות מתחת לרצפת הבטיחות`}>
+            <p className="mb-1.5">
+              אין מספיק מתנדבים כדי לאייש את המינימום. שום הרצה חוזרת לא תפתור זאת - צריך לפנות
+              למאבטחים.
+            </p>
+            <ul className="space-y-0.5">
+              {report.floor_breaches.slice(0, 8).map((b, i) => (
+                <li key={i}>
+                  יום {dayName(b.day)} · {segName(b.segment)} — {b.assigned} מתוך {b.required}
+                </li>
+              ))}
+              {report.floor_breaches.length > 8 && (
+                <li className="text-slate-500 dark:text-slate-400">
+                  ועוד {report.floor_breaches.length - 8}…
+                </li>
+              )}
+            </ul>
+          </Alert>
+        )}
 
-      {report.floor_breaches.length > 0 && (
-        <Alert tone="error" title={`${report.floor_breaches.length} משמרות מתחת לרצפת הבטיחות`}>
-          <p className="mb-1.5">
-            אין מספיק מתנדבים כדי לאייש את המינימום. שום הרצה חוזרת לא תפתור זאת - צריך לפנות
-            למאבטחים.
-          </p>
-          <ul className="space-y-0.5">
-            {report.floor_breaches.slice(0, 8).map((b, i) => (
-              <li key={i}>
-                יום {dayName(b.day)} · {segName(b.segment)} — {b.assigned} מתוך {b.required}
-              </li>
-            ))}
-            {report.floor_breaches.length > 8 && (
-              <li className="text-slate-500 dark:text-slate-400">
-                ועוד {report.floor_breaches.length - 8}…
-              </li>
-            )}
-          </ul>
-        </Alert>
-      )}
+        {report.unmet_kamut.length > 0 && (
+          <Alert tone="warn" title={`${report.unmet_kamut.length} מאבטחים מתחת ליעד הכמות`}>
+            <ul className="space-y-0.5">
+              {report.unmet_kamut.map((u, i) => (
+                <li key={i}>
+                  {nameOf(u.guard_id)} — שובץ {u.assigned} מתוך {u.effective_kamut}
+                </li>
+              ))}
+            </ul>
+          </Alert>
+        )}
 
-      {report.unmet_kamut.length > 0 && (
-        <Alert tone="warn" title={`${report.unmet_kamut.length} מאבטחים מתחת ליעד הכמות`}>
-          <ul className="space-y-0.5">
-            {report.unmet_kamut.map((u, i) => (
-              <li key={i}>
-                {nameOf(u.guard_id)} — שובץ {u.assigned} מתוך {u.effective_kamut}
-              </li>
-            ))}
-          </ul>
-        </Alert>
-      )}
+        {report.rest_violations.length > 0 && (
+          <Alert tone="warn" title={`${report.rest_violations.length} מנוחות של 8 שעות`}>
+            <p className="mb-1.5">מותר, אך לא מומלץ. המנוע מעדיף 12 שעות מנוחה ומעלה.</p>
+            <ul className="space-y-0.5">
+              {report.rest_violations.slice(0, 6).map((r, i) => (
+                <li key={i}>
+                  {nameOf(r.guard_id)} — {SHIFTS[r.from].he} ביום {dayName(r.day)} ואז{' '}
+                  {SHIFTS[r.to].he} למחרת
+                </li>
+              ))}
+            </ul>
+          </Alert>
+        )}
 
-      {report.rest_violations.length > 0 && (
-        <Alert tone="warn" title={`${report.rest_violations.length} מנוחות של 8 שעות`}>
-          <p className="mb-1.5">מותר, אך לא מומלץ. המנוע מעדיף 12 שעות מנוחה ומעלה.</p>
-          <ul className="space-y-0.5">
-            {report.rest_violations.slice(0, 6).map((r, i) => (
-              <li key={i}>
-                {nameOf(r.guard_id)} — {SHIFTS[r.from].he} ביום {dayName(r.day)} ואז{' '}
-                {SHIFTS[r.to].he} למחרת
-              </li>
-            ))}
-          </ul>
-        </Alert>
-      )}
-
-      {report.target_gaps.length > 0 && (
-        <Alert tone="info" title={`${report.target_gaps.length} מקומות פנויים מתחת ליעד`}>
-          מעל רצפת הבטיחות, אך לא מלא. זה תקין כשאין מספיק זמינות - הרצפה היא מה שחייב להתקיים.
-        </Alert>
-      )}
-    </Card>
+        {report.target_gaps.length > 0 && (
+          <Alert tone="info" title={`${report.target_gaps.length} מקומות פנויים מתחת ליעד`}>
+            מעל רצפת הבטיחות, אך לא מלא. זה תקין כשאין מספיק זמינות - הרצפה היא מה שחייב להתקיים.
+          </Alert>
+        )}
+      </div>
+    </Collapsible>
   );
 }

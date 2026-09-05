@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Button, Card } from '@/components/ui';
+import { Alert, Button, Collapsible } from '@/components/ui';
 import { useLastPublishNotification, useNotifyRosterPublished } from '@/hooks/useGenerateSchedule';
 import { formatDeadline } from '@/lib/dates';
 import type { DateKey } from '@/lib/dates';
@@ -32,16 +32,17 @@ export function RosterPublishNotify({ weekStart }: { weekStart: DateKey }) {
   };
 
   return (
-    <Card className="p-0">
-      <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-        <p className="font-bold text-slate-900 dark:text-slate-100">שליחת התראה על פרסום</p>
-        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-          {lastSentAt
-            ? `נשלחה לאחרונה: ${formatDeadline(new Date(lastSentAt))}`
-            : 'עדיין לא נשלחה התראה לשבוע זה.'}
-        </p>
-      </div>
-
+    <Collapsible
+      variant="card"
+      title="שליחת התראה על פרסום"
+      summary={
+        lastSentAt
+          ? `נשלחה לאחרונה: ${formatDeadline(new Date(lastSentAt))}`
+          : 'עדיין לא נשלחה התראה לשבוע זה.'
+      }
+      defaultExpanded
+      bodyClassName=""
+    >
       {notify.isError && (
         <div className="px-4 pt-3">
           <Alert tone="error">{notify.error.message}</Alert>
@@ -71,6 +72,6 @@ export function RosterPublishNotify({ weekStart }: { weekStart: DateKey }) {
           </Button>
         )}
       </div>
-    </Card>
+    </Collapsible>
   );
 }

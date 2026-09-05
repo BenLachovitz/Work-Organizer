@@ -28,6 +28,12 @@ const ManagerPreferences = lazy(() =>
 const ManagerSettings = lazy(() =>
   import('@/pages/ManagerSettings').then((m) => ({ default: m.ManagerSettings })),
 );
+const ManagerSummary = lazy(() =>
+  import('@/pages/ManagerSummary').then((m) => ({ default: m.ManagerSummary })),
+);
+const ManagerRoster = lazy(() =>
+  import('@/pages/ManagerRoster').then((m) => ({ default: m.ManagerRoster })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -137,6 +143,26 @@ function AppRoutes() {
           <ManagerOnly>
             <Suspense fallback={<FullScreenLoader />}>
               <ManagerSettings />
+            </Suspense>
+          </ManagerOnly>
+        }
+      />
+      <Route
+        path="/manage/summary"
+        element={
+          <ManagerOnly>
+            <Suspense fallback={<FullScreenLoader />}>
+              <ManagerSummary />
+            </Suspense>
+          </ManagerOnly>
+        }
+      />
+      <Route
+        path="/manage/roster"
+        element={
+          <ManagerOnly>
+            <Suspense fallback={<FullScreenLoader />}>
+              <ManagerRoster />
             </Suspense>
           </ManagerOnly>
         }

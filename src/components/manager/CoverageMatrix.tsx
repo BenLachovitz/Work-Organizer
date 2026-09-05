@@ -1,4 +1,4 @@
-import { Card, cn } from '@/components/ui';
+import { cn } from '@/components/ui';
 import { HEBREW_DAYS_SHORT, type DateKey } from '@/lib/dates';
 import {
   BASE_SHIFTS,
@@ -72,14 +72,7 @@ export function CoverageMatrix({
   });
 
   return (
-    <Card className="p-0">
-      <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-        <p className="font-bold text-slate-900 dark:text-slate-100">זמינות הצוות</p>
-        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-          כמה מאבטחים סימנו שהם יכולים לעבוד בכל משמרת
-        </p>
-      </div>
-
+    <>
       <div className="overflow-x-auto px-4 py-3">
         <table className="w-full min-w-[22rem] border-separate border-spacing-1">
           <thead>
@@ -172,6 +165,6 @@ export function CoverageMatrix({
           )}
         </div>
       )}
-    </Card>
+    </>
   );
 }

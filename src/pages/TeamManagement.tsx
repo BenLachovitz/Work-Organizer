@@ -15,10 +15,11 @@ import { useViewMode } from '@/contexts/ViewModeContext';
 import { visibleToViewMode } from '@/lib/viewMode';
 
 /**
- * Manager control over who is on the team, as opposed to ManagerDashboard's
- * week-by-week "what are they working". Four operations; only ADD touches
- * claim-code, the one publicly-reachable unauthenticated write path in the
- * system, and only by creating the invitation row it reads:
+ * Manager control over who is on the team, as opposed to the weekly
+ * workflow's "what are they working" (ManagerDashboard/ManagerSummary/
+ * ManagerRoster). Four operations; only ADD touches claim-code, the one
+ * publicly-reachable unauthenticated write path in the system, and only by
+ * creating the invitation row it reads:
  *
  *   ADD          creates a roster_codes row -- the same thing seed.sql did by
  *                hand for the first eight. The employee still sets their own
@@ -56,6 +57,12 @@ export function TeamManagement() {
         <ButtonLink to="/manage" variant="ghost" size="sm">
           → חזרה לניהול
         </ButtonLink>
+
+        {pending.length > 0 && (
+          <Alert tone="info" title={`${pending.length} קודים טרם נרשמו למערכת`}>
+            {pending.map((c) => `${c.display_name} (${c.employee_code})`).join(', ')}
+          </Alert>
+        )}
 
         <AddEmployeeCard existingCodes={rows.map((r) => r.employee_code)} />
 

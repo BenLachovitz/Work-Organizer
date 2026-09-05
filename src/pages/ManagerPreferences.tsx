@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useMemo, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { GuardPreferenceDetail } from '@/components/manager/GuardPreferenceDetail';
 import { GuardPreferenceEditor } from '@/components/manager/GuardPreferenceEditor';
+import { WeekSelectCard } from '@/components/manager/WeekSelectCard';
 import { Alert, Badge, Button, ButtonLink, Card, Spinner } from '@/components/ui';
-import { useSplitWeeks } from '@/hooks/useWeeks';
+import { useManagerWeekSelection } from '@/hooks/useWeeks';
 import {
   useManagerDeleteSubmission,
   useManagerSavePreferences,
@@ -37,21 +37,8 @@ const STATE_BADGE = {
  * the guard's own /preferences page uses.
  */
 export function ManagerPreferences() {
-  const [searchParams] = useSearchParams();
-  const { live, archive, nextStart, isLoading: weeksLoading } = useSplitWeeks();
-  const weeks = [...live, ...archive];
-
-  const [selected, setSelected] = useState(searchParams.get('week') ?? '');
-  useEffect(() => {
-    if (selected || !live.length) return;
-    const fromQuery = searchParams.get('week');
-    const next = live.find((w) => w.week_start === nextStart);
-    setSelected(fromQuery || next?.week_start || live[0]!.week_start);
-    // Only ever bootstraps the initial selection -- searchParams is
-    // intentionally excluded so switching weeks via the dropdown below
-    // doesn't get overridden by a stale query string.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, selected, nextStart]);
+  const { weeks, selected, setSelected, nextStart, isLoading: weeksLoading } =
+    useManagerWeekSelection();
 
   const { data, isLoading, error } = useManagerWeek(selected);
   const { viewMode } = useViewMode();
@@ -105,31 +92,17 @@ export function ManagerPreferences() {
           → חזרה לניהול
         </ButtonLink>
 
-        <Card className="flex items-center gap-3">
-          <label
-            htmlFor="pref-week-select"
-            className="shrink-0 text-sm font-bold text-slate-700 dark:text-slate-300"
-          >
-            שבוע
-          </label>
-          <select
-            id="pref-week-select"
-            value={selected}
-            onChange={(e) => {
-              setSelected(e.target.value);
-              setEditingId(null);
-              setConfirmDeleteId(null);
-            }}
-            className="w-full min-w-0 rounded-xl border-2 border-slate-200 px-3 py-2 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-          >
-            {weeks.map((w) => (
-              <option key={w.week_start} value={w.week_start}>
-                {formatWeekRange(w.week_start)}
-                {w.week_start === nextStart ? ' (הבא)' : ''}
-              </option>
-            ))}
-          </select>
-        </Card>
+        <WeekSelectCard
+          id="pref-week-select"
+          weeks={weeks}
+          selected={selected}
+          nextStart={nextStart}
+          onSelect={(weekStart) => {
+            setSelected(weekStart);
+            setEditingId(null);
+            setConfirmDeleteId(null);
+          }}
+        />
 
         {(save.isError || del.isError) && (
           <Alert tone="error" title="הפעולה נכשלה">

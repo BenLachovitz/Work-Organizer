@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Badge, Button, Card, cn } from '@/components/ui';
+import { Alert, Badge, Button, Collapsible, cn } from '@/components/ui';
 import type { ScheduleRun } from '@/types/database';
 
 /**
@@ -39,14 +39,12 @@ export function RunVersions({
   if (runs.length === 0) return null;
 
   return (
-    <Card className="space-y-3">
-      <div>
-        <p className="font-bold text-slate-900 dark:text-slate-100">גרסאות הסידור</p>
-        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-          כל הרצה נשמרת בנפרד. אפשר לערוך, לפרסם או למחוק כל אחת - גם לאחר פרסום.
-        </p>
-      </div>
-
+    <Collapsible
+      variant="card"
+      title="גרסאות הסידור"
+      summary="כל הרצה נשמרת בנפרד. אפשר לערוך, לפרסם או למחוק כל אחת - גם לאחר פרסום."
+      defaultExpanded
+    >
       <div className="divide-y divide-slate-100 dark:divide-slate-800">
         {runs.map((run) => {
           const selected = run.id === selectedId;
@@ -132,6 +130,6 @@ export function RunVersions({
           );
         })}
       </div>
-    </Card>
+    </Collapsible>
   );
 }
