@@ -405,3 +405,7 @@ export function EmptyState({
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+
+export { Collapsible } from './Collapsible';

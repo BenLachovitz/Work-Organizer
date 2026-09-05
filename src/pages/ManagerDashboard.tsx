@@ -3,8 +3,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { CoverageMatrix } from '@/components/manager/CoverageMatrix';
 import { TeamTable } from '@/components/manager/TeamTable';
 import { WeekControlsPanel } from '@/components/manager/WeekControlsPanel';
-import { SubmissionWindowSettings } from '@/components/manager/SubmissionWindowSettings';
-import { DefaultMorningTargetSettings } from '@/components/manager/DefaultMorningTargetSettings';
+import { WeekExceptionsPanel } from '@/components/manager/WeekExceptionsPanel';
 import { RosterGrid } from '@/components/RosterGrid';
 import { RosterEditor } from '@/components/manager/RosterEditor';
 import { RosterExport } from '@/components/manager/RosterExport';
@@ -144,6 +143,12 @@ export function ManagerDashboard() {
           onSelect={setSelected}
           week={week}
           saving={updateWeek.isPending}
+          onSetStatus={(s) => updateWeek.mutate({ weekStart: selected, status: s })}
+        />
+
+        <WeekExceptionsPanel
+          week={week}
+          saving={updateWeek.isPending}
           onSetMorningTarget={(t: MorningTarget) =>
             updateWeek.mutate({ weekStart: selected, morningTarget: t })
           }
@@ -172,12 +177,25 @@ export function ManagerDashboard() {
           onSetDoubleShiftHours={(h) =>
             updateWeek.mutate({ weekStart: selected, doubleShiftHours: h })
           }
-          onSetStatus={(s) => updateWeek.mutate({ weekStart: selected, status: s })}
         />
 
-        <DefaultMorningTargetSettings />
-
-        <SubmissionWindowSettings />
+        {/* Compact secondary-nav row -- team CRUD, per-guard preference
+            detail, and standing scheduler defaults are each a distinct task
+            from the weekly workflow below, so they live on their own pages
+            (same reasoning for all three); grouped here as equal-weight
+            links instead of full-width buttons interrupting the workflow
+            further down the page. */}
+        <div className="grid grid-cols-3 gap-2">
+          <ButtonLink to={`/manage/preferences?week=${selected}`} variant="secondary" size="sm">
+            העדפות צוות
+          </ButtonLink>
+          <ButtonLink to="/manage/team" variant="secondary" size="sm">
+            ניהול צוות
+          </ButtonLink>
+          <ButtonLink to="/manage/settings" variant="secondary" size="sm">
+            הגדרות
+          </ButtonLink>
+        </div>
 
         {updateWeek.isError && (
           <Alert tone="error" title="העדכון נכשל">
@@ -186,7 +204,7 @@ export function ManagerDashboard() {
         )}
 
         {/* Week-detail content only, gated on the SELECTED week's own fetch --
-            WeekControlsPanel and the settings cards above stay mounted while
+            WeekControlsPanel and WeekExceptionsPanel above stay mounted while
             it loads or errors, instead of the whole page unmounting and
             remounting. WeekControlsPanel's "show archive" toggle is local
             component state; a remount was resetting it to the live-weeks
@@ -229,21 +247,6 @@ export function ManagerDashboard() {
                 setTarget.mutate({ weekStart: selected, guardId, kamut })
               }
             />
-
-            {/* TeamTable above only shows aggregate counts per guard. This page
-                shows the actual day/shift breakdown and lets the manager edit
-                a guard's availability and עדיפות marks on their behalf --
-                carries the currently selected week over via ?week=. */}
-            <ButtonLink to={`/manage/preferences?week=${selected}`} variant="secondary" fullWidth>
-              העדפות הצוות - צפייה ועריכה לפי יום ומשמרת
-            </ButtonLink>
-
-            {/* Team CRUD (add/remove employees, edit their baseline כמות) lives on
-                its own page -- a config screen, not part of the weekly workflow
-                this dashboard is otherwise about. */}
-            <ButtonLink to="/manage/team" variant="secondary" fullWidth>
-              ניהול צוות - הוספה, הסרה ועדכון ברירות מחדל
-            </ButtonLink>
 
             {setTarget.isError && (
               <Alert tone="error" title="שמירת הכמות נכשלה">

@@ -25,6 +25,9 @@ const TeamManagement = lazy(() =>
 const ManagerPreferences = lazy(() =>
   import('@/pages/ManagerPreferences').then((m) => ({ default: m.ManagerPreferences })),
 );
+const ManagerSettings = lazy(() =>
+  import('@/pages/ManagerSettings').then((m) => ({ default: m.ManagerSettings })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -124,6 +127,16 @@ function AppRoutes() {
           <ManagerOnly>
             <Suspense fallback={<FullScreenLoader />}>
               <ManagerPreferences />
+            </Suspense>
+          </ManagerOnly>
+        }
+      />
+      <Route
+        path="/manage/settings"
+        element={
+          <ManagerOnly>
+            <Suspense fallback={<FullScreenLoader />}>
+              <ManagerSettings />
             </Suspense>
           </ManagerOnly>
         }

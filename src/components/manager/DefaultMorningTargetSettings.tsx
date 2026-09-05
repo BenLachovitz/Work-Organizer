@@ -1,62 +1,50 @@
 import { useState } from 'react';
-import { Alert, Button, Card, Spinner, cn } from '@/components/ui';
+import { Alert, Button, Collapsible, Spinner, cn } from '@/components/ui';
 import { segmentFloors, type MorningTarget } from '@/lib/shifts';
 import { useSchedulerSettings, useUpdateSchedulerSettings } from '@/hooks/useSchedulerSettings';
 
 /**
  * Standing default for the Mon-Fri morning target (migration 24) -- distinct
- * from WeekControlsPanel, which only ever acts on the one selected week. This
- * is where a manager flips the STANDING value for a stretch (e.g. 2 instead
- * of 3 for a vacation period) so every week created from then on picks it up
- * automatically; WeekControlsPanel is still how one specific week gets
- * overridden, same relationship SubmissionWindowSettings already has with the
- * per-week lock/reopen flow.
+ * from WeekExceptionsPanel, which only ever acts on the one selected week.
+ * This is where a manager flips the STANDING value for a stretch (e.g. 2
+ * instead of 3 for a vacation period) so every week created from then on
+ * picks it up automatically; WeekExceptionsPanel is still how one specific
+ * week gets overridden, same relationship SubmissionWindowSettings already
+ * has with the per-week lock/reopen flow.
+ *
+ * Lives on its own page (ManagerSettings) -- expanded by default there,
+ * since the reason to collapse it (dashboard clutter) doesn't apply on a
+ * page dedicated solely to standing settings.
  */
-export function DefaultMorningTargetSettings() {
+export function DefaultMorningTargetSettings({
+  defaultExpanded = false,
+}: {
+  defaultExpanded?: boolean;
+}) {
   const { data, isLoading, error } = useSchedulerSettings();
-  const [expanded, setExpanded] = useState(false);
 
   return (
-    <Card className="p-0">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between px-4 py-3 text-start"
-      >
-        <div>
-          <p className="font-bold text-slate-900 dark:text-slate-100">יעד בוקר · ברירת מחדל</p>
-          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            {isLoading
-              ? 'טוען…'
-              : data
-                ? `${data.default_morning_target_slots} מאבטחים בשבועות חדשים`
-                : 'שגיאה בטעינה'}
-          </p>
+    <Collapsible
+      title="יעד בוקר · ברירת מחדל"
+      summary={
+        isLoading
+          ? 'טוען…'
+          : data
+            ? `${data.default_morning_target_slots} מאבטחים בשבועות חדשים`
+            : 'שגיאה בטעינה'
+      }
+      defaultExpanded={defaultExpanded}
+    >
+      {error ? (
+        <Alert tone="error">{error instanceof Error ? error.message : 'שגיאה בטעינה.'}</Alert>
+      ) : isLoading || !data ? (
+        <div className="grid place-items-center py-4">
+          <Spinner className="size-5 text-brand-600" />
         </div>
-        <span
-          className={cn(
-            'text-slate-400 transition-transform dark:text-slate-500',
-            expanded && 'rotate-180',
-          )}
-        >
-          ▾
-        </span>
-      </button>
-
-      {expanded && (
-        <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">
-          {error ? (
-            <Alert tone="error">{error instanceof Error ? error.message : 'שגיאה בטעינה.'}</Alert>
-          ) : isLoading || !data ? (
-            <div className="grid place-items-center py-4">
-              <Spinner className="size-5 text-brand-600" />
-            </div>
-          ) : (
-            <SettingsForm current={data.default_morning_target_slots as MorningTarget} />
-          )}
-        </div>
+      ) : (
+        <SettingsForm current={data.default_morning_target_slots as MorningTarget} />
       )}
-    </Card>
+    </Collapsible>
   );
 }
 

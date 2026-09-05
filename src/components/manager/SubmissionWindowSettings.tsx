@@ -1,66 +1,54 @@
 import { useState } from 'react';
-import { Alert, Button, Card, Spinner, cn } from '@/components/ui';
+import { Alert, Button, Collapsible, Spinner } from '@/components/ui';
 import { HEBREW_DAYS, offsetForWeekday, weekdayForOffset } from '@/lib/dates';
 import { useSchedulerSettings, useUpdateSchedulerSettings } from '@/hooks/useSchedulerSettings';
 
 /**
  * Global config for when a week's submission window opens and closes --
- * distinct from anything on WeekControlsPanel, which only ever acts on the
- * one selected week. Defaults are Saturday 20:00 (open) / Wednesday 19:00
- * (close, spec §2.4a); this is where a manager changes the STANDING
- * schedule, not a one-off extension -- that is still the existing
+ * distinct from anything on WeekControlsPanel/WeekExceptionsPanel, which
+ * only ever act on the one selected week. Defaults are Saturday 20:00 (open)
+ * / Wednesday 19:00 (close, spec §2.4a); this is where a manager changes the
+ * STANDING schedule, not a one-off extension -- that is still the existing
  * lock/reopen flow on WeekControlsPanel.
  *
  * The database stores "N days before week_start, at time T" (unchanged from
  * before this was configurable); the day-of-week a manager actually thinks in
  * is a client-side view of that, converted by offsetForWeekday/
  * weekdayForOffset (src/lib/dates.ts).
+ *
+ * Lives on its own page (ManagerSettings) -- expanded by default there,
+ * since the reason to collapse it (dashboard clutter) doesn't apply on a
+ * page dedicated solely to standing settings.
  */
-export function SubmissionWindowSettings() {
+export function SubmissionWindowSettings({
+  defaultExpanded = false,
+}: {
+  defaultExpanded?: boolean;
+}) {
   const { data, isLoading, error } = useSchedulerSettings();
-  const [expanded, setExpanded] = useState(false);
 
   return (
-    <Card className="p-0">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between px-4 py-3 text-start"
-      >
-        <div>
-          <p className="font-bold text-slate-900 dark:text-slate-100">חלון הגשת בקשות</p>
-          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            {isLoading
-              ? 'טוען…'
-              : data
-                ? `פתיחה ${HEBREW_DAYS[weekdayForOffset(data.open_offset_days)]} ${data.open_time.slice(0, 5)} · סגירה ${HEBREW_DAYS[weekdayForOffset(data.deadline_offset_days)]} ${data.deadline_time.slice(0, 5)}`
-                : 'שגיאה בטעינה'}
-          </p>
+    <Collapsible
+      title="חלון הגשת בקשות"
+      summary={
+        isLoading
+          ? 'טוען…'
+          : data
+            ? `פתיחה ${HEBREW_DAYS[weekdayForOffset(data.open_offset_days)]} ${data.open_time.slice(0, 5)} · סגירה ${HEBREW_DAYS[weekdayForOffset(data.deadline_offset_days)]} ${data.deadline_time.slice(0, 5)}`
+            : 'שגיאה בטעינה'
+      }
+      defaultExpanded={defaultExpanded}
+    >
+      {error ? (
+        <Alert tone="error">{error instanceof Error ? error.message : 'שגיאה בטעינה.'}</Alert>
+      ) : isLoading || !data ? (
+        <div className="grid place-items-center py-4">
+          <Spinner className="size-5 text-brand-600" />
         </div>
-        <span
-          className={cn(
-            'text-slate-400 transition-transform dark:text-slate-500',
-            expanded && 'rotate-180',
-          )}
-        >
-          ▾
-        </span>
-      </button>
-
-      {expanded && (
-        <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">
-          {error ? (
-            <Alert tone="error">{error instanceof Error ? error.message : 'שגיאה בטעינה.'}</Alert>
-          ) : isLoading || !data ? (
-            <div className="grid place-items-center py-4">
-              <Spinner className="size-5 text-brand-600" />
-            </div>
-          ) : (
-            <SettingsForm data={data} />
-          )}
-        </div>
+      ) : (
+        <SettingsForm data={data} />
       )}
-    </Card>
+    </Collapsible>
   );
 }
 

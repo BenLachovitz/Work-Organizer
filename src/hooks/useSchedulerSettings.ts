@@ -14,7 +14,7 @@ export interface SchedulerSettings {
   open_offset_days: number;
   open_time: string;
   /** Starting morning_target_slots for a NEW week (migration 24). Does not
-   *  touch an existing week -- WeekControlsPanel's per-week control still
+   *  touch an existing week -- WeekExceptionsPanel's per-week control still
    *  overrides one specific week. */
   default_morning_target_slots: number;
 }

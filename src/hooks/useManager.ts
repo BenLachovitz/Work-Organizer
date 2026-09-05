@@ -56,7 +56,7 @@ export function useMorningTargetOverrides(weekStart: DateKey) {
 
 /**
  * Sets or clears one day's override. `target: null` clears it -- the caller
- * (WeekControlsPanel via ManagerDashboard) passes null when the chosen value
+ * (WeekExceptionsPanel via ManagerDashboard) passes null when the chosen value
  * equals the week's own baseline, so a day is never left holding a row that
  * says nothing different from just following the week setting (the same
  * normalize-to-absence convention requested_shifts and notes already use).
