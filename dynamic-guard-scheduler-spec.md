@@ -1,14 +1,14 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.24.0 (build steps A–Y complete plus the double-shift display setting, the
-draft-preview export change, manager PIN-reset, a stale-past-week guard-view fix, and two roster-
-editor polish items below — an optionally coverage-occupying placeholder and split afternoon-
-segment shifts; live and in daily use; deployed to production — the self-service forgot-PIN
-feature (§12.12) was fully reverted after a production session-persistence regression, see §14.1
-Step AB and §14.3)
+**Version:** 2.25.0 (build steps A–Y complete plus the double-shift display setting, the
+draft-preview export change, manager PIN-reset, a stale-past-week guard-view fix, two roster-
+editor polish items — an optionally coverage-occupying placeholder and split afternoon-
+segment shifts — and the Yom Kippur special-coverage feature below; live and in daily use;
+deployed to production — the self-service forgot-PIN feature (§12.12) was fully reverted after
+a production session-persistence regression, see §14.1 Step AB and §14.3)
 **Roster Context:** Flexible team size, 6–12 registered guards, 15 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
-**Document Date:** 3 September 2026
+**Document Date:** 16 September 2026
 
 ---
 
@@ -257,6 +257,31 @@ Hosting runs entirely on free tiers: **Vercel** (React frontend), **Supabase** (
 | 94  | New `SOLVER_SHIFT_TYPES` constant (`src/lib/shifts.ts`) — the original five shift types only, mirroring `solver/models.py`'s own independent, hand-maintained list — swapped into `mockSolver.ts`'s candidate-move search in place of the full shift catalogue | Caught before shipping: the mock solver's candidate search also iterates the shift catalogue generically, so the moment the two new types existed it started proposing them on its own — a golden fixture's assignment count changed on a re-run. Both new types are manual-edit only, same as a placeholder; `SOLVER_SHIFT_TYPES` is what actually keeps the automatic generator from ever producing one. Confirmed fixed via `test:compare` regaining exact mock/CP-SAT parity on every fixture |
 | 95  | `RosterGrid.tsx`/`exportRoster.ts`'s existing day12/night12 handover-pairing (`buildAfternoonRows`/`rowsFor`) widened to pair the two new types the identical way — a lone half renders as "name / –", two halves pair as "name / name," same as day12/night12 already do, just without the 12h boundary-time suffix (not extended shifts, nothing ambiguous about their hours to annotate) | Reuses 100% of the existing handover-rendering machinery rather than adding a new visual pattern — the segment split was already a solved rendering problem for day12/night12, this just widens which shift types feed it |
 | 96  | Fixed in the same pass: `exportRoster.ts`'s handover-row constructor had a latent hardcoded `shift: 'day12'`/`'night12'` literal (harmless while only those two values ever reached it) instead of reading the row's own `.shift` — would have mislabelled a genuine `afternoon_early`/`afternoon_late` row's colour in the exported JPEG | Found while widening the early/late filters to include the new types — `colors[row.early.shift]` (the canvas colour lookup) needed the row's real shift value to resolve correctly |
+
+---
+
+### 1.27 Changes in Version 2.25.0
+
+| #   | Change                                                                                                                                                                                                                                                        | Rationale                                                                                                                                                                                                                                                                        |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 97  | **Yom Kippur special-coverage feature** (migrations 54–56, §12.14) — two new manual-edit-only shift types, `kippur_day1` (S2+S3+S4) and `kippur_day2` (S1+S2+S3), let 2–3 guards cover an unbroken block from Kippur eve's early afternoon through the end of Kippur day, excluding that final night | Yom Kippur is a driving-prohibited holiday; the guards covering it cannot leave and return, so the roster needs to express one continuous commitment spanning parts of two calendar days, which no existing shift type could represent |
+| 98  | Real Hebrew-calendar detection (`src/lib/holidays.ts`, `@hebcal/hdate`) automatically finds whichever roster week contains Yom Kippur eve + day each year — a standing settings toggle (`scheduler_settings.kippur_handling_enabled`, migration 54) just turns the feature on, no manual dating required | Yom Kippur's Gregorian date drifts every year; Ben's explicit ask was a "set once" toggle, not a per-year manual reconfiguration — and a date this consequential should never be computed by hand |
+| 99  | New manager-dashboard panel (`KippurPanel.tsx`) surfaces automatically on the detected week: a 2/3 guard-count toggle (`roster_weeks.kippur_guard_count`, migration 54) and a guard picker (`weekly_kippur_guards`, migration 55), each candidate shown against whether they've actually submitted the required availability — saving is hard-blocked until every pick is valid | Ben's explicit choice over a warn-only design: the block only works if the chosen guards genuinely marked themselves available for every underlying slot it needs, so an invalid pick should never silently save |
+| 100 | `useGenerateSchedule.ts` writes the two rows automatically for every configured guard on every future generation of that week, no manual roster editing required — the solver is told to solve around the pinned block (the guards' availability on the two Kippur dates is hidden from it, and their weekly budget reduced by 2) | The manager picks guards once, before generation, since the block needs to be known in advance — not something to reverse-engineer from a solver's own output after the fact |
+| 101 | The kippur_day1→kippur_day2 pair lands as exactly 2 shifts against a guard's weekly total with **no new kamut/max_shifts accounting at all** — one row per calendar day (the same `one_shift_per_guard_per_day` index that rules out two ordinary same-day rows is what forces this into two new shift types rather than reusing existing ones), so the existing generic per-row counting (H3/H4 in `validate.ts`) already produces exactly 2 | A deliberate, favourable side effect of the one-shift-per-day constraint rather than something that needed its own logic — matches Ben's explicit "occupies 2 shifts of the weekly total" requirement for free |
+| 102 | A narrowly-scoped rest exemption (`classifyRest()`, `src/lib/shifts.ts) allows the 0h gap between kippur_day1 (ends 06:45) and kippur_day2 (starts 06:45) for the same guard — the whole point of the block is that these guards do not leave between the two days — while any OTHER 0h-rest pairing, including either kippur type adjacent to anything else, is still classified and hard-blocked exactly as before | Confirmed via a referee-only test (`run-fixtures.mjs`) that a different 0h pairing landing on `kippur_day2` (e.g. an ordinary `night` shift immediately before it) is still caught — the exemption must never generalize into "0h is sometimes fine" |
+| 103 | Fixed before shipping: H1 (availability) only ever checked a single base shift per shift type (`requiresBase`); kippur_day1/day2 each need TWO (afternoon+night, morning+afternoon). Generalized to `requiredBases()`, used by `validate.ts`'s H1 loop and `RosterEditor.tsx`'s availability badge alike | A guard assigned the block without having actually marked both underlying slots would silently violate H1's real intent — "never scheduled on a slot they did not mark" — for exactly half of what the block requires |
+| 104 | Fixed before shipping: `segmentFloors()`'s S1 (morning) floor was hardcoded `morning === 3 ? 2 : 1`, assuming morning is always 2 or 3 — broke the moment a Kippur-adjusted solving input needed to legitimately drive a segment's effective target to 0. Generalized to `morning === 3 ? 2 : Math.min(1, morning)`, identical behaviour for every pre-existing input | A flat `1` would have reported a floor the solver could never reach without breaching that same day's now-0 ceiling — caught by reasoning through the solving-input construction before it ever ran, not by a failed generation |
+| 105 | **Real bug, found and fixed during live testing against the actual production week** (2026-09-20): that week already had S3/S4 overridden to 1 for every day, unrelated to Kippur; picking 2 Kippur guards made generation refuse outright (H6) since the block's own guaranteed coverage alone already exceeded that pre-existing, lower ceiling — nothing the solver did was involved. Fixed by computing one effective target per affected segment (`max(real target, guard count)`) and building two adjusted views of the solver input (`withKippurAdjustments()`): the solver only sees the remainder left to fill, but the referee's ceiling is raised to match what the block actually guarantees | A segment target exists to bound how many OTHER, solver-placed guards show up — it was never a way to evict guards who are mandatorily present. Regression-tested (`run-fixtures.mjs`) by reproducing the exact production scenario: the un-raised input must fail H6, the raised one must pass clean |
+| 106 | Known, permanent, narrow limit — worth stating plainly: Yom Kippur can fall on a Saturday (confirmed empirically, generating every occurrence 2020–2060: it only ever lands on Mon/Wed/Thu/Sat, never Sun/Fri). This app hard-locks the WEEKEND morning target to 2, unoverridable by design (§2.4b) — unlike S2/S3/S4, which have no such lock and so item 105's fix always applies cleanly to them. If Yom Kippur falls on a Saturday, a 3-guard block alone exceeds that fixed ceiling with no override available; 2 guards that year works fine, a manager wanting a 3rd would need to place them by hand | Discovered by generating Yom Kippur's date across 40 years before trusting a "this can't happen" assumption — the same empirical-before-assumed discipline this project's weight-tuning stories already follow (§4.2) |
+
+Migrations 54–56 applied to the live database, full TypeScript typecheck clean, `npm run test:fixtures`
+(117→119 assertions, 5 new Gate E referee-only checks for the Kippur pair including the production
+regression above) + `solver/tests/test_scheduler.py` (108, unchanged — neither new shift type can ever
+reach CP-SAT) + `npm run test:compare` (mock/CP-SAT parity holds) + `npm run test:rls` (55, migrations
+apply cleanly from scratch) all green. Built on `feature/yom-kippur-coverage`, verified against the
+live project (including the real production bug above, found and fixed before merging), merged to
+`main`. `package.json`/`GitVersion.yml` bumped to 2.25.0, tagged `v2.25.0`.
 
 ---
 
@@ -940,10 +965,12 @@ Its one sharp edge: a contradictory _hard_ constraint yields `INFEASIBLE` with n
 ### 6.1 Types
 
 ```sql
--- 'afternoon_early'/'afternoon_late' added by migration 53 (v2.24.0, §12.13) --
--- manual-edit only, never produced by either engine; see §2.2.
+-- 'afternoon_early'/'afternoon_late' added by migration 53 (v2.24.0, §12.13);
+-- 'kippur_day1'/'kippur_day2' added by migration 56 (v2.25.0, §12.14) --
+-- all four manual-edit only, never produced by either engine; see §2.2.
 CREATE TYPE shift_type  AS ENUM ('morning', 'afternoon', 'night', 'day12', 'night12',
-                                  'afternoon_early', 'afternoon_late');
+                                  'afternoon_early', 'afternoon_late',
+                                  'kippur_day1', 'kippur_day2');
 CREATE TYPE base_shift  AS ENUM ('morning', 'afternoon', 'night');
 CREATE TYPE user_role   AS ENUM ('admin', 'manager', 'guard');
 CREATE TYPE week_status AS ENUM ('open', 'locked', 'generated', 'published');
@@ -989,7 +1016,21 @@ CREATE TABLE roster_weeks (
   -- v2.2: set when a manager changes status by hand. ensure_roster_weeks()
   -- skips such weeks permanently, so automation cannot revert a human decision.
   status_overridden_at TIMESTAMPTZ,
-  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- v2.25.0 migration 54, §12.14: how many guards (2 or 3) cover THIS week's
+  -- Yom Kippur block, if this week has one. NULL on every ordinary week.
+  kippur_guard_count   SMALLINT CHECK (kippur_guard_count IN (2, 3))
+);
+
+-- 3b. Guards chosen to cover this week's Yom Kippur block (v2.25.0 migration
+--     55, §12.14) -- one row per guard, not an array column, so each pick can
+--     be checked (against submitted availability) and removed independently.
+CREATE TABLE weekly_kippur_guards (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  week_start DATE NOT NULL REFERENCES roster_weeks(week_start) ON DELETE CASCADE,
+  guard_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (week_start, guard_id)
 );
 
 -- 4. One row per guard per week: proves submission occurred + holds the 12h opt-ins.
@@ -2755,6 +2796,128 @@ of which two distinct shift values are involved).
 
 ---
 
+### 12.14 Yom Kippur Special Coverage (migrations 54–56, v2.25.0, §1.27)
+
+Yom Kippur is a driving-prohibited holiday: 2–3 guards need to cover an unbroken block from Kippur
+eve's early afternoon through the end of Kippur day itself — excluding that final night, when the
+holiday has ended and they go home — because they cannot drive to or from work for the whole
+holiday. Every existing shift type is scoped to exactly one calendar day, and
+`schedule_assignments` has a real DB-level unique index, `one_shift_per_guard_per_day`, on
+`(run_id, target_date, guard_id)` — a guard can only ever hold **one** shift row per date, which
+rules out representing the block as two ordinary same-day rows (e.g. `afternoon` + `night` both on
+Sunday).
+
+**Two new shift types**, one per calendar day, added to the shift catalogue (`src/lib/shifts.ts`)
+exactly like `afternoon_early`/`afternoon_late` (§12.13) — manual-edit only, never produced by
+either engine:
+
+- `kippur_day1` — covers S2 + S3 + S4 (14:45 → 06:45 next day): early afternoon through the end of
+  night, on Kippur eve.
+- `kippur_day2` — covers S1 + S2 + S3 (06:45 → 22:45): morning through the end of late afternoon, on
+  Kippur day itself, deliberately excluding night.
+
+One row per guard per day means the pair respects `one_shift_per_guard_per_day` for free, and —
+since a guard doing the full block gets exactly 2 rows — the existing per-row kamut/`max_shifts`
+accounting (H3/H4 in `validate.ts`, mirrored in `scheduler.py`) already counts this as exactly 2
+shifts against the guard's weekly total, with **no new accounting logic anywhere**. 14:45 (the
+existing afternoon-segment boundary) stands in for "noon" — close enough that no custom,
+non-segment-aligned start time was introduced just for this feature.
+
+**Holiday detection** (`src/lib/holidays.ts`): Yom Kippur is 10 Tishrei on the Hebrew calendar,
+which drifts across the Gregorian calendar every year, so this is delegated to `@hebcal/hdate`
+(Dershowitz/Reingold's Rata Die conversion) rather than hand-rolled — exactly the kind of date that
+must never be computed wrong. `getYomKippurWeekInfo(weekStart)` converts each of a roster week's 7
+Gregorian dates to its Hebrew equivalent directly, rather than computing Yom Kippur's date forward
+from a guessed Hebrew year, and looks for 9/10 Tishrei — simpler, and correct regardless of which
+Hebrew year(s) the week's dates fall in. Deliberately built via the Date constructor's LOCAL
+year/month/day (not this app's usual UTC-midnight `parseDateKey` convention, per `src/lib/dates.ts`'s
+own header comment) — `@hebcal/hdate`'s `greg2abs()` reads a Date's local fields, so constructing
+and reading in the same local time avoids a runtime-timezone-dependent off-by-one day. Returns null
+both when a week has nothing to do with Yom Kippur, and when Yom Kippur falls on a Sunday specifically
+— "Kippur eve" (Saturday) would then sit in the *previous* roster week, breaking this feature's
+same-week assumption; the panel simply never renders for either week in that case rather than
+mis-assigning across a week boundary. This case is actually unreachable in practice — see the
+Saturday-Kippur limit below, discovered the same way.
+
+**Standing toggle + guard picker**: `scheduler_settings.kippur_handling_enabled` (migration 54) is a
+global "turn this feature on" switch, set once — a manager-dashboard panel (`KippurPanel.tsx`) then
+surfaces automatically on whichever week `getYomKippurWeekInfo()` says actually contains Yom Kippur
+that year, with no manual per-year dating. The panel offers a 2/3 guard-count toggle
+(`roster_weeks.kippur_guard_count`, migration 54) and N guard-picker dropdowns, each showing whether
+that candidate guard has already submitted the exact base-shift availability the block needs
+(afternoon + night for the eve date, morning + afternoon for Kippur day itself, via
+`requiredBases()`) — **hard-blocked**, per Ben's explicit call over a warn-only design: saving is
+refused while any picked guard is missing a required slot, since the whole mechanism only works if
+the chosen guards genuinely marked themselves available for what they're about to be committed to.
+The chosen guards persist in `weekly_kippur_guards` (migration 55) — one row per guard per week, not
+an array column, so each pick can be checked and removed independently.
+
+**Generation** (`useGenerateSchedule.ts`): once a week has guards configured, every future
+generation of that week automatically writes the `kippur_day1`/`kippur_day2` pair for each of them
+— no manual roster editing needed, matching Ben's explicit ask for an automated flow rather than a
+post-generation fix-up. `withKippurAdjustments()` builds two views of the solver input from one
+shared computation:
+
+- **Solving input** (what the engine actually solves): the Kippur guards' availability is removed
+  for the two Kippur dates (so the solver never independently proposes an ordinary shift for someone
+  already committed there, which would double-book them once the pinned rows are merged back in),
+  their `max_shifts` is reduced by 2 (so their normal-week budget correctly leaves room for the 2
+  rows about to return), and each segment the block covers has its target/ceiling lowered by however
+  many Kippur guards there are — otherwise the solver would independently seek the *full* target
+  with *other* guards on top of what the block already provides, breaching H6 once merged.
+- **Referee input** (what `verifySchedule()` actually judges the final, merged roster against):
+  segment targets are instead **raised** to `max(real target, guard count)` — see the real
+  production bug below for why this matters — while availability and `max_shifts` stay the real,
+  unmodified values, since the pinned rows still have to pass H1 against what the guards actually
+  submitted, and the real weekly ceiling still has to hold once they're counted normally.
+
+A narrowly-scoped rest exemption (`classifyRest()`, `src/lib/shifts.ts`) allows the 0h gap between
+`kippur_day1` (ends 06:45) and `kippur_day2` (starts 06:45) for the *same guard* — the entire point
+of the block is that these guards do not leave between the two days — without weakening the generic
+`<8h` hard-block rule for any other pairing, including either Kippur type adjacent to anything else.
+Proven narrow by a referee-only test: a different guard's `night` → `kippur_day2` pairing (also 0h by
+the clock) is still correctly hard-blocked in the same check that confirms the real pairing is clean.
+
+**Real production bug, found and fixed before merging**: live-tested against the actual 2026-09-20
+week, which already had S3/S4 overridden to 1 for every day of that week — a genuine, pre-existing
+manager setting unrelated to Kippur. Picking 2 Kippur guards made generation refuse outright (H6: "2
+guards, ceiling is 1"), regardless of anything the solver did, because the block's own guaranteed
+coverage alone already exceeded that lower ceiling. The fix is the referee-input construction
+described above: a segment target exists to bound how many *other*, solver-placed guards show up —
+it was never a mechanism to evict guards who are mandatorily present, so the real ceiling for an
+affected day+segment is `max(configured target, Kippur guard count)`, not the raw configured value.
+Regression-tested in `solver/tests/run-fixtures.mjs` by reproducing the exact scenario: the un-raised
+input must still fail H6 (proving the test actually exercises the bug), and the raised input must
+pass with zero violations.
+
+**Known, permanent, narrow limit** — worth stating plainly rather than discovering it live in some
+future year: Yom Kippur can fall on a Saturday. Confirmed empirically, not assumed — generating
+every occurrence from 2020 to 2060 shows it only ever lands on Monday, Wednesday, Thursday, or
+Saturday, never Sunday or Friday. This app hard-locks the **weekend** morning target to 2,
+unoverridable by design (`morningTargetForDay()`, §2.4b: "an override never applies to them, even if
+one somehow existed for that index") — unlike S2/S3/S4, which have no such lock, so the effective-
+target raise above applies to them cleanly regardless of guard count. If Yom Kippur falls on a
+Saturday, `kippur_day2` already covers S1 that day, and a 3-guard block alone would exceed that fixed,
+unraisable ceiling of 2 with no override available to fix it from the generation pipeline — 2 guards
+that year works fine; a manager who wants 3 would need to place the third guard by hand rather than
+through generation. The same empirical check also confirms Yom Kippur never falls on a Sunday, which
+is why the eve-in-the-previous-week edge case `getYomKippurWeekInfo()` guards against is currently
+unreachable in practice, though the guard costs nothing to keep.
+
+**Testing**: like `afternoon_early`/`afternoon_late` and `occupies_slot` before it, neither shift type
+can ever appear in a golden-fixture engine output, so `solver/tests/run-fixtures.mjs` gained five
+referee-only checks: coverage isolation (each half covers only its own three segments), the
+multi-base H1 requirement (`requiredBases()` — a guard missing just one of the two required base
+shifts is still flagged), the exactly-2-shifts kamut accounting, the narrowly-scoped rest exemption,
+and the production-bug regression above. `solver/models.py`'s `SecondaryTargetOverrides` (now
+`Literal[0, 1, 2, 3]` on S2/S3/S4) and `SolverInput.morning_target_overrides` (now
+`Literal[0, 2, 3]`) Pydantic models were widened to accept the same solving-and-referee-only 0 (a
+segment the Kippur block already fully covers) and 3 (a 3-guard block's raised ceiling) values the
+TypeScript wire contract (`solverContract.ts`) now allows — neither is ever sent by the manager UI,
+only ever constructed internally by `withKippurAdjustments()`.
+
+---
+
 ## 13. OPEN ITEMS
 
 | #   | Item                                                                                                                                          | Status / default                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -2812,6 +2975,7 @@ of which two distinct shift values are involved).
 | **AC**    | Fixed a stale-past-week leak in the guard-facing roster views (v2.22.2, §1.24): `useVisibleRosters()` was trusting RLS alone to scope published runs to current+next, but the `is_manager()` RLS branch has no date floor at all, by design, for the manager archive — a manager-and-guard account (Ben) inherited the unbounded archive read on their own guard-facing pages. New `guardVisibleWeekFloor()` (`src/lib/dates.ts`) filters client-side; `RosterView.tsx`/`GuardHome.tsx` also stopped mislabelling a genuinely past week as "next week" | ✅ complete                                                    |
 | **AD**    | Placeholder rows can optionally occupy a coverage slot (§12.9, migration 52, v2.23.0, §1.25): new `schedule_assignments.occupies_slot`, meaningful only on a `guard_id IS NULL` row (CHECK-enforced), counts a guard-less placeholder toward segment floor/target/ceiling like a real assignment while it stays invisible to every guard-specific rule (H1–H5, H7, קמות). `validate.ts` gained its first `guard_id === null` branch; a new per-row checkbox in `RosterEditor.tsx` drives it | ✅ complete                                                    |
 | **AE**    | Afternoon block segment shifts (§12.13, migration 53, v2.24.0, §1.26): two new manual-edit-only shift types, `afternoon_early`/`afternoon_late`, let the roster editor occupy just S2 or just S3 without the full `afternoon` shift or a 12h `day12`/`night12`. One real bug caught and fixed before shipping: `mockSolver.ts`'s candidate search also iterates the shift catalogue generically and started proposing the new manual-only types on its own, fixed with a new `SOLVER_SHIFT_TYPES` constant, confirmed via `test:compare` regaining exact mock/CP-SAT parity | ✅ complete                                                    |
+| **AF**    | Yom Kippur special-coverage feature (§12.14, migrations 54–56, v2.25.0, §1.27): two new manual-edit-only shift types, `kippur_day1`/`kippur_day2`, let 2–3 guards cover Yom Kippur's driving-prohibited block automatically from generation onward, once picked on a new manager-dashboard panel surfaced by real Hebrew-calendar detection (`@hebcal/hdate`). One real production bug found and fixed before merging: the block's own guaranteed coverage could exceed an already-configured, lower per-day segment ceiling regardless of anything the solver did — fixed by raising the referee's effective ceiling to the Kippur guard count, reproduced as a regression test | ✅ complete, live in production                                |
 
 ### 14.2 Verification
 
@@ -2841,7 +3005,10 @@ afternoon segment shifts): neither can ever appear in an engine's output, so ins
 fixtures, `run-fixtures.mjs` gained hand-built **referee-only** checks appended after the fixture
 loop — constructing a `SolverOutput` by hand and calling `verifySchedule()` directly to prove
 coverage isolation and correct rest-hour derivation for shift/guard combinations no engine would ever
-produce.)
+produce. v2.25.0's Yom Kippur block (§12.14) follows the identical pattern: five referee-only checks
+covering segment isolation, the multi-base H1 requirement, exactly-2-shifts kamut accounting, the
+narrowly-scoped rest exemption, and a regression test reproducing the real production ceiling bug
+found while shipping it — `run-fixtures.mjs` now totals 119 passing assertions, up from 112.)
 
 Gate D (`manager.cloud.test.mjs`) has a known, pre-existing, date-driven **hazard**, not merely a
 flake — worth stating plainly after it cost real data once (2 September 2026): its `setup()` runs
@@ -2913,6 +3080,16 @@ not a build gap. v2.8's four features (§1.9) were a single requested batch, all
 behaviour, verified end-to-end in the browser against a disposable test fixture (created and fully
 cleaned up afterward) — the editor, the read-only roster grid, and the JPEG export all confirmed
 rendering correctly. Nothing pending on either.
+
+**v2.25.0's Yom Kippur special coverage (§12.14) — believed resolved, confirmed differently than
+usual.** Unlike the two items above, this wasn't verified against a disposable test fixture first —
+it was built and tested directly against the real, live 2026-09-20 week (Kippur eve/day fell that
+Sunday/Monday this year), which is exactly what surfaced the real production ceiling bug documented
+in §1.27 item 105 before it ever reached a guard's actual roster. The fix was verified by
+reproducing the exact scenario as an automated regression test, not by a second live generation
+attempt confirmed in this document — the next real generation of that week is the first genuine
+end-to-end confirmation this feature gets. The Saturday-Kippur ceiling limit (§12.14, item 106) is a
+permanent, known constraint, not a pending check.
 
 **v2.9's PWA support (§10.4) has one item still open**: real "Add to Home Screen" verification on a
 physical Android Chrome device and a physical iOS Safari device. Everything checkable from this

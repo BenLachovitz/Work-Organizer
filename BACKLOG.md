@@ -6,7 +6,7 @@ build status and roadmap, §1.17–§1.26 is the changelog for everything since 
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
-*Last updated: 3 September 2026*
+*Last updated: 16 September 2026*
 
 ---
 
@@ -39,7 +39,7 @@ history around `CodeInput.tsx` / `src/index.css` — this hasn't been re-tested 
 
 ---
 
-## State: build steps A–AE complete, live and in daily use
+## State: build steps A–AF complete, live and in daily use
 
 Full list in spec §14.1; changelog for every step is spec §1.1–§1.14. Step P (11 August) — per-day
 morning target override, a morning-priority coverage weight, the roster view stacking every
@@ -753,6 +753,61 @@ any cloud test runs in this project, not just for Gate D. The real fix — compu
 relative to "today" instead of a hardcoded calendar date, across every cloud test file that has one —
 is still open.
 
+Step AF (16 September 2026) — **Yom Kippur special-coverage feature** (spec §12.14, migrations
+54–56): Yom Kippur is a driving-prohibited holiday, so 2–3 guards need to cover an unbroken block
+from Kippur eve's early afternoon through the end of Kippur day itself, excluding that final night.
+Two new manual-edit-only shift types, `kippur_day1` (S2+S3+S4) and `kippur_day2` (S1+S2+S3), one row
+per calendar day each — `schedule_assignments`' own `one_shift_per_guard_per_day` index rules out
+representing the block as two ordinary same-day rows, which is why this needed new shift types
+rather than reusing existing ones. That same one-row-per-day shape is what makes the pair land as
+exactly 2 shifts against a guard's weekly total for free, with zero new kamut/`max_shifts`
+accounting — the existing generic per-row counting already produces it.
+
+Real Hebrew-calendar detection (`src/lib/holidays.ts`, `@hebcal/hdate`) finds whichever roster week
+contains Yom Kippur each year — confirmed empirically against 40 years of dates (2020–2060) rather
+than assumed, which is also how the Saturday-Kippur limit below was found. A standing settings
+toggle (`scheduler_settings.kippur_handling_enabled`) turns the feature on once; a new manager-
+dashboard panel (`KippurPanel.tsx`) then surfaces automatically on the detected week with a 2/3
+guard-count toggle and a guard picker, each candidate checked against whether they've actually
+submitted the required availability — saving is **hard-blocked** (Ben's explicit call) until every
+pick is valid. `useGenerateSchedule.ts` then writes the pair automatically for every configured
+guard on every future generation of that week, with the solver told to solve around the pinned block
+(availability hidden for the two Kippur dates, segment targets reduced by the guard count) rather
+than anything requiring manual roster editing.
+
+A narrowly-scoped rest exemption allows the 0h gap between the two halves for the same guard, proven
+narrow by a referee-only test showing a different 0h pairing landing on `kippur_day2` is still
+hard-blocked. Two real bugs caught before shipping by reasoning through the design rather than by a
+failed run: H1 needed generalizing to check TWO base shifts per Kippur type, not one
+(`requiredBases()`), and `segmentFloors()`'s morning-floor formula assumed morning is always 2 or 3,
+which broke the moment a Kippur-adjusted input needed to legitimately drive it to 0.
+
+**A real production bug was found and fixed the same way Step P's and Step W's were — by testing
+against the live system, not a disposable fixture**: generating against the actual 2026-09-20 week
+(this year's real Kippur week) failed outright, because that week already had S3/S4 overridden to 1
+for every day — a genuine, pre-existing setting unrelated to Kippur — and the 2 configured Kippur
+guards' own guaranteed coverage alone already exceeded that lower ceiling, regardless of anything the
+solver did. Fixed by computing one effective target per affected segment
+(`max(configured target, Kippur guard count)`) and building two adjusted views of the solver input
+(`withKippurAdjustments()`): the solver only sees the remainder left to fill, but the referee's
+ceiling is raised to match what the block actually guarantees — a segment target was never meant to
+evict guards who are mandatorily present. Reproduced as a permanent regression test
+(`run-fixtures.mjs`) rather than left as a one-off fix.
+
+**Known, permanent limit, not a bug**: Yom Kippur can fall on a Saturday (confirmed empirically, never
+on a Sunday or Friday), and this app hard-locks the weekend morning target to 2, unoverridable by
+design — unlike S2/S3/S4, which have no such lock. In a year Kippur falls on a Saturday, a 3-guard
+block alone would exceed that fixed ceiling with no override available; 2 guards works fine that
+year, a manager wanting 3 would need to place the third guard by hand.
+
+Built on `feature/yom-kippur-coverage`, both DB migrations and the ceiling fix verified against the
+live project before merging. Migrations 54–56 applied to the live database, full TypeScript
+typecheck clean, `test:fixtures` (119, up from 112 — 5 new Kippur referee-only checks including the
+production-bug regression) + `test_scheduler.py` (108, unchanged) + `test:compare` (mock/CP-SAT
+parity holds) + `test:rls` (55) all green. `package.json`/`GitVersion.yml` bumped to 2.25.0, tagged
+`v2.25.0`. Not yet confirmed by an actual second live generation of the 2026-09-20 week after the
+fix — the fix is regression-tested, not yet re-run live.
+
 ---
 
 ## What is left
@@ -894,7 +949,7 @@ rejected the push — often a stale subscription that's already been pruned by t
   plain `UPDATE`, not committed anywhere. (The abandoned WhatsApp design's three `WHATSAPP_*`
   secrets were never set and are moot now; `request-pin-reset`'s reuse of this cron-secret pair for
   the `pin_reset_otp` type is moot too — that function is deleted as of the v2.22.1 revert.)
-- 53 migrations applied, tracked in a `schema_migrations` ledger
+- 56 migrations applied, tracked in a `schema_migrations` ledger
 
 ### Current database contents
 
@@ -921,9 +976,10 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.24.0**
-(afternoon block segment shifts, Step AE — a manager can occupy just S2 or just S3 of the afternoon
-block manually, without the full `afternoon` shift or a 12h day12/night12), tagged `v2.24.0`.
+state that version describes), matching the spec's own version history. Currently at **2.25.0**
+(Yom Kippur special-coverage feature, Step AF — 2-3 guards automatically cover Yom Kippur's
+driving-prohibited block from generation onward, once picked on a manager panel surfaced by real
+Hebrew-calendar detection), tagged `v2.25.0`.
 
 ## Commands
 
