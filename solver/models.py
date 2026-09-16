@@ -147,7 +147,10 @@ def segment_floors(
     morning = morning_target_for_day(week_setting, day_index, overrides)
     targets = segment_targets(week_setting, day_index, overrides, secondary_overrides)
     return {
-        "S1": 2 if morning == 3 else 1,
+        # min(1, morning), not a flat 1 -- see segmentFloors() in
+        # src/lib/shifts.ts for why (the Kippur-adjusted solving input can
+        # legitimately drive morning to 0).
+        "S1": 2 if morning == 3 else min(1, morning),
         "S2": min(1, targets["S2"]),
         "S3": min(1, targets["S3"]),
         "S4": min(1, targets["S4"]),
@@ -236,19 +239,27 @@ class SecondaryTargetOverrides(BaseModel):
     """Sparse segment -> day_index (as a string) -> target override for THIS
     week only. See secondary_target_for_day() above. Default empty on every
     field, matching morning_target_overrides' "old caller/fixture still
-    parses unchanged" discipline."""
+    parses unchanged" discipline.
 
-    S2: dict[str, Literal[1, 2]] = Field(default_factory=dict)
-    S3: dict[str, Literal[1, 2]] = Field(default_factory=dict)
-    S4: dict[str, Literal[1, 2]] = Field(default_factory=dict)
+    0 and 3 are not values the manager UI ever sends (SecondaryTarget in
+    src/lib/shifts.ts stays 1|2 there) -- they're produced only by the
+    Kippur-adjusted solving/referee inputs (useGenerateSchedule.ts
+    withKippurAdjustments()): 0 tells the solver a segment the Kippur block
+    already fully covers needs no more guards, and 3 raises the ceiling when
+    a 3-guard Kippur block exceeds an already-configured lower target."""
+
+    S2: dict[str, Literal[0, 1, 2, 3]] = Field(default_factory=dict)
+    S3: dict[str, Literal[0, 1, 2, 3]] = Field(default_factory=dict)
+    S4: dict[str, Literal[0, 1, 2, 3]] = Field(default_factory=dict)
 
 
 class SolverInput(BaseModel):
     week_start: str
     morning_target_slots: Literal[2, 3] = 2
     # Sparse day_index (as a string) -> target override for THIS week only.
-    # See morning_target_for_day() above.
-    morning_target_overrides: dict[str, Literal[2, 3]] = Field(default_factory=dict)
+    # See morning_target_for_day() above. 0 is solving-input-only, same
+    # reasoning as SecondaryTargetOverrides above.
+    morning_target_overrides: dict[str, Literal[0, 2, 3]] = Field(default_factory=dict)
     secondary_target_overrides: SecondaryTargetOverrides = Field(
         default_factory=SecondaryTargetOverrides
     )

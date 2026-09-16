@@ -98,8 +98,21 @@ export const solverGuardSchema = z.object({
   twelve_hour_night: z.array(z.number().int().min(0).max(6)).default([]),
 });
 
-/** Sparse day_index (as a string) -> target override, for one S2/S3/S4 segment. */
-const secondarySegmentOverridesSchema = z.record(z.string(), z.union([z.literal(1), z.literal(2)]));
+/**
+ * Sparse day_index (as a string) -> target override, for one S2/S3/S4
+ * segment. 0 and 3 are not values a manager can pick through the UI
+ * (SecondaryTarget in src/lib/shifts.ts stays 1|2 for that) -- they exist
+ * only for the Kippur-adjusted solving/referee inputs
+ * (useGenerateSchedule.ts withKippurAdjustments()): 0 tells the SOLVER a
+ * segment the Kippur block already fully covers needs no more guards, and 3
+ * raises the REFEREE's ceiling when a 3-guard Kippur block exceeds an
+ * already-configured lower target -- the block's guaranteed coverage is the
+ * real ceiling for that day, not the pre-existing setting.
+ */
+const secondarySegmentOverridesSchema = z.record(
+  z.string(),
+  z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
+);
 
 /** Segment -> secondarySegmentOverridesSchema, for THIS week only -- see
  *  SecondaryTargetOverrides in src/lib/shifts.ts. Every field defaults empty
@@ -117,9 +130,10 @@ export const solverInputSchema = z.object({
   week_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   morning_target_slots: z.union([z.literal(2), z.literal(3)]),
   /** Sparse day_index (as a string) -> target override for THIS week only --
-   *  see morningTargetForDay() in src/lib/shifts.ts. */
+   *  see morningTargetForDay() in src/lib/shifts.ts. 0 is solving-input-only,
+   *  same reasoning as secondarySegmentOverridesSchema above. */
   morning_target_overrides: z
-    .record(z.string(), z.union([z.literal(2), z.literal(3)]))
+    .record(z.string(), z.union([z.literal(0), z.literal(2), z.literal(3)]))
     .default({}),
   /** S2/S3/S4's own, independent per-day overrides -- see
    *  SecondaryTargetOverrides in src/lib/shifts.ts. */

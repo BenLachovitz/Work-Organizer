@@ -434,6 +434,186 @@ for (const file of files) {
   }
 }
 
+// --- referee-only check: Yom Kippur block (kippur_day1/kippur_day2, migration 56) ---
+//
+// Also never produced by either engine -- manual-only, written automatically
+// by useGenerateSchedule.ts for whichever guards weekly_kippur_guards names.
+// Four things to prove: (1) each half covers its own three segments and
+// nothing else, (2) H1 requires BOTH underlying base shifts marked, not just
+// one, (3) the pair counts as exactly 2 toward kamut/max_shifts with no
+// special accounting, and (4) the 0h-rest exemption between them is scoped to
+// EXACTLY that pair -- a different 0h-rest pairing landing on kippur_day2 is
+// still hard-blocked.
+{
+  console.log('\x1b[1mreferee-only: kippur_day1 / kippur_day2\x1b[0m');
+
+  // (1) + (3): a guard who marked everything both halves need -- coverage
+  // isolation and kamut accounting, alone so nothing else contributes to
+  // either day's coverage.
+  {
+    const input = solverInputSchema.parse({
+      week_start: '2026-09-20',
+      morning_target_slots: 2,
+      guards: [
+        {
+          id: 'g1',
+          effective_kamut: 3,
+          availability: { '0': ['afternoon', 'night'], '1': ['morning', 'afternoon'] },
+        },
+      ],
+    });
+    const output = solverOutputSchema.parse({
+      status: 'EDITED',
+      objective_value: 0,
+      assignments: [
+        { day: 0, date: '2026-09-20', shift: 'kippur_day1', guard_id: 'g1' },
+        { day: 1, date: '2026-09-21', shift: 'kippur_day2', guard_id: 'g1' },
+      ],
+      coverage_report: { floor_breaches: [], target_gaps: [], unmet_kamut: [], rest_violations: [] },
+    });
+    const verdict = verifySchedule(input, output);
+
+    verdict.violations.length === 0
+      ? ok('a guard who marked everything both halves need triggers no violation at all')
+      : bad('kippur block clean guard', verdict.violations.map((v) => `${v.rule}: ${v.message}`).join(' | '));
+
+    // Target is 2 everywhere here, so one guard's coverage always leaves a
+    // gap -- an entry with assigned: 1 proves the shift counted; assigned: 0
+    // (or no entry, meaning fully met) would both be wrong for a segment
+    // kippur_day1/day2 is supposed to cover.
+    const day0 = { S1: 0, S2: 1, S3: 1, S4: 1 };
+    const day1 = { S1: 1, S2: 1, S3: 1, S4: 0 };
+    const assignedOn = (day, seg) => {
+      const gap = verdict.report.target_gaps.find((b) => b.day === day && b.segment === seg);
+      return gap ? gap.assigned : 2; // target (2) fully met -- no gap logged
+    };
+    const coverageOk =
+      Object.entries(day0).every(([seg, n]) => assignedOn(0, seg) === n) &&
+      Object.entries(day1).every(([seg, n]) => assignedOn(1, seg) === n);
+    coverageOk
+      ? ok('kippur_day1 covers S2-S4 only on its day; kippur_day2 covers S1-S3 only on its day')
+      : bad('kippur segment coverage', JSON.stringify(verdict.report.target_gaps));
+
+    const g1Kamut = verdict.report.unmet_kamut.find((b) => b.guard_id === 'g1');
+    g1Kamut && g1Kamut.effective_kamut === 3 && g1Kamut.assigned === 2
+      ? ok(`the kippur_day1+kippur_day2 pair counts as exactly 2 shifts (effective_kamut 3, assigned ${g1Kamut.assigned})`)
+      : bad('kippur kamut accounting', JSON.stringify(g1Kamut));
+  }
+
+  // (2) H1 requires BOTH underlying base shifts -- a guard alone, missing
+  // only 'night', so nothing else could explain the violation.
+  {
+    const input = solverInputSchema.parse({
+      week_start: '2026-09-20',
+      morning_target_slots: 2,
+      guards: [
+        { id: 'g2', effective_kamut: 0, availability: { '0': ['afternoon'] } },
+      ],
+    });
+    const output = solverOutputSchema.parse({
+      status: 'EDITED',
+      objective_value: 0,
+      assignments: [{ day: 0, date: '2026-09-20', shift: 'kippur_day1', guard_id: 'g2' }],
+      coverage_report: { floor_breaches: [], target_gaps: [], unmet_kamut: [], rest_violations: [] },
+    });
+    const verdict = verifySchedule(input, output);
+
+    const g2Violation = verdict.violations.find((v) => v.rule === 'H1' && v.guardId === 'g2');
+    g2Violation && /night/.test(g2Violation.message)
+      ? ok('H1 requires BOTH base shifts marked -- a guard missing night is flagged')
+      : bad('kippur_day1 multi-base H1', JSON.stringify(verdict.violations));
+  }
+
+  // (4) Rest exemption is scoped to EXACTLY kippur_day1 -> kippur_day2.
+  {
+    const input = solverInputSchema.parse({
+      week_start: '2026-09-20',
+      morning_target_slots: 2,
+      guards: [
+        { id: 'exempt', effective_kamut: 0, availability: { '0': ['afternoon', 'night'], '1': ['morning', 'afternoon'] } },
+        { id: 'not-exempt', effective_kamut: 0, availability: { '0': ['night'], '1': ['morning', 'afternoon'] } },
+      ],
+    });
+    const output = solverOutputSchema.parse({
+      status: 'EDITED',
+      objective_value: 0,
+      assignments: [
+        { day: 0, date: '2026-09-20', shift: 'kippur_day1', guard_id: 'exempt' },
+        { day: 1, date: '2026-09-21', shift: 'kippur_day2', guard_id: 'exempt' },
+        // 'night' ends 06:45 next day, kippur_day2 starts 06:45 -- also 0h,
+        // but this is NOT the exempted pair.
+        { day: 0, date: '2026-09-20', shift: 'night', guard_id: 'not-exempt' },
+        { day: 1, date: '2026-09-21', shift: 'kippur_day2', guard_id: 'not-exempt' },
+      ],
+      coverage_report: { floor_breaches: [], target_gaps: [], unmet_kamut: [], rest_violations: [] },
+    });
+    const verdict = verifySchedule(input, output);
+
+    const exemptClean = !verdict.violations.some((v) => v.guardId === 'exempt');
+    const notExemptBlocked = verdict.violations.some(
+      (v) => v.guardId === 'not-exempt' && v.rule === 'H5',
+    );
+    exemptClean && notExemptBlocked
+      ? ok('the 0h-rest exemption fires only for kippur_day1 -> kippur_day2, not for any other 0h pairing')
+      : bad('kippur rest exemption scope', JSON.stringify(verdict.violations));
+  }
+
+  // (5) Regression: a real production case (2026-09-20 week) had S3/S4
+  // already overridden to 1 for every day, unrelated to Kippur, before a
+  // 2-guard Kippur block was configured -- 2 guards alone then exceeded that
+  // pre-existing ceiling regardless of anything the solver did. This is what
+  // useGenerateSchedule.ts's withKippurAdjustments() referee input must fix
+  // by raising the ceiling to at least the Kippur guard count: proven here by
+  // checking the SAME assignments against the un-raised (real) targets first
+  // (must fail) and the raised targets second (must pass).
+  {
+    const lowOverrides = {
+      morning_target_slots: 2,
+      secondary_target_overrides: {
+        S3: { '0': 1, '1': 1 },
+        S4: { '0': 1, '1': 1 },
+      },
+    };
+    const guards = [
+      { id: 'g1', effective_kamut: 0, availability: { '0': ['afternoon', 'night'], '1': ['morning', 'afternoon'] } },
+      { id: 'g2', effective_kamut: 0, availability: { '0': ['afternoon', 'night'], '1': ['morning', 'afternoon'] } },
+    ];
+    const assignments = [
+      { day: 0, date: '2026-09-20', shift: 'kippur_day1', guard_id: 'g1' },
+      { day: 1, date: '2026-09-21', shift: 'kippur_day2', guard_id: 'g1' },
+      { day: 0, date: '2026-09-20', shift: 'kippur_day1', guard_id: 'g2' },
+      { day: 1, date: '2026-09-21', shift: 'kippur_day2', guard_id: 'g2' },
+    ];
+    const output = solverOutputSchema.parse({
+      status: 'EDITED',
+      objective_value: 0,
+      assignments,
+      coverage_report: { floor_breaches: [], target_gaps: [], unmet_kamut: [], rest_violations: [] },
+    });
+
+    const unraised = solverInputSchema.parse({ week_start: '2026-09-20', ...lowOverrides, guards });
+    const unraisedVerdict = verifySchedule(unraised, output);
+    unraisedVerdict.violations.some((v) => v.rule === 'H6')
+      ? ok('reproduced the real bug: 2 Kippur guards alone exceed a pre-existing S3/S4 override of 1')
+      : bad('kippur ceiling regression setup', 'expected the un-raised input to fail H6, but it passed');
+
+    const raised = solverInputSchema.parse({
+      week_start: '2026-09-20',
+      morning_target_slots: 2,
+      secondary_target_overrides: {
+        S2: { '0': 2, '1': 2 },
+        S3: { '0': 2, '1': 2 },
+        S4: { '0': 2 },
+      },
+      guards,
+    });
+    const raisedVerdict = verifySchedule(raised, output);
+    raisedVerdict.violations.length === 0
+      ? ok('the fix: raising the ceiling to the Kippur guard count (2) resolves it with zero violations')
+      : bad('kippur ceiling fix', raisedVerdict.violations.map((v) => `${v.rule}: ${v.message}`).join(' | '));
+  }
+}
+
 console.log(`\x1b[1mResult:\x1b[0m \x1b[32m${passed} passed\x1b[0m, ` +
   (failures.length ? `\x1b[31m${failures.length} failed\x1b[0m` : '0 failed'));
 if (failures.length) {

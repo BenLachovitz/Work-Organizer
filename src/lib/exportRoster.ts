@@ -195,7 +195,11 @@ function rowsFor(
   doubleShiftHours: DoubleShiftHours = 12,
 ): Row[] {
   if (block === 'morning') {
-    const dayRows = day.filter((a) => a.shift === 'morning' || a.shift === 'day12');
+    // kippur_day2 (migration 56) also starts at 06:45 and continues through
+    // the whole afternoon block, same placement as day12.
+    const dayRows = day.filter(
+      (a) => a.shift === 'morning' || a.shift === 'day12' || a.shift === 'kippur_day2',
+    );
     const rows: Row[] = dayRows.map((a) => ({
       kind: 'chip' as const,
       shift: a.shift,
@@ -215,7 +219,11 @@ function rowsFor(
     return rows;
   }
   if (block === 'night') {
-    const dayRows = day.filter((a) => a.shift === 'night' || a.shift === 'night12');
+    // kippur_day1 (migration 56) also runs through the night, having started
+    // that same afternoon, same placement as night12.
+    const dayRows = day.filter(
+      (a) => a.shift === 'night' || a.shift === 'night12' || a.shift === 'kippur_day1',
+    );
     const rows: Row[] = dayRows.map((a) => ({
       kind: 'chip' as const,
       shift: a.shift,
@@ -231,7 +239,11 @@ function rowsFor(
     return rows;
   }
 
-  const fullAssignments = day.filter((a) => a.shift === 'afternoon');
+  // kippur_day1/kippur_day2 each cover the WHOLE afternoon block (S2+S3) on
+  // their one day, same as a plain 'afternoon' shift.
+  const fullAssignments = day.filter(
+    (a) => a.shift === 'afternoon' || a.shift === 'kippur_day1' || a.shift === 'kippur_day2',
+  );
   const rows: Row[] = fullAssignments.map((a) => ({
     kind: 'chip' as const,
     shift: a.shift,

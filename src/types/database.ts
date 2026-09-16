@@ -33,6 +33,10 @@ export interface RosterWeek {
    *  this only shortens the handover-boundary text by one hour when set to
    *  11. See doubleShiftSuffix()/doubleShiftLabel() in src/lib/shifts.ts. */
   double_shift_display_hours: 11 | 12;
+  /** How many guards (2 or 3) cover this week's Yom Kippur block, if this
+   *  week has one -- migration 54. NULL on every ordinary week. See
+   *  src/lib/holidays.ts and useKippurGuards() in src/hooks/useManager.ts. */
+  kippur_guard_count: 2 | 3 | null;
 }
 
 export interface WeeklySubmission {

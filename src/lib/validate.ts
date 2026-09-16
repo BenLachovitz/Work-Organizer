@@ -3,6 +3,7 @@ import {
   SEGMENTS,
   SHIFTS,
   classifyRest,
+  requiredBases,
   restHours,
   segmentFloors,
   segmentPenaltyWeight,
@@ -78,12 +79,16 @@ export function verifySchedule(input: SolverInput, output: SolverOutput): Verify
       continue;
     }
     const marked = g.availability[dayKey(a.day)] ?? [];
-    const def = SHIFTS[a.shift];
 
-    if (!marked.includes(def.requiresBase)) {
+    // kippur_day1/kippur_day2 (migration 56) each need TWO base shifts marked
+    // on their one day (afternoon+night, morning+afternoon) -- requiredBases()
+    // returns just [requiresBase] for every other shift type, so this is a
+    // strict generalization of the single-base check it replaces.
+    const missingBases = requiredBases(a.shift).filter((b) => !marked.includes(b));
+    if (missingBases.length > 0) {
       violations.push({
         rule: 'H1',
-        message: `${g.id} assigned ${a.shift} on day ${a.day} without marking ${def.requiresBase}`,
+        message: `${g.id} assigned ${a.shift} on day ${a.day} without marking ${missingBases.join(', ')}`,
         guardId: g.id,
         day: a.day,
       });

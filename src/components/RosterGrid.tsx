@@ -54,7 +54,12 @@ export function buildAfternoonRows(
   earlySlots: number,
   lateSlots: number,
 ): AfternoonRow[] {
-  const full = dayAssignments.filter((a) => a.shift === 'afternoon');
+  // kippur_day1/kippur_day2 (migration 56) each cover the WHOLE afternoon
+  // block (S2+S3) on their one day, same as a plain 'afternoon' shift --
+  // unlike day12/night12, which only ever cover one half of it.
+  const full = dayAssignments.filter(
+    (a) => a.shift === 'afternoon' || a.shift === 'kippur_day1' || a.shift === 'kippur_day2',
+  );
   // afternoon_early/afternoon_late (migration 53) occupy just one half of the
   // handover, same as day12/night12 already do -- paired the identical way.
   const early = dayAssignments.filter((a) => a.shift === 'day12' || a.shift === 'afternoon_early');
@@ -301,9 +306,12 @@ export function RosterGrid({
                   let content: React.ReactNode;
 
                   if (block.key === 'morning') {
-                    // morning + day12; day12 is annotated as running to 18:45
+                    // morning + day12 (annotated as running to 18:45) +
+                    // kippur_day2 (migration 56), which also starts at 06:45
+                    // and continues through the whole afternoon block.
                     const rows = day.filter(
-                      (a) => a.shift === 'morning' || a.shift === 'day12',
+                      (a) =>
+                        a.shift === 'morning' || a.shift === 'day12' || a.shift === 'kippur_day2',
                     );
                     const target = segmentTargets(
                       morningTarget,
@@ -343,9 +351,12 @@ export function RosterGrid({
                       <Empty />
                     );
                   } else if (block.key === 'night') {
-                    // night + night12; night12 is annotated as on since 18:45
+                    // night + night12 (annotated as on since 18:45) +
+                    // kippur_day1 (migration 56), which also runs through
+                    // the night and started that same afternoon.
                     const rows = day.filter(
-                      (a) => a.shift === 'night' || a.shift === 'night12',
+                      (a) =>
+                        a.shift === 'night' || a.shift === 'night12' || a.shift === 'kippur_day1',
                     );
                     const target = segmentTargets(
                       morningTarget,
