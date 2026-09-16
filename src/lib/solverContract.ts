@@ -100,16 +100,18 @@ export const solverGuardSchema = z.object({
 
 /**
  * Sparse day_index (as a string) -> target override, for one S2/S3/S4
- * segment. 0 is not a value a manager can pick through the UI
- * (SecondaryTarget in src/lib/shifts.ts stays 1|2 for that) -- it exists only
- * for the Kippur-adjusted SOLVING input (useGenerateSchedule.ts
- * withKippurSolvingAdjustments()), where a segment the Kippur block already
- * fully covers needs to tell the solver its remaining need there is
- * genuinely zero, not the type's otherwise-lowest real value of 1.
+ * segment. 0 and 3 are not values a manager can pick through the UI
+ * (SecondaryTarget in src/lib/shifts.ts stays 1|2 for that) -- they exist
+ * only for the Kippur-adjusted solving/referee inputs
+ * (useGenerateSchedule.ts withKippurAdjustments()): 0 tells the SOLVER a
+ * segment the Kippur block already fully covers needs no more guards, and 3
+ * raises the REFEREE's ceiling when a 3-guard Kippur block exceeds an
+ * already-configured lower target -- the block's guaranteed coverage is the
+ * real ceiling for that day, not the pre-existing setting.
  */
 const secondarySegmentOverridesSchema = z.record(
   z.string(),
-  z.union([z.literal(0), z.literal(1), z.literal(2)]),
+  z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
 );
 
 /** Segment -> secondarySegmentOverridesSchema, for THIS week only -- see

@@ -241,16 +241,16 @@ class SecondaryTargetOverrides(BaseModel):
     field, matching morning_target_overrides' "old caller/fixture still
     parses unchanged" discipline.
 
-    0 is not a value the manager UI ever sends (SecondaryTarget in
-    src/lib/shifts.ts stays 1|2 there) -- it's produced only by the
-    Kippur-adjusted solving input (useGenerateSchedule.ts
-    withKippurSolvingAdjustments()), telling the solver a segment the Kippur
-    block already fully covers needs genuinely zero more guards, not the
-    type's otherwise-lowest real value of 1."""
+    0 and 3 are not values the manager UI ever sends (SecondaryTarget in
+    src/lib/shifts.ts stays 1|2 there) -- they're produced only by the
+    Kippur-adjusted solving/referee inputs (useGenerateSchedule.ts
+    withKippurAdjustments()): 0 tells the solver a segment the Kippur block
+    already fully covers needs no more guards, and 3 raises the ceiling when
+    a 3-guard Kippur block exceeds an already-configured lower target."""
 
-    S2: dict[str, Literal[0, 1, 2]] = Field(default_factory=dict)
-    S3: dict[str, Literal[0, 1, 2]] = Field(default_factory=dict)
-    S4: dict[str, Literal[0, 1, 2]] = Field(default_factory=dict)
+    S2: dict[str, Literal[0, 1, 2, 3]] = Field(default_factory=dict)
+    S3: dict[str, Literal[0, 1, 2, 3]] = Field(default_factory=dict)
+    S4: dict[str, Literal[0, 1, 2, 3]] = Field(default_factory=dict)
 
 
 class SolverInput(BaseModel):

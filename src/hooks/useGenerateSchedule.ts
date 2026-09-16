@@ -122,49 +122,60 @@ function kippurAssignments(
 }
 
 /**
- * A copy of `input` adjusted for the Kippur block, fed to the SOLVER ONLY --
- * never what the referee checks (see verifySchedule() call below).
+ * The two views of `input` the Kippur block needs -- computed together
+ * because both start from the same "effective target" for each affected
+ * (day, segment) cell.
  *
- * Two adjustments:
- *  1. The Kippur guards' availability is removed for the two Kippur dates,
- *     and their max_shifts reduced by 2 -- so the solver doesn't
- *     independently propose an ordinary shift for a guard already committed
- *     to the block (which would double-book them once kippurAssignments()
- *     is merged in), and its normal-week budget leaves room for the 2 rows
- *     about to be added back.
- *  2. Each affected segment's target/ceiling is lowered by the number of
- *     Kippur guards, on both Kippur dates -- kippur_day1 already covers
- *     S2+S3+S4 on the eve day and kippur_day2 already covers S1+S2+S3 on
- *     Kippur day itself, so without this the solver would independently
- *     seek the FULL target with OTHER guards on top of what the Kippur
- *     block already provides, and the merged total would breach H6 (a
- *     segment's target doubles as its hard ceiling in this app).
+ * `effectiveTarget = max(realTarget, n)`: the Kippur block GUARANTEES n
+ * guards on every segment it covers, regardless of whatever ceiling a
+ * manager configured for that day before this feature ever ran a
+ * generation. A segment target exists to bound how many OTHER,
+ * solver-placed guards show up -- it was never a way to evict guards who
+ * are mandatorily present, so a real, already-configured ceiling LOWER than
+ * n (a real production case: this week already had S3/S4 overridden to 1
+ * for every day, unrelated to Kippur, before n=2 Kippur guards were picked)
+ * must be treated as raised to n for this generation, not as a hard block.
+ *
+ *  - `solving`: fed to the SOLVER. Segment targets become
+ *    `effectiveTarget - n` (the remainder left for other guards -- 0 when
+ *    the Kippur block alone already meets or exceeds the real ceiling), the
+ *    Kippur guards' availability is removed for the two Kippur dates so the
+ *    solver doesn't independently propose an ordinary shift for someone
+ *    already committed (double-booking them once kippurAssignments() is
+ *    merged in), and their max_shifts is reduced by 2 so their normal-week
+ *    budget leaves room for the 2 rows about to be added back.
+ *  - `referee`: fed to verifySchedule(). Segment targets become
+ *    `effectiveTarget` -- the true ceiling once the Kippur block's
+ *    guaranteed coverage is counted, so the block's OWN presence never
+ *    itself reads as an H6 breach. A genuine over-assignment BEYOND what
+ *    the block guarantees is still correctly caught.
  *
  * Known, narrow limit worth stating plainly: Yom Kippur can fall on a
  * Saturday (confirmed empirically -- it only ever lands on Mon/Wed/Thu/Sat,
  * never Sun/Fri), and this app hard-locks the WEEKEND morning target to 2,
  * unoverridable by design (morningTargetForDay() in src/lib/shifts.ts, "an
  * override never applies to them, even if one somehow existed for that
- * index"). If Yom Kippur falls on a Saturday, kippur_day2 already covers S1
- * that day, and a 3-guard block alone exceeds that fixed ceiling of 2 --
+ * index") -- unlike S2/S3/S4, which have no such lock and so the
+ * effective-target raise above always applies cleanly to them. If Yom
+ * Kippur falls on a Saturday, kippur_day2 already covers S1 that day, and a
+ * 3-guard block alone exceeds that UNRAISABLE fixed ceiling of 2 --
  * generation will then correctly refuse (H6) with no override available to
  * fix it from here. Configuring only 2 Kippur guards in a year Yom Kippur
  * falls on a Saturday avoids this; a manager who wants 3 that year would
  * need to place the third guard by hand rather than through generation.
  */
-function withKippurSolvingAdjustments(
+function withKippurAdjustments(
   input: SolverInput,
   weekStart: DateKey,
   kippurGuardIds: readonly string[],
   kippurInfo: { erevDate: DateKey; dayDate: DateKey },
-): SolverInput {
+): { solving: SolverInput; referee: SolverInput } {
   const erevDayIdx = dayIndexInWeek(weekStart, kippurInfo.erevDate);
   const dayDayIdx = dayIndexInWeek(weekStart, kippurInfo.dayDate);
   const erevKey = String(erevDayIdx);
   const dayKey = String(dayDayIdx);
   const guardSet = new Set(kippurGuardIds);
   const n = kippurGuardIds.length;
-  const reduce = (target: number) => Math.max(0, target - n);
 
   const realErev = segmentTargets(
     input.morning_target_slots,
@@ -179,41 +190,74 @@ function withKippurSolvingAdjustments(
     input.secondary_target_overrides,
   );
 
-  // These two override maps deliberately use the WIDENED wire domain (0|2|3
-  // / 0|1|2 -- solverContract.ts), not shifts.ts's manager-facing
-  // MorningTarget (2|3) / SecondaryTarget (1|2) types: 0 is a solving-input-
-  // only concept a manager can never pick through the UI.
-  const morningTargetOverrides: Record<string, 0 | 2 | 3> = { ...input.morning_target_overrides };
+  // These override maps deliberately use the WIDENED wire domain (secondary:
+  // 0|1|2|3 -- solverContract.ts caps a real per-day override at 2, but the
+  // effective target here can genuinely need to reach n=3), not shifts.ts's
+  // manager-facing SecondaryTarget (1|2) type: values above 2, and 0, are
+  // solving/referee-input-only concepts a manager can never pick through the
+  // UI. Morning stays 0|2|3 -- n is capped at 3 (GUARD_COUNTS in
+  // KippurPanel.tsx), matching morning's own existing ceiling.
+  const solvingMorning: Record<string, 0 | 2 | 3> = { ...input.morning_target_overrides };
+  const refereeMorning: Record<string, 0 | 2 | 3> = { ...input.morning_target_overrides };
   // Weekends hard-lock the morning target to 2 regardless of any override --
   // see the docstring above for what that means when Kippur day is a
-  // Saturday. Setting an override here would simply be ignored, so it's
-  // skipped rather than written for no effect.
+  // Saturday. Writing an override here would simply be ignored, so it's
+  // skipped rather than written for no effect (and left as the documented,
+  // unfixable limit).
   if (isWorkingDay(dayDayIdx)) {
-    morningTargetOverrides[dayKey] = reduce(realDay.S1) as 0 | 2 | 3;
+    const effective = Math.max(realDay.S1, n);
+    solvingMorning[dayKey] = Math.max(0, effective - n) as 0 | 2 | 3;
+    refereeMorning[dayKey] = effective as 0 | 2 | 3;
   }
 
-  const secondaryTargetOverrides: Record<'S2' | 'S3' | 'S4', Record<string, 0 | 1 | 2>> = {
+  const solvingSecondary: Record<'S2' | 'S3' | 'S4', Record<string, 0 | 1 | 2 | 3>> = {
     S2: { ...input.secondary_target_overrides.S2 },
     S3: { ...input.secondary_target_overrides.S3 },
     S4: { ...input.secondary_target_overrides.S4 },
   };
-  secondaryTargetOverrides.S2[erevKey] = reduce(realErev.S2) as 0 | 1 | 2;
-  secondaryTargetOverrides.S3[erevKey] = reduce(realErev.S3) as 0 | 1 | 2;
-  secondaryTargetOverrides.S4[erevKey] = reduce(realErev.S4) as 0 | 1 | 2;
-  secondaryTargetOverrides.S2[dayKey] = reduce(realDay.S2) as 0 | 1 | 2;
-  secondaryTargetOverrides.S3[dayKey] = reduce(realDay.S3) as 0 | 1 | 2;
+  const refereeSecondary: Record<'S2' | 'S3' | 'S4', Record<string, 0 | 1 | 2 | 3>> = {
+    S2: { ...input.secondary_target_overrides.S2 },
+    S3: { ...input.secondary_target_overrides.S3 },
+    S4: { ...input.secondary_target_overrides.S4 },
+  };
+  const applySecondary = (
+    seg: 'S2' | 'S3' | 'S4',
+    dayKeyToSet: string,
+    realTarget: number,
+  ) => {
+    const effective = Math.max(realTarget, n);
+    solvingSecondary[seg][dayKeyToSet] = Math.max(0, effective - n) as 0 | 1 | 2 | 3;
+    refereeSecondary[seg][dayKeyToSet] = effective as 0 | 1 | 2 | 3;
+  };
+  applySecondary('S2', erevKey, realErev.S2);
+  applySecondary('S3', erevKey, realErev.S3);
+  applySecondary('S4', erevKey, realErev.S4);
+  applySecondary('S2', dayKey, realDay.S2);
+  applySecondary('S3', dayKey, realDay.S3);
+
+  const strippedGuards = input.guards.map((g) => {
+    if (!guardSet.has(g.id)) return g;
+    const availability = { ...g.availability };
+    delete availability[erevKey];
+    delete availability[dayKey];
+    return { ...g, availability, max_shifts: Math.max(0, g.max_shifts - 2) };
+  });
 
   return {
-    ...input,
-    morning_target_overrides: morningTargetOverrides,
-    secondary_target_overrides: secondaryTargetOverrides,
-    guards: input.guards.map((g) => {
-      if (!guardSet.has(g.id)) return g;
-      const availability = { ...g.availability };
-      delete availability[erevKey];
-      delete availability[dayKey];
-      return { ...g, availability, max_shifts: Math.max(0, g.max_shifts - 2) };
-    }),
+    solving: {
+      ...input,
+      morning_target_overrides: solvingMorning,
+      secondary_target_overrides: solvingSecondary,
+      guards: strippedGuards,
+    },
+    // Availability/max_shifts stay the REAL ones for the referee -- only the
+    // segment ceilings are adjusted, so H1/H4/H5 still judge the actual
+    // submitted availability and the actual weekly ceiling.
+    referee: {
+      ...input,
+      morning_target_overrides: refereeMorning,
+      secondary_target_overrides: refereeSecondary,
+    },
   };
 }
 
@@ -329,13 +373,18 @@ export function useGenerateSchedule() {
       // availability on the two Kippur dates is hidden from it, and their
       // weekly budget is reduced by 2) -- the two kippur_day1/kippur_day2
       // rows themselves are forced facts, added back in after solving, never
-      // something either engine chooses.
+      // something either engine chooses. The referee input's segment
+      // ceilings are separately raised to at least the Kippur guard count,
+      // so the block's own guaranteed coverage never itself reads as an H6
+      // breach against an already-configured lower target (see
+      // withKippurAdjustments()'s docstring).
       const kippurInfo = getYomKippurWeekInfo(weekStart);
       const kippurGuardIds = kippurInfo ? data.kippurGuardIds : [];
-      const solvingInput =
-        kippurInfo && kippurGuardIds.length > 0
-          ? withKippurSolvingAdjustments(input, weekStart, kippurGuardIds, kippurInfo)
-          : input;
+      const hasKippurBlock = Boolean(kippurInfo) && kippurGuardIds.length > 0;
+      const { solving: solvingInput, referee: refereeInput } =
+        hasKippurBlock && kippurInfo
+          ? withKippurAdjustments(input, weekStart, kippurGuardIds, kippurInfo)
+          : { solving: input, referee: input };
 
       // --- solve ------------------------------------------------------------
       const remote = import.meta.env.VITE_SOLVER_MODE === 'remote';
@@ -360,7 +409,7 @@ export function useGenerateSchedule() {
         output = mockSolve(solvingInput);
       }
 
-      if (kippurInfo && kippurGuardIds.length > 0) {
+      if (hasKippurBlock && kippurInfo) {
         output = {
           ...output,
           assignments: [
@@ -371,11 +420,14 @@ export function useGenerateSchedule() {
       }
 
       // --- referee ------------------------------------------------------------
-      // Always against the REAL input (real availability, real max_shifts),
-      // never `solvingInput` -- the kippur rows just merged in still have to
-      // pass H1 on the guard's actual submitted availability, and the real
-      // ceiling still has to hold once they're counted normally.
-      const verdict = verifySchedule(input, output);
+      // Against `refereeInput`, not `solvingInput` -- real availability and
+      // real max_shifts (the kippur rows just merged in still have to pass H1
+      // on the guard's actual submitted availability, and the real ceiling
+      // still has to hold once they're counted normally), but with segment
+      // ceilings raised to accommodate the Kippur block's guaranteed coverage
+      // (see withKippurAdjustments()'s docstring). Identical to `input` on
+      // every non-Kippur week.
+      const verdict = verifySchedule(refereeInput, output);
       if (!verdict.valid) {
         throw new Error(
           `הסידור שנוצר מפר כללי בטיחות ולכן לא נשמר:\n` +

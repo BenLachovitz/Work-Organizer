@@ -557,6 +557,61 @@ for (const file of files) {
       ? ok('the 0h-rest exemption fires only for kippur_day1 -> kippur_day2, not for any other 0h pairing')
       : bad('kippur rest exemption scope', JSON.stringify(verdict.violations));
   }
+
+  // (5) Regression: a real production case (2026-09-20 week) had S3/S4
+  // already overridden to 1 for every day, unrelated to Kippur, before a
+  // 2-guard Kippur block was configured -- 2 guards alone then exceeded that
+  // pre-existing ceiling regardless of anything the solver did. This is what
+  // useGenerateSchedule.ts's withKippurAdjustments() referee input must fix
+  // by raising the ceiling to at least the Kippur guard count: proven here by
+  // checking the SAME assignments against the un-raised (real) targets first
+  // (must fail) and the raised targets second (must pass).
+  {
+    const lowOverrides = {
+      morning_target_slots: 2,
+      secondary_target_overrides: {
+        S3: { '0': 1, '1': 1 },
+        S4: { '0': 1, '1': 1 },
+      },
+    };
+    const guards = [
+      { id: 'g1', effective_kamut: 0, availability: { '0': ['afternoon', 'night'], '1': ['morning', 'afternoon'] } },
+      { id: 'g2', effective_kamut: 0, availability: { '0': ['afternoon', 'night'], '1': ['morning', 'afternoon'] } },
+    ];
+    const assignments = [
+      { day: 0, date: '2026-09-20', shift: 'kippur_day1', guard_id: 'g1' },
+      { day: 1, date: '2026-09-21', shift: 'kippur_day2', guard_id: 'g1' },
+      { day: 0, date: '2026-09-20', shift: 'kippur_day1', guard_id: 'g2' },
+      { day: 1, date: '2026-09-21', shift: 'kippur_day2', guard_id: 'g2' },
+    ];
+    const output = solverOutputSchema.parse({
+      status: 'EDITED',
+      objective_value: 0,
+      assignments,
+      coverage_report: { floor_breaches: [], target_gaps: [], unmet_kamut: [], rest_violations: [] },
+    });
+
+    const unraised = solverInputSchema.parse({ week_start: '2026-09-20', ...lowOverrides, guards });
+    const unraisedVerdict = verifySchedule(unraised, output);
+    unraisedVerdict.violations.some((v) => v.rule === 'H6')
+      ? ok('reproduced the real bug: 2 Kippur guards alone exceed a pre-existing S3/S4 override of 1')
+      : bad('kippur ceiling regression setup', 'expected the un-raised input to fail H6, but it passed');
+
+    const raised = solverInputSchema.parse({
+      week_start: '2026-09-20',
+      morning_target_slots: 2,
+      secondary_target_overrides: {
+        S2: { '0': 2, '1': 2 },
+        S3: { '0': 2, '1': 2 },
+        S4: { '0': 2 },
+      },
+      guards,
+    });
+    const raisedVerdict = verifySchedule(raised, output);
+    raisedVerdict.violations.length === 0
+      ? ok('the fix: raising the ceiling to the Kippur guard count (2) resolves it with zero violations')
+      : bad('kippur ceiling fix', raisedVerdict.violations.map((v) => `${v.rule}: ${v.message}`).join(' | '));
+  }
 }
 
 console.log(`\x1b[1mResult:\x1b[0m \x1b[32m${passed} passed\x1b[0m, ` +

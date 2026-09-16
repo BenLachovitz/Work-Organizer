@@ -358,9 +358,15 @@ export type SecondaryTargetOverrides = Partial<
   Record<SecondarySegment, Partial<Record<string, SecondaryTarget>>>
 >;
 
-/** Same widening as SolvingMorningTargetOverrides above, for secondaryTargetForDay()/segmentTargets(). */
+/**
+ * Same widening as SolvingMorningTargetOverrides above, for
+ * secondaryTargetForDay()/segmentTargets() -- plus 3, since the Kippur
+ * REFEREE input (useGenerateSchedule.ts withKippurAdjustments()) can raise a
+ * segment's effective ceiling to match a 3-guard Kippur block even when the
+ * manager's own configured override for that day was lower.
+ */
 type SolvingSecondaryTargetOverrides = Partial<
-  Record<SecondarySegment, Partial<Record<string, SecondaryTarget | 0>>>
+  Record<SecondarySegment, Partial<Record<string, SecondaryTarget | 0 | 3>>>
 >;
 
 /**
