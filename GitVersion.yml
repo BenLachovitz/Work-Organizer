@@ -10,24 +10,38 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.24.0: two new
-# manual-edit-only shift types, afternoon_early/afternoon_late (migration 53),
-# let the roster editor put a guard or an occupies_slot placeholder into just
-# S2 or just S3 of the afternoon block, instead of the full 8h afternoon
-# shift or a 12h day12/night12 that also commits them to the morning/night.
-# Added to the shift catalogue (src/lib/shifts.ts) like any other shift type
-# -- coverage counting, rest-hour derivation, and eligibility all fell out
-# for free since those are already generic over SHIFT_TYPES/SHIFTS[x].covers,
-# not hardcoded to the original five. One real bug caught before shipping:
-# mockSolver.ts's candidate-move search also iterates SHIFT_TYPES generically,
-# so it started proposing the new half-shifts on its own until a new
-# SOLVER_SHIFT_TYPES constant (the original five only) was introduced and
-# swapped in -- confirmed fixed via test:compare regaining exact mock/CP-SAT
-# parity. RosterGrid.tsx/exportRoster.ts's existing day12/night12 handover-
-# pairing widened to include the new types (exportRoster.ts also had a
-# latent hardcoded 'day12'/'night12' literal fixed while widening it).
-# Bundled on the same feature/placeholder-occupies-slot branch as v2.23.0.
-next-version: 2.24.0
+# version (see BACKLOG.md's Versioning section). Currently 2.25.0: Yom
+# Kippur special-coverage feature (migrations 54-56) -- Yom Kippur is a
+# driving-prohibited holiday, so 2-3 guards need to cover an unbroken block
+# from Kippur eve's early afternoon through the end of Kippur day (excluding
+# that final night). Two new manual-edit-only shift types, kippur_day1
+# (S2+S3+S4) and kippur_day2 (S1+S2+S3), one row per day -- schedule_
+# assignments' one_shift_per_guard_per_day index rules out two ordinary
+# same-day rows, which is why this needed new shift types rather than
+# reusing existing ones. A standing settings toggle (scheduler_settings.
+# kippur_handling_enabled) gates a manager-dashboard guard-picker panel that
+# surfaces automatically on whichever week the Hebrew calendar (@hebcal/
+# hdate) places Yom Kippur in each year; generation then writes the pair
+# automatically for every configured guard (weekly_kippur_guards) from then
+# on. The pair lands as exactly 2 shifts against a guard's weekly total for
+# free (one row per day, same generic per-row accounting every other shift
+# type already uses) -- no special kamut logic needed. The solver solves
+# around the pinned block (availability stripped for the two Kippur dates,
+# segment targets reduced by the guard count so it doesn't independently
+# seek full coverage on top of what the block already provides), and a
+# narrowly-scoped rest exemption (classifyRest(), src/lib/shifts.ts) allows
+# the 0h gap between the two halves without weakening the rest rule for any
+# other pairing. One real bug caught during live testing against the actual
+# 2026-09-20 week, which already had S3/S4 overridden to 1 for every day
+# (unrelated to Kippur): the Kippur block's own guaranteed coverage was
+# itself exceeding that pre-existing, lower ceiling, regardless of anything
+# the solver did -- fixed by computing one effective target per affected
+# segment (max(real target, guard count)) and raising the REFEREE's ceiling
+# to match, since a segment target was never meant to evict guards who are
+# mandatorily present. Built on feature/yom-kippur-coverage and merged after
+# both the DB migrations and this fix were verified against the live
+# project.
+next-version: 2.25.0
 mode: Mainline
 branches:
   main:
