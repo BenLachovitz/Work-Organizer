@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
+import { KippurPanel } from '@/components/manager/KippurPanel';
 import { WeekControlsPanel } from '@/components/manager/WeekControlsPanel';
 import { WeekExceptionsPanel } from '@/components/manager/WeekExceptionsPanel';
 import { Alert, Card, Spinner } from '@/components/ui';
@@ -16,6 +17,7 @@ import {
   useUpdateWeek,
 } from '@/hooks/useManager';
 import { formatWeekRange } from '@/lib/dates';
+import { useSchedulerSettings } from '@/hooks/useSchedulerSettings';
 import type { MorningTarget } from '@/lib/shifts';
 import { useViewMode } from '@/contexts/ViewModeContext';
 import { visibleToViewMode } from '@/lib/viewMode';
@@ -52,6 +54,7 @@ export function ManagerDashboard() {
   const segmentTargetOverrides = segmentTargetOverridesRaw ?? {};
   const updateSegmentDayOverride = useUpdateSegmentTargetOverride();
   const updateWeek = useUpdateWeek();
+  const { data: schedulerSettings } = useSchedulerSettings();
   // A guard submitting availability, or writing a note (§3.6), previously sat
   // invisible until the manager reloaded the page.
   useManagerSubmissionsRealtime(selected || null);
@@ -138,6 +141,18 @@ export function ManagerDashboard() {
             updateWeek.mutate({ weekStart: selected, doubleShiftHours: h })
           }
         />
+
+        {schedulerSettings?.kippur_handling_enabled && data && (
+          <KippurPanel
+            weekStart={selected}
+            week={week}
+            data={data}
+            saving={updateWeek.isPending}
+            onSetGuardCount={(count) =>
+              updateWeek.mutate({ weekStart: selected, kippurGuardCount: count })
+            }
+          />
+        )}
 
         {updateWeek.isError && (
           <Alert tone="error" title="העדכון נכשל">

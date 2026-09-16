@@ -17,6 +17,11 @@ export interface SchedulerSettings {
    *  touch an existing week -- WeekExceptionsPanel's per-week control still
    *  overrides one specific week. */
   default_morning_target_slots: number;
+  /** Standing switch for the Yom Kippur special-coverage feature (migration
+   *  54). Whether a SPECIFIC week actually needs the guard-picker panel is a
+   *  computed fact (src/lib/holidays.ts) -- this only controls whether the
+   *  app ever looks for that at all. */
+  kippur_handling_enabled: boolean;
 }
 
 const KEY = ['schedulerSettings'] as const;
@@ -28,7 +33,7 @@ export function useSchedulerSettings() {
       const { data, error } = await requireSupabase()
         .from('scheduler_settings')
         .select(
-          'deadline_offset_days, deadline_time, open_offset_days, open_time, default_morning_target_slots',
+          'deadline_offset_days, deadline_time, open_offset_days, open_time, default_morning_target_slots, kippur_handling_enabled',
         )
         .eq('id', true)
         .single();

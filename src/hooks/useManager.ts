@@ -172,6 +172,9 @@ export interface ManagerWeekData {
   submissions: WeeklySubmission[];
   preferences: WishPreference[];
   targets: WeeklyGuardTarget[];
+  /** Guards chosen to cover this week's Yom Kippur block (migration 55), if
+   *  any -- see src/lib/holidays.ts and useGenerateSchedule.ts. */
+  kippurGuardIds: string[];
 }
 
 /** Everything the dashboard needs for one week. Manager RLS returns all rows. */
@@ -181,14 +184,15 @@ export function useManagerWeek(weekStart: DateKey) {
     enabled: Boolean(weekStart),
     queryFn: async (): Promise<ManagerWeekData> => {
       const db = requireSupabase();
-      const [guards, submissions, preferences, targets] = await Promise.all([
+      const [guards, submissions, preferences, targets, kippurGuards] = await Promise.all([
         db.from('profiles').select('*').eq('is_active', true).order('display_name'),
         db.from('weekly_submissions').select('*').eq('week_start', weekStart),
         db.from('weekly_wish_preferences').select('*').eq('week_start', weekStart),
         db.from('weekly_guard_targets').select('*').eq('week_start', weekStart),
+        db.from('weekly_kippur_guards').select('guard_id').eq('week_start', weekStart),
       ]);
 
-      for (const r of [guards, submissions, preferences, targets]) {
+      for (const r of [guards, submissions, preferences, targets, kippurGuards]) {
         if (r.error) throw new Error(r.error.message);
       }
 
@@ -197,7 +201,38 @@ export function useManagerWeek(weekStart: DateKey) {
         submissions: (submissions.data as WeeklySubmission[]) ?? [],
         preferences: (preferences.data as WishPreference[]) ?? [],
         targets: (targets.data as WeeklyGuardTarget[]) ?? [],
+        kippurGuardIds: ((kippurGuards.data as { guard_id: string }[]) ?? []).map((r) => r.guard_id),
       };
+    },
+  });
+}
+
+/**
+ * Replaces the full set of guards chosen to cover this week's Yom Kippur
+ * block. A full delete+insert, not a diff -- the list is always small (2-3
+ * guards) and set as a whole from the picker panel, so there's no benefit to
+ * computing which rows actually changed.
+ */
+export function useSetKippurGuards() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { weekStart: DateKey; guardIds: string[] }) => {
+      const db = requireSupabase();
+      const { error: delErr } = await db
+        .from('weekly_kippur_guards')
+        .delete()
+        .eq('week_start', input.weekStart);
+      if (delErr) throw new Error(delErr.message);
+
+      if (input.guardIds.length > 0) {
+        const { error: insErr } = await db.from('weekly_kippur_guards').insert(
+          input.guardIds.map((guard_id) => ({ week_start: input.weekStart, guard_id })),
+        );
+        if (insErr) throw new Error(insErr.message);
+      }
+    },
+    onSuccess: (_r, input) => {
+      void qc.invalidateQueries({ queryKey: managerKeys.week(input.weekStart) });
     },
   });
 }
@@ -244,6 +279,9 @@ export function useUpdateWeek() {
       weekStart: DateKey;
       morningTarget?: MorningTarget;
       doubleShiftHours?: DoubleShiftHours;
+      /** How many guards (2 or 3) cover this week's Yom Kippur block, or
+       *  null to clear it (migration 54). */
+      kippurGuardCount?: 2 | 3 | null;
       status?: RosterWeek['status'];
       deadline?: string;
     }) => {
@@ -267,6 +305,7 @@ export function useUpdateWeek() {
       if (input.morningTarget !== undefined) patch.morning_target_slots = input.morningTarget;
       if (input.doubleShiftHours !== undefined)
         patch.double_shift_display_hours = input.doubleShiftHours;
+      if (input.kippurGuardCount !== undefined) patch.kippur_guard_count = input.kippurGuardCount;
       if (input.deadline !== undefined) patch.submission_deadline = input.deadline;
 
       if (Object.keys(patch).length > 0) {

@@ -15,6 +15,7 @@ import {
   classifyRest,
   doubleShiftSuffix,
   isWeekendDay,
+  requiredBases,
   segmentFloors,
   segmentTargets,
   type DoubleShiftHours,
@@ -449,7 +450,15 @@ interface BlockDef {
 }
 
 const BLOCKS: BlockDef[] = [
-  { key: 'morning', he: 'בוקר', label: '06:45-14:45', segs: ['S1'], shifts: ['morning', 'day12'] },
+  {
+    key: 'morning',
+    he: 'בוקר',
+    label: '06:45-14:45',
+    segs: ['S1'],
+    // kippur_day2 (migration 56) covers S1+S2+S3 -- placed here the same way
+    // day12 (S1+S2) is, rather than in a fourth row of its own.
+    shifts: ['morning', 'day12', 'kippur_day2'],
+  },
   {
     key: 'afternoon',
     he: 'צהריים',
@@ -459,7 +468,15 @@ const BLOCKS: BlockDef[] = [
     // or just S3, instead of the whole block.
     shifts: ['afternoon', 'afternoon_early', 'afternoon_late'],
   },
-  { key: 'night', he: 'לילה', label: '22:45-06:45', segs: ['S4'], shifts: ['night', 'night12'] },
+  {
+    key: 'night',
+    he: 'לילה',
+    label: '22:45-06:45',
+    segs: ['S4'],
+    // kippur_day1 (migration 56) covers S2+S3+S4 -- placed here the same way
+    // night12 (S3+S4) is, rather than in a fourth row of its own.
+    shifts: ['night', 'night12', 'kippur_day1'],
+  },
 ];
 
 /** Turns a referee violation into something a manager can act on. */
@@ -521,8 +538,8 @@ function SlotEditor({
     if (!guardId) return true;
     const g = solverInput.guards.find((x) => x.id === guardId);
     if (!g) return false;
-    const base = SHIFTS[shift].requiresBase;
-    if (!(g.availability[String(dayIdx)] ?? []).includes(base)) return false;
+    const dayAvailability = g.availability[String(dayIdx)] ?? [];
+    if (!requiredBases(shift).every((b) => dayAvailability.includes(b))) return false;
     if (shift === 'day12') return g.twelve_hour_day.includes(dayIdx);
     if (shift === 'night12') return g.twelve_hour_night.includes(dayIdx);
     return true;

@@ -21,6 +21,8 @@ export const SHIFT_TYPES = [
   'night12',
   'afternoon_early',
   'afternoon_late',
+  'kippur_day1',
+  'kippur_day2',
 ] as const;
 export type ShiftType = (typeof SHIFT_TYPES)[number];
 
@@ -35,6 +37,10 @@ export type ShiftType = (typeof SHIFT_TYPES)[number];
  * shift picker (where these two ARE meant to be selectable), shiftTypeSchema
  * (must accept them once manually saved), and REST_MATRIX (must classify
  * rest against them correctly regardless of who produced the assignment).
+ *
+ * kippur_day1/kippur_day2 (migration 56) are excluded for the same reason --
+ * they're written automatically by useGenerateSchedule.ts once a week's
+ * weekly_kippur_guards are configured, never chosen by either engine.
  */
 export const SOLVER_SHIFT_TYPES = ['morning', 'afternoon', 'night', 'day12', 'night12'] as const;
 
@@ -69,13 +75,34 @@ export interface ShiftDef {
   readonly startH: number;
   readonly endH: number;
   readonly label: string;
-  readonly hours: 4 | 8 | 12;
-  /** True for day12 / night12 -- requires the matching week-level opt-in. */
+  readonly hours: 4 | 8 | 12 | 16;
+  /** True for day12 / night12 ONLY -- gates the doubleShiftSuffix() 18:45
+   *  handover-boundary display (RosterEditor.tsx, RosterGrid.tsx,
+   *  exportRoster.ts), which is hardcoded to that pair. kippur_day1/day2 are
+   *  also long, manual-only shifts, but must stay `false` here: they don't
+   *  share day12/night12's 18:45 boundary, and doubleShiftSuffix() would
+   *  compute a meaningless value for them. */
   readonly isExtended: boolean;
   /** The base availability a guard must have marked to be eligible (spec 3.3). */
   readonly requiresBase: BaseShift;
+  /**
+   * Only set for kippur_day1/kippur_day2 (migration 56), which each span
+   * multiple base shifts on their one calendar day (afternoon+night,
+   * morning+afternoon) -- every other shift needs exactly one, so
+   * `requiresBase` alone still covers it. Use `requiredBases()` below rather
+   * than reading either field directly.
+   */
+  readonly requiresBases?: readonly BaseShift[];
   readonly covers: readonly Segment[];
   readonly colorVar: string;
+}
+
+/** The base shift(s) a guard must have marked available to hold `shift` --
+ *  `requiresBases` when set (kippur_day1/kippur_day2), else the single
+ *  `requiresBase` every other shift type has always used. */
+export function requiredBases(shift: ShiftType): readonly BaseShift[] {
+  const def = SHIFTS[shift];
+  return def.requiresBases ?? [def.requiresBase];
 }
 
 const H = (h: number, m: number) => h + m / 60;
@@ -175,6 +202,44 @@ export const SHIFTS: Record<ShiftType, ShiftDef> = {
     covers: ['S3'],
     colorVar: 'var(--color-shift-afternoon)',
   },
+  // Manual-edit only (migration 56), never produced by the solver: the two
+  // halves of the Yom Kippur special-coverage block (holidays.ts detects the
+  // week; useGenerateSchedule.ts writes these two rows automatically for
+  // each guard in that week's weekly_kippur_guards). kippur_day1 covers
+  // Kippur eve from early afternoon through the end of night; kippur_day2
+  // covers Kippur day itself, morning through the end of late afternoon,
+  // deliberately excluding night -- guards go home once the holiday ends.
+  // One row per guard per day (schedule_assignments' own
+  // one_shift_per_guard_per_day index leaves no other option) is what makes
+  // this land as exactly 2 shifts against a guard's weekly total with zero
+  // special kamut/max_shifts accounting -- see validate.ts's H3/H4, which
+  // count assignment ROWS generically regardless of shift type.
+  kippur_day1: {
+    id: 'kippur_day1',
+    he: 'ערב כיפור',
+    startH: H(14, 45),
+    endH: 24 + H(6, 45),
+    label: '14:45-06:45',
+    hours: 16,
+    isExtended: false,
+    requiresBase: 'afternoon',
+    requiresBases: ['afternoon', 'night'],
+    covers: ['S2', 'S3', 'S4'],
+    colorVar: 'var(--color-shift-night12)',
+  },
+  kippur_day2: {
+    id: 'kippur_day2',
+    he: 'יום כיפור',
+    startH: H(6, 45),
+    endH: H(22, 45),
+    label: '06:45-22:45',
+    hours: 16,
+    isExtended: false,
+    requiresBase: 'morning',
+    requiresBases: ['morning', 'afternoon'],
+    covers: ['S1', 'S2', 'S3'],
+    colorVar: 'var(--color-shift-day12)',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -259,6 +324,22 @@ export type MorningTarget = 2 | 3;
 export type MorningTargetOverrides = Partial<Record<string, MorningTarget>>;
 
 /**
+ * Widens MorningTargetOverrides' value domain with 0 -- a value no manager
+ * can ever pick through the UI (the per-day override buttons only ever offer
+ * 2/3), and one `weekly_morning_target_overrides` itself can never store
+ * (its CHECK constraint stays 2/3). It exists only for the solving input the
+ * Yom Kippur feature builds (useGenerateSchedule.ts
+ * withKippurSolvingAdjustments()): a segment the Kippur block already fully
+ * covers needs to tell the solver its remaining need is genuinely zero, not
+ * the real type's otherwise-lowest value of... there is no lower real value,
+ * which is exactly the gap this widened parameter type exists to close for
+ * morningTargetForDay()/segmentTargets() below. A real MorningTargetOverrides
+ * is always assignable here (2|3 is a subset of 0|2|3) -- every other caller
+ * is unaffected.
+ */
+type SolvingMorningTargetOverrides = Partial<Record<string, MorningTarget | 0>>;
+
+/**
  * Afternoon (S2 early / S3 late) and night (S4) don't have a "raised" tier
  * like morning's 3 -- their flat baseline is 2, and the only exception a
  * manager can carve out per day is lowering one of them to 1.
@@ -277,6 +358,11 @@ export type SecondaryTargetOverrides = Partial<
   Record<SecondarySegment, Partial<Record<string, SecondaryTarget>>>
 >;
 
+/** Same widening as SolvingMorningTargetOverrides above, for secondaryTargetForDay()/segmentTargets(). */
+type SolvingSecondaryTargetOverrides = Partial<
+  Record<SecondarySegment, Partial<Record<string, SecondaryTarget | 0>>>
+>;
+
 /**
  * The morning target actually in force on a given day.
  *
@@ -291,7 +377,7 @@ export type SecondaryTargetOverrides = Partial<
 export function morningTargetForDay(
   weekSetting: MorningTarget,
   dayIndex: number,
-  overrides?: MorningTargetOverrides,
+  overrides?: SolvingMorningTargetOverrides,
 ): number {
   if (!isWorkingDay(dayIndex)) return 2;
   return overrides?.[String(dayIndex)] ?? weekSetting;
@@ -301,7 +387,7 @@ export function morningTargetForDay(
 export function secondaryTargetForDay(
   segment: SecondarySegment,
   dayIndex: number,
-  overrides?: SecondaryTargetOverrides,
+  overrides?: SolvingSecondaryTargetOverrides,
 ): number {
   return overrides?.[segment]?.[String(dayIndex)] ?? 2;
 }
@@ -316,8 +402,8 @@ export function secondaryTargetForDay(
 export function segmentTargets(
   weekSetting: MorningTarget,
   dayIndex: number,
-  overrides?: MorningTargetOverrides,
-  secondaryOverrides?: SecondaryTargetOverrides,
+  overrides?: SolvingMorningTargetOverrides,
+  secondaryOverrides?: SolvingSecondaryTargetOverrides,
 ): Record<Segment, number> {
   return {
     S1: morningTargetForDay(weekSetting, dayIndex, overrides),
@@ -340,13 +426,20 @@ export function segmentTargets(
 export function segmentFloors(
   weekSetting: MorningTarget,
   dayIndex: number,
-  overrides?: MorningTargetOverrides,
-  secondaryOverrides?: SecondaryTargetOverrides,
+  overrides?: SolvingMorningTargetOverrides,
+  secondaryOverrides?: SolvingSecondaryTargetOverrides,
 ): Record<Segment, number> {
   const morning = morningTargetForDay(weekSetting, dayIndex, overrides);
   const targets = segmentTargets(weekSetting, dayIndex, overrides, secondaryOverrides);
   return {
-    S1: morning === 3 ? 2 : 1,
+    // Math.min(1, morning), not a flat 1: every MorningTarget a manager can
+    // actually pick (2 or 3) already makes this identical to the flat 1 this
+    // replaced, but the Kippur-adjusted solving input (useGenerateSchedule.ts
+    // withKippurSolvingAdjustments()) can legitimately drive morning to 0 for
+    // a segment the Kippur block already fully covers -- a flat 1 there would
+    // report a floor the solver structurally cannot reach without breaching
+    // that same day's now-0 ceiling.
+    S1: morning === 3 ? 2 : Math.min(1, morning),
     S2: Math.min(1, targets.S2),
     S3: Math.min(1, targets.S3),
     S4: Math.min(1, targets.S4),
@@ -451,6 +544,14 @@ export function restHours(prev: ShiftType, next: ShiftType): number {
 }
 
 export function classifyRest(prev: ShiftType, next: ShiftType): RestClass {
+  // kippur_day1 -> kippur_day2 (migration 56) is 0h by the clock -- the whole
+  // point of the Yom Kippur block is that these guards do not leave between
+  // the two days, since driving is prohibited for the entire holiday. A
+  // narrow, exact-pair exemption, not a general "0h is sometimes fine" rule:
+  // any OTHER 0h-rest pairing (including kippur_day2 followed by anything,
+  // or kippur_day1 preceded by anything) is still classified normally and
+  // still hard-blocked if it violates the generic <8h rule.
+  if (prev === 'kippur_day1' && next === 'kippur_day2') return 'free';
   const r = restHours(prev, next);
   if (r < HARD_REST_HOURS) return 'blocked';
   if (r < FREE_REST_HOURS) return 'penalised';
@@ -491,8 +592,7 @@ export function isEligible(
   markedBaseShifts: readonly BaseShift[],
   optIns: TwelveHourOptIns,
 ): boolean {
-  const def = SHIFTS[shift];
-  if (!markedBaseShifts.includes(def.requiresBase)) return false;
+  if (!requiredBases(shift).every((b) => markedBaseShifts.includes(b))) return false;
   if (shift === 'day12') return optIns.day.includes(dayIndex);
   if (shift === 'night12') return optIns.night.includes(dayIndex);
   return true;

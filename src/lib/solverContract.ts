@@ -98,8 +98,19 @@ export const solverGuardSchema = z.object({
   twelve_hour_night: z.array(z.number().int().min(0).max(6)).default([]),
 });
 
-/** Sparse day_index (as a string) -> target override, for one S2/S3/S4 segment. */
-const secondarySegmentOverridesSchema = z.record(z.string(), z.union([z.literal(1), z.literal(2)]));
+/**
+ * Sparse day_index (as a string) -> target override, for one S2/S3/S4
+ * segment. 0 is not a value a manager can pick through the UI
+ * (SecondaryTarget in src/lib/shifts.ts stays 1|2 for that) -- it exists only
+ * for the Kippur-adjusted SOLVING input (useGenerateSchedule.ts
+ * withKippurSolvingAdjustments()), where a segment the Kippur block already
+ * fully covers needs to tell the solver its remaining need there is
+ * genuinely zero, not the type's otherwise-lowest real value of 1.
+ */
+const secondarySegmentOverridesSchema = z.record(
+  z.string(),
+  z.union([z.literal(0), z.literal(1), z.literal(2)]),
+);
 
 /** Segment -> secondarySegmentOverridesSchema, for THIS week only -- see
  *  SecondaryTargetOverrides in src/lib/shifts.ts. Every field defaults empty
@@ -117,9 +128,10 @@ export const solverInputSchema = z.object({
   week_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   morning_target_slots: z.union([z.literal(2), z.literal(3)]),
   /** Sparse day_index (as a string) -> target override for THIS week only --
-   *  see morningTargetForDay() in src/lib/shifts.ts. */
+   *  see morningTargetForDay() in src/lib/shifts.ts. 0 is solving-input-only,
+   *  same reasoning as secondarySegmentOverridesSchema above. */
   morning_target_overrides: z
-    .record(z.string(), z.union([z.literal(2), z.literal(3)]))
+    .record(z.string(), z.union([z.literal(0), z.literal(2), z.literal(3)]))
     .default({}),
   /** S2/S3/S4's own, independent per-day overrides -- see
    *  SecondaryTargetOverrides in src/lib/shifts.ts. */

@@ -2,11 +2,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { requireSupabase, supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { dayIndexInWeek, type DateKey } from '@/lib/dates';
+import { getYomKippurWeekInfo } from '@/lib/holidays';
 import {
   WEIGHTS,
   effectiveKamut,
   stretchTarget,
   guardShiftCeiling,
+  isWorkingDay,
+  segmentTargets,
   type BaseShift,
   type MorningTarget,
   type MorningTargetOverrides,
@@ -15,7 +18,12 @@ import {
 } from '@/lib/shifts';
 import { mockSolve } from '@/lib/mockSolver';
 import { verifySchedule } from '@/lib/validate';
-import { solverInputSchema, solverOutputSchema, type SolverInput } from '@/lib/solverContract';
+import {
+  solverInputSchema,
+  solverOutputSchema,
+  type Assignment,
+  type SolverInput,
+} from '@/lib/solverContract';
 import type { ManagerWeekData } from '@/hooks/useManager';
 import { managerKeys } from '@/hooks/useManager';
 import { weekKeys } from '@/hooks/useWeeks';
@@ -91,6 +99,122 @@ export function buildSolverInput(
     carry_in: carryIn,
     weights: WEIGHTS,
   });
+}
+
+/**
+ * The two kippur_day1/kippur_day2 rows (src/lib/shifts.ts, migration 56) for
+ * each guard chosen to cover this week's Yom Kippur block
+ * (weekly_kippur_guards, migration 55) -- forced facts, never something
+ * either engine decides, so they're built directly rather than fed to the
+ * solver as a choice.
+ */
+function kippurAssignments(
+  weekStart: DateKey,
+  kippurGuardIds: readonly string[],
+  kippurInfo: { erevDate: DateKey; dayDate: DateKey },
+): Assignment[] {
+  const erevDay = dayIndexInWeek(weekStart, kippurInfo.erevDate);
+  const dayDay = dayIndexInWeek(weekStart, kippurInfo.dayDate);
+  return kippurGuardIds.flatMap((guard_id) => [
+    { day: erevDay, date: kippurInfo.erevDate, shift: 'kippur_day1' as const, guard_id },
+    { day: dayDay, date: kippurInfo.dayDate, shift: 'kippur_day2' as const, guard_id },
+  ]);
+}
+
+/**
+ * A copy of `input` adjusted for the Kippur block, fed to the SOLVER ONLY --
+ * never what the referee checks (see verifySchedule() call below).
+ *
+ * Two adjustments:
+ *  1. The Kippur guards' availability is removed for the two Kippur dates,
+ *     and their max_shifts reduced by 2 -- so the solver doesn't
+ *     independently propose an ordinary shift for a guard already committed
+ *     to the block (which would double-book them once kippurAssignments()
+ *     is merged in), and its normal-week budget leaves room for the 2 rows
+ *     about to be added back.
+ *  2. Each affected segment's target/ceiling is lowered by the number of
+ *     Kippur guards, on both Kippur dates -- kippur_day1 already covers
+ *     S2+S3+S4 on the eve day and kippur_day2 already covers S1+S2+S3 on
+ *     Kippur day itself, so without this the solver would independently
+ *     seek the FULL target with OTHER guards on top of what the Kippur
+ *     block already provides, and the merged total would breach H6 (a
+ *     segment's target doubles as its hard ceiling in this app).
+ *
+ * Known, narrow limit worth stating plainly: Yom Kippur can fall on a
+ * Saturday (confirmed empirically -- it only ever lands on Mon/Wed/Thu/Sat,
+ * never Sun/Fri), and this app hard-locks the WEEKEND morning target to 2,
+ * unoverridable by design (morningTargetForDay() in src/lib/shifts.ts, "an
+ * override never applies to them, even if one somehow existed for that
+ * index"). If Yom Kippur falls on a Saturday, kippur_day2 already covers S1
+ * that day, and a 3-guard block alone exceeds that fixed ceiling of 2 --
+ * generation will then correctly refuse (H6) with no override available to
+ * fix it from here. Configuring only 2 Kippur guards in a year Yom Kippur
+ * falls on a Saturday avoids this; a manager who wants 3 that year would
+ * need to place the third guard by hand rather than through generation.
+ */
+function withKippurSolvingAdjustments(
+  input: SolverInput,
+  weekStart: DateKey,
+  kippurGuardIds: readonly string[],
+  kippurInfo: { erevDate: DateKey; dayDate: DateKey },
+): SolverInput {
+  const erevDayIdx = dayIndexInWeek(weekStart, kippurInfo.erevDate);
+  const dayDayIdx = dayIndexInWeek(weekStart, kippurInfo.dayDate);
+  const erevKey = String(erevDayIdx);
+  const dayKey = String(dayDayIdx);
+  const guardSet = new Set(kippurGuardIds);
+  const n = kippurGuardIds.length;
+  const reduce = (target: number) => Math.max(0, target - n);
+
+  const realErev = segmentTargets(
+    input.morning_target_slots,
+    erevDayIdx,
+    input.morning_target_overrides,
+    input.secondary_target_overrides,
+  );
+  const realDay = segmentTargets(
+    input.morning_target_slots,
+    dayDayIdx,
+    input.morning_target_overrides,
+    input.secondary_target_overrides,
+  );
+
+  // These two override maps deliberately use the WIDENED wire domain (0|2|3
+  // / 0|1|2 -- solverContract.ts), not shifts.ts's manager-facing
+  // MorningTarget (2|3) / SecondaryTarget (1|2) types: 0 is a solving-input-
+  // only concept a manager can never pick through the UI.
+  const morningTargetOverrides: Record<string, 0 | 2 | 3> = { ...input.morning_target_overrides };
+  // Weekends hard-lock the morning target to 2 regardless of any override --
+  // see the docstring above for what that means when Kippur day is a
+  // Saturday. Setting an override here would simply be ignored, so it's
+  // skipped rather than written for no effect.
+  if (isWorkingDay(dayDayIdx)) {
+    morningTargetOverrides[dayKey] = reduce(realDay.S1) as 0 | 2 | 3;
+  }
+
+  const secondaryTargetOverrides: Record<'S2' | 'S3' | 'S4', Record<string, 0 | 1 | 2>> = {
+    S2: { ...input.secondary_target_overrides.S2 },
+    S3: { ...input.secondary_target_overrides.S3 },
+    S4: { ...input.secondary_target_overrides.S4 },
+  };
+  secondaryTargetOverrides.S2[erevKey] = reduce(realErev.S2) as 0 | 1 | 2;
+  secondaryTargetOverrides.S3[erevKey] = reduce(realErev.S3) as 0 | 1 | 2;
+  secondaryTargetOverrides.S4[erevKey] = reduce(realErev.S4) as 0 | 1 | 2;
+  secondaryTargetOverrides.S2[dayKey] = reduce(realDay.S2) as 0 | 1 | 2;
+  secondaryTargetOverrides.S3[dayKey] = reduce(realDay.S3) as 0 | 1 | 2;
+
+  return {
+    ...input,
+    morning_target_overrides: morningTargetOverrides,
+    secondary_target_overrides: secondaryTargetOverrides,
+    guards: input.guards.map((g) => {
+      if (!guardSet.has(g.id)) return g;
+      const availability = { ...g.availability };
+      delete availability[erevKey];
+      delete availability[dayKey];
+      return { ...g, availability, max_shifts: Math.max(0, g.max_shifts - 2) };
+    }),
+  };
 }
 
 /**
@@ -199,6 +323,20 @@ export function useGenerateSchedule() {
         secondaryTargetOverrides,
       );
 
+      // --- Yom Kippur special coverage (§ src/lib/holidays.ts, migration 56) -
+      // If this week actually contains Yom Kippur AND guards are configured
+      // to cover it, the solver is asked to solve around them (their
+      // availability on the two Kippur dates is hidden from it, and their
+      // weekly budget is reduced by 2) -- the two kippur_day1/kippur_day2
+      // rows themselves are forced facts, added back in after solving, never
+      // something either engine chooses.
+      const kippurInfo = getYomKippurWeekInfo(weekStart);
+      const kippurGuardIds = kippurInfo ? data.kippurGuardIds : [];
+      const solvingInput =
+        kippurInfo && kippurGuardIds.length > 0
+          ? withKippurSolvingAdjustments(input, weekStart, kippurGuardIds, kippurInfo)
+          : input;
+
       // --- solve ------------------------------------------------------------
       const remote = import.meta.env.VITE_SOLVER_MODE === 'remote';
       let output;
@@ -206,23 +344,37 @@ export function useGenerateSchedule() {
 
       if (remote) {
         const { data: res, error } = await db.functions.invoke('generate-schedule', {
-          body: input,
+          body: solvingInput,
         });
         if (error) {
           // The service sleeps on Render's free tier and can be cold or down.
           // Falling back keeps the manager unblocked; the mock is always legal,
           // just not provably optimal.
           console.warn('remote solver unavailable, falling back to mock:', error.message);
-          output = mockSolve(input);
+          output = mockSolve(solvingInput);
         } else {
           output = solverOutputSchema.parse(res);
           engine = 'cp-sat';
         }
       } else {
-        output = mockSolve(input);
+        output = mockSolve(solvingInput);
       }
 
-      // --- referee ----------------------------------------------------------
+      if (kippurInfo && kippurGuardIds.length > 0) {
+        output = {
+          ...output,
+          assignments: [
+            ...output.assignments,
+            ...kippurAssignments(weekStart, kippurGuardIds, kippurInfo),
+          ],
+        };
+      }
+
+      // --- referee ------------------------------------------------------------
+      // Always against the REAL input (real availability, real max_shifts),
+      // never `solvingInput` -- the kippur rows just merged in still have to
+      // pass H1 on the guard's actual submitted availability, and the real
+      // ceiling still has to hold once they're counted normally.
       const verdict = verifySchedule(input, output);
       if (!verdict.valid) {
         throw new Error(
