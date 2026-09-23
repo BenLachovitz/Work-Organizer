@@ -152,6 +152,57 @@ async function run() {
       : bad('double-shift display range', 'accepted 10');
   }
 
+  console.log('\n\x1b[1m1b. Per-day morning target override (migration 57)\x1b[0m');
+  {
+    // day_index 6 = Saturday -- until migration 57 this was hard-locked to 2
+    // with no override table row possible at all (CHECK day_index BETWEEN 1
+    // AND 5). Proves both widened CHECKs at once: an out-of-range day for the
+    // OLD constraint, and a value (3) only morning ever allows.
+    const { error } = await mgr.from('weekly_morning_target_overrides')
+      .upsert({ week_start: WEEK, day_index: 6, morning_target_slots: 3 },
+        { onConflict: 'week_start,day_index' });
+    const rows = await sql(`SELECT morning_target_slots FROM weekly_morning_target_overrides WHERE week_start='${WEEK}' AND day_index=6`);
+    !error && rows[0]?.morning_target_slots === 3
+      ? ok('manager overrides a weekend day (Saturday) to 3')
+      : bad('weekend override', error?.message ?? JSON.stringify(rows));
+  }
+  {
+    // day_index 0 = Sunday, value 1 -- the other new case: a value of 1 was
+    // never legal for morning before migration 57 (CHECK IN (2,3)).
+    const { error } = await mgr.from('weekly_morning_target_overrides')
+      .upsert({ week_start: WEEK, day_index: 0, morning_target_slots: 1 },
+        { onConflict: 'week_start,day_index' });
+    const rows = await sql(`SELECT morning_target_slots FROM weekly_morning_target_overrides WHERE week_start='${WEEK}' AND day_index=0`);
+    !error && rows[0]?.morning_target_slots === 1
+      ? ok('manager overrides a weekend day (Sunday) to 1')
+      : bad('weekend override to 1', error?.message ?? JSON.stringify(rows));
+  }
+  {
+    const { error } = await mgr.from('weekly_morning_target_overrides')
+      .upsert({ week_start: WEEK, day_index: 3, morning_target_slots: 4 },
+        { onConflict: 'week_start,day_index' });
+    error
+      ? ok('an out-of-range override value (4) is rejected by the CHECK')
+      : bad('override value range', 'accepted 4');
+  }
+  {
+    const { error } = await mgr.from('weekly_morning_target_overrides')
+      .upsert({ week_start: WEEK, day_index: 7, morning_target_slots: 2 },
+        { onConflict: 'week_start,day_index' });
+    error
+      ? ok('an out-of-range day_index (7) is rejected by the CHECK')
+      : bad('override day_index range', 'accepted 7');
+  }
+  {
+    const { data } = await g1.from('weekly_morning_target_overrides')
+      .upsert({ week_start: WEEK, day_index: 2, morning_target_slots: 1 },
+        { onConflict: 'week_start,day_index' }).select();
+    const rows = await sql(`SELECT 1 FROM weekly_morning_target_overrides WHERE week_start='${WEEK}' AND day_index=2`);
+    (!data || data.length === 0) && rows.length === 0
+      ? ok('guard cannot write a morning target override')
+      : bad('guard writes override', JSON.stringify({ data, rows }));
+  }
+
   console.log('\n\x1b[1m2. כמות targets\x1b[0m');
   {
     const { error } = await mgr.from('weekly_guard_targets')

@@ -1,12 +1,12 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.24.0** — §14 there is the
-build status and roadmap, §1.17–§1.26 is the changelog for everything since v2.15. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.26.0** — §14 there is the
+build status and roadmap, §1.17–§1.28 is the changelog for everything since v2.15. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
-*Last updated: 16 September 2026*
+*Last updated: 23 September 2026*
 
 ---
 
@@ -794,11 +794,12 @@ ceiling is raised to match what the block actually guarantees — a segment targ
 evict guards who are mandatorily present. Reproduced as a permanent regression test
 (`run-fixtures.mjs`) rather than left as a one-off fix.
 
-**Known, permanent limit, not a bug**: Yom Kippur can fall on a Saturday (confirmed empirically, never
-on a Sunday or Friday), and this app hard-locks the weekend morning target to 2, unoverridable by
-design — unlike S2/S3/S4, which have no such lock. In a year Kippur falls on a Saturday, a 3-guard
-block alone would exceed that fixed ceiling with no override available; 2 guards works fine that
-year, a manager wanting 3 would need to place the third guard by hand.
+**Formerly a known, permanent limit — resolved in Step AG (v2.26.0), see below**: Yom Kippur can fall
+on a Saturday (confirmed empirically, never on a Sunday or Friday), and until Step AG this app
+hard-locked the weekend morning target to 2, unoverridable by design — unlike S2/S3/S4, which have no
+such lock. In a year Kippur falls on a Saturday, a 3-guard block alone would exceed that fixed
+ceiling with no override available; 2 guards worked fine that year, a manager wanting 3 would need to
+place the third guard by hand.
 
 Built on `feature/yom-kippur-coverage`, both DB migrations and the ceiling fix verified against the
 live project before merging. Migrations 54–56 applied to the live database, full TypeScript
@@ -807,6 +808,49 @@ production-bug regression) + `test_scheduler.py` (108, unchanged) + `test:compar
 parity holds) + `test:rls` (55) all green. `package.json`/`GitVersion.yml` bumped to 2.25.0, tagged
 `v2.25.0`. Not yet confirmed by an actual second live generation of the 2026-09-20 week after the
 fix — the fix is regression-tested, not yet re-run live.
+
+Step AG (23 September 2026) — **per-day morning target override widened to any day and value 1**
+(spec §2.4b, migration 57): the manager wanted morning to get the same every-day, as-low-as-1
+flexibility S2/S3/S4 already had (§2.4c) — a genuinely short-staffed day should be expressible for
+morning too, weekday or weekend, without touching the week's own baseline. `weekly_morning_target_overrides`'s
+two CHECKs widen from `day_index BETWEEN 1 AND 5` / `morning_target_slots IN (2, 3)` to `BETWEEN 0 AND
+6` / `IN (1, 2, 3)`. The week-level baseline toggle (`roster_weeks.morning_target_slots`) is
+deliberately untouched — still a strict 2-or-3, weekday-only choice; only the per-day exception table
+got wider.
+
+`morningTargetForDay()` (`src/lib/shifts.ts`, mirrored in `solver/models.py`) now checks the override
+map on every day before falling back to the weekday-baseline-vs-flat-2 split, instead of skipping the
+lookup outright on a weekend day — the hard lock lived in that early-return, not just in the CHECK
+constraints. `segmentFloors()`'s S1 floor formula needed no change at all: `morning === 3 ? 2 :
+Math.min(1, morning)` already produces the correct floor (1) for a value of 1, the same `min(1,
+target)` clamp S2/S3/S4 already use — confirmed by inspection before writing any code, rather than
+assumed.
+
+As a direct side effect, this resolves the Yom Kippur-on-a-Saturday limit documented just above:
+`withKippurAdjustments()` (`useGenerateSchedule.ts`) previously skipped its effective-target-raise
+step for morning specifically on a weekend Kippur day, since writing an override there used to be
+pointless. That skip was removed — it now behaves exactly like it always has for S2/S3/S4 — so a
+3-guard Kippur block on a Saturday now flows through generation once the manager overrides that
+Saturday's morning target to 3 first, rather than needing the third guard placed by hand.
+
+**One real correctness gap found and fixed before shipping**: `ManagerDashboard.tsx`'s override-save
+normalisation (equal-to-baseline clears the override row, the same sparse-by-design convention every
+other override table uses) compared the selected value against `week.morning_target_slots`
+unconditionally. That's right for a weekday, but a weekend day's true baseline is always the flat 2,
+not the week setting — once weekends became overridable at all, setting one back to 2 would otherwise
+have stored a redundant explicit row instead of clearing it. Fixed by computing the correct per-day
+baseline (`isWorkingDay(dayIndex) ? weekSetting : 2`) before comparing.
+
+New golden fixture 17 (`solver/tests/fixtures/17-morning-override-any-day-value-one.json`) covers all
+three cases in one scenario: a weekday overridden to 1 (ceiling caps at 1, no spurious floor breach),
+a weekend day (Saturday) overridden to 3 (previously impossible, now reaches 3), and an unoverridden
+weekend day (Sunday) still defaulting to the flat ceiling of 2 — mirrored in both `run-fixtures.mjs`
+and `test_scheduler.py`. New Gate D assertions (`manager.cloud.test.mjs`): a manager overriding a
+weekend day to 3 and to 1, an out-of-range override value (4) and an out-of-range day_index (7) still
+rejected by the widened CHECKs, and a guard write still rejected by RLS. Migration 57 applied to the
+live database, full TypeScript typecheck clean, `test:fixtures` (128, up from 119) +
+`test_scheduler.py` (117, up from 108) + `test:compare` (mock/CP-SAT parity holds, fixture 17 ties
+exactly) all green. `package.json`/`GitVersion.yml` bumped to 2.26.0, tagged `v2.26.0`.
 
 ---
 
@@ -976,10 +1020,10 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.25.0**
-(Yom Kippur special-coverage feature, Step AF — 2-3 guards automatically cover Yom Kippur's
-driving-prohibited block from generation onward, once picked on a manager panel surfaced by real
-Hebrew-calendar detection), tagged `v2.25.0`.
+state that version describes), matching the spec's own version history. Currently at **2.26.0**
+(per-day morning target override widened to any day and value 1, Step AG — matches the every-day,
+as-low-as-1 flexibility S2/S3/S4 already had, and resolves the Yom Kippur-on-a-Saturday limit Step AF
+left open), tagged `v2.26.0`.
 
 ## Commands
 

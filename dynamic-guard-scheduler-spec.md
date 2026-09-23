@@ -283,6 +283,28 @@ apply cleanly from scratch) all green. Built on `feature/yom-kippur-coverage`, v
 live project (including the real production bug above, found and fixed before merging), merged to
 `main`. `package.json`/`GitVersion.yml` bumped to 2.25.0, tagged `v2.25.0`.
 
+### 1.28 Changes in Version 2.26.0
+
+| #   | Change                                                                                                                                                                                                                                          | Rationale                                                                                                                                                                                                                                            |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 107 | **Per-day morning target override widened to any day and value 1** (§2.4b, migration 57) — `weekly_morning_target_overrides`'s CHECKs move from `day_index BETWEEN 1 AND 5` / `morning_target_slots IN (2, 3)` to `BETWEEN 0 AND 6` / `IN (1, 2, 3)` | The manager wanted the same every-day, as-low-as-1 flexibility §2.4c already gives S2/S3/S4 — a genuinely short-staffed day should be expressible for morning too, weekday or weekend, without touching the week's own baseline                       |
+| 108 | The week-level baseline toggle (`roster_weeks.morning_target_slots`, §2.4) is **unchanged** — still a strict 2-or-3, weekday-only choice. Only the per-day *exception* table gets wider                                                        | Explicit scope boundary from the manager: the standing weekly setting should stay simple: 2 or 3, not a third tier to reason about every week                                                                                                        |
+| 109 | `morningTargetForDay()` (`src/lib/shifts.ts`, `solver/models.py`) now checks the override map on every day before falling back to the weekday-baseline-vs-flat-2 split, instead of skipping the lookup outright on a weekend day               | The weekend hard lock was implemented as "never even look at overrides on a weekend" — that check itself had to go, not just the value/day-range CHECKs, or a weekend override would silently have no effect                                        |
+| 110 | `segmentFloors()`'s S1 floor formula needed **no change** — `morning === 3 ? 2 : Math.min(1, morning)` already produces the correct floor (1) for a value of 1, the same `min(1, target)` clamp S2/S3/S4 already use                            | Confirmed by inspection before writing any code — the same discipline this project applies to every weight/formula change: verify the arithmetic first rather than assume a new value needs new logic                                              |
+| 111 | Resolves the Yom Kippur-on-a-Saturday limit documented at v2.25.0 (§1.27 item 106, §12.14) — `withKippurAdjustments()` no longer skips its effective-target-raise step for morning on a weekend Kippur day                                       | A segment's target/ceiling was never meant to be less overridable for morning than for S2/S3/S4; once the underlying weekend lock lifted, the Kippur adjustment's special-case skip for it was simply stale and needed removing for consistency     |
+| 112 | Real correctness gap found and fixed before shipping: `ManagerDashboard.tsx`'s override-save normalisation compared a selected value against `week.morning_target_slots` unconditionally, which is wrong on a weekend day (whose true baseline is always the flat 2, not the week setting) | Setting a weekend day back to its real baseline would otherwise have stored a redundant explicit override row instead of clearing it, breaking this project's sparse-by-design convention (§2.4b/§2.4c) the moment weekends became overridable at all |
+
+New golden fixture 17 (`solver/tests/fixtures/17-morning-override-any-day-value-one.json`) covers all
+three cases in one scenario: a weekday overridden to 1 (ceiling caps at 1, no spurious floor breach),
+a weekend day (Saturday) overridden to 3 (previously impossible, now reaches 3), and an unoverridden
+weekend day (Sunday) still defaulting to the flat ceiling of 2. `npm run test:fixtures` (128, up from
+119) + `solver/tests/test_scheduler.py` (mirrors the same fixture and assertions) +
+`npm run test:compare` (mock/CP-SAT parity holds, fixture 17 ties exactly) all green. New Gate D
+assertions (`supabase/tests/manager.cloud.test.mjs`): a manager overriding a weekend day to 3 and to
+1, an out-of-range override value (4) and an out-of-range day_index (7) still rejected by the widened
+CHECKs, and a guard write still rejected by RLS. Migration 57 applied to the live database, full
+TypeScript typecheck clean. `package.json`/`GitVersion.yml` bumped to 2.26.0, tagged `v2.26.0`.
+
 ---
 
 ## 2. OPERATIONAL SCHEDULING RULES
@@ -343,13 +365,16 @@ Both grids tile the same 24 hours on four boundaries: **06:45 / 14:45 / 18:45 / 
 ### 2.4 Targets vs. Critical Floors
 
 > **The raised morning target applies Monday to Friday only.** Saturday and Sunday are the days
-> off at the school and always run a target of 2 (floor 1) no matter what the week is set to.
+> off at the school and, absent an explicit per-day override (§2.4b), always run a target of 2
+> (floor 1) regardless of what the week's own baseline is set to. Since v2.26.0 (migration 57) a
+> manager can still explicitly override a specific Saturday or Sunday to 1, 2, or 3 when that one
+> day genuinely needs it — only the *baseline* (this week-level setting) stays weekday-only.
 > `segmentTargets()` / `segmentFloors()` therefore take a day index, not just the week setting.
 
 | Segment                              | Target Capacity                       | Critical Floor                               |
 | ------------------------------------ | ------------------------------------- | -------------------------------------------- |
 | **S1** (morning window, **Mon-Fri**) | Manager-set: **2 or 3**               | **1** if target = 2; **2** if target = 3     |
-| **S1** (morning window, **Sat/Sun**) | Always **2**                          | Always **1**                                 |
+| **S1** (morning window, **Sat/Sun**) | Always **2** unless overridden (§2.4b) | Always **1** unless overridden (§2.4b)      |
 | **S2** (early afternoon)             | 2 (or **1**, per-day override, §2.4c) | 1, or **`min(1, target)`** under an override |
 | **S3** (late afternoon)              | 2 (or **1**, per-day override, §2.4c) | 1, or **`min(1, target)`** under an override |
 | **S4** (night window)                | 2 (or **1**, per-day override, §2.4c) | 1, or **`min(1, target)`** under an override |
@@ -380,22 +405,45 @@ offsets or times preserves this shape as long as `open` stays configured to land
 the next one, opens or locks them against their windows, and **never touches a week whose status a
 manager has set by hand** (§12.3).
 
-### 2.4b Per-Day Morning Target Override (migration 35, v2.8)
+### 2.4b Per-Day Morning Target Override (migration 35, v2.8; widened to any day and value 1 by migration 57, v2.26.0)
 
 `roster_weeks.morning_target_slots` is a single value for the whole week (§2.4) — Mon-Fri all get
 the same target, 2 or 3. That's too coarse for an exceptional week: a holiday needing Mon-Wed at 2
 guards but Thu-Fri at 3 can't be expressed by the week-level setting alone. `weekly_morning_target_overrides`
-adds a **per-day exception**, for Mon-Fri only (`day_index BETWEEN 1 AND 5` — Sat/Sun stay hard-locked
-at 2 regardless, unchanged from §2.4) and scoped to one specific week.
+adds a **per-day exception**, scoped to one specific week.
+
+**Originally weekday-only, 2-or-3 (v2.8).** Migration 35 restricted this to `day_index BETWEEN 1 AND
+5` with `morning_target_slots IN (2, 3)`, mirroring the week-level baseline's own shape exactly —
+Saturday/Sunday stayed hard-locked at the flat weekend default of 2, with no override possible at
+all.
+
+**Widened to any day, 1/2/3 (v2.26.0, migration 57).** The manager asked for the same every-day,
+as-low-as-1 flexibility §2.4c already gives S2/S3/S4: a genuinely short-staffed day should be
+expressible for morning too, weekday or weekend, without having to first raise or lower the whole
+week's own baseline. Migration 57 widens both CHECKs — `day_index BETWEEN 0 AND 6` and
+`morning_target_slots IN (1, 2, 3)` — leaving the week-level baseline toggle (§2.4) itself untouched
+at a strict 2-or-3, weekday-only choice. `morningTargetForDay()` (`src/lib/shifts.ts`,
+`solver/models.py`) now consults the override map on **every** day before falling back to the
+weekday-baseline-vs-flat-2 split, rather than skipping the lookup outright on a weekend day.
+`segmentFloors()`'s S1 formula (`morning === 3 ? 2 : Math.min(1, morning)`) needed no change at all —
+it already produced the correct floor (1) for a value of 1, the same `min(1, target)` clamp S2/S3/S4
+already use.
+
+One side effect worth noting: this also lifts the previously-permanent Yom Kippur-on-a-Saturday
+limitation (§12.14 item 106) — a manager can now explicitly override that Saturday's morning target
+to 3 before generating, so a 3-guard Kippur block is no longer structurally impossible in a year
+Kippur falls on a Saturday. `withKippurAdjustments()` (`useGenerateSchedule.ts`) no longer skips its
+effective-target-raise step on a weekend Kippur day — it always applied it unconditionally already
+for S2/S3/S4.
 
 **Sparse by design**, the same convention `requested_shifts` and `notes` already use (§3.4/§3.10): a
-day's row exists only when it **differs** from the week's own baseline. Saving a value equal to the
-current baseline deletes the row instead of storing a redundant one — `morningTargetForDay()`
-(`src/lib/shifts.ts`) checks the override map first, falling back to the week setting when a day has
-no entry. This means raising or lowering the week-level 2-vs-3 toggle later automatically re-applies
-to every day that was never explicitly overridden, exactly the "temporary exception" shape a holiday
-week needs — the override doesn't have to be re-entered or cleared when the underlying baseline
-changes.
+day's row exists only when it **differs** from the day's own baseline — the week setting on a
+weekday, or the flat 2 default on an unoverridden weekend day. Saving a value equal to that baseline
+deletes the row instead of storing a redundant one — `morningTargetForDay()` (`src/lib/shifts.ts`)
+checks the override map first, falling back to the day's baseline when it has no entry. This means
+raising or lowering the week-level 2-vs-3 toggle later automatically re-applies to every weekday that
+was never explicitly overridden, exactly the "temporary exception" shape a holiday week needs — the
+override doesn't have to be re-entered or cleared when the underlying baseline changes.
 
 `morningTargetForDay()`, `segmentTargets()` and `segmentFloors()` all take the override map as an
 optional third argument, threaded through everywhere they're already called: both solver engines
@@ -405,9 +453,10 @@ contract (§9.2) carries it as `morning_target_overrides`, a sparse `{day_index:
 empty so every fixture and caller written before this existed still parses unchanged.
 
 **Manager UI**: a collapsed-by-default "החרגה ליום ספציפי" section on `WeekControlsPanel`
-(`ManagerDashboard.tsx`), one row per weekday, each a 2/3 toggle identical in style to the existing
-week-level one, pre-filled with the _effective_ value (override or baseline) and badged "הוחרג" when
-an explicit override is active for that day.
+(`ManagerDashboard.tsx`), one row per day of the week (as of v2.26.0 — previously weekdays only),
+each a 1/2/3 toggle in the same style as the existing week-level 2/3 one, pre-filled with the
+_effective_ value (override or baseline) and badged "הוחרג" when an explicit override is active for
+that day.
 
 ### 2.4c Per-Day Secondary Segment Target Override (migration 37, v2.10)
 
@@ -1081,13 +1130,14 @@ CREATE TABLE weekly_guard_targets (
 );
 
 -- 6b. Per-day exceptions to a week's own morning_target_slots (§2.4b, v2.8
---     migration 35). Sparse: a day with no row here just follows the week's
---     baseline. Weekdays only -- Sat/Sun stay hard-locked at 2 (§2.4).
+--     migration 35; widened to any day and value 1 by v2.26.0 migration 57).
+--     Sparse: a day with no row here just follows the week's baseline
+--     (weekdays) or the flat weekend default of 2 (weekends).
 CREATE TABLE weekly_morning_target_overrides (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   week_start            DATE NOT NULL REFERENCES roster_weeks(week_start) ON DELETE CASCADE,
-  day_index             SMALLINT NOT NULL CHECK (day_index BETWEEN 1 AND 5),
-  morning_target_slots  SMALLINT NOT NULL CHECK (morning_target_slots IN (2, 3)),
+  day_index             SMALLINT NOT NULL CHECK (day_index BETWEEN 0 AND 6),
+  morning_target_slots  SMALLINT NOT NULL CHECK (morning_target_slots IN (1, 2, 3)),
   UNIQUE (week_start, day_index)
 );
 
@@ -2890,19 +2940,21 @@ Regression-tested in `solver/tests/run-fixtures.mjs` by reproducing the exact sc
 input must still fail H6 (proving the test actually exercises the bug), and the raised input must
 pass with zero violations.
 
-**Known, permanent, narrow limit** — worth stating plainly rather than discovering it live in some
-future year: Yom Kippur can fall on a Saturday. Confirmed empirically, not assumed — generating
-every occurrence from 2020 to 2060 shows it only ever lands on Monday, Wednesday, Thursday, or
-Saturday, never Sunday or Friday. This app hard-locks the **weekend** morning target to 2,
-unoverridable by design (`morningTargetForDay()`, §2.4b: "an override never applies to them, even if
-one somehow existed for that index") — unlike S2/S3/S4, which have no such lock, so the effective-
-target raise above applies to them cleanly regardless of guard count. If Yom Kippur falls on a
-Saturday, `kippur_day2` already covers S1 that day, and a 3-guard block alone would exceed that fixed,
-unraisable ceiling of 2 with no override available to fix it from the generation pipeline — 2 guards
-that year works fine; a manager who wants 3 would need to place the third guard by hand rather than
-through generation. The same empirical check also confirms Yom Kippur never falls on a Sunday, which
-is why the eve-in-the-previous-week edge case `getYomKippurWeekInfo()` guards against is currently
-unreachable in practice, though the guard costs nothing to keep.
+**Formerly a known, permanent, narrow limit — resolved in v2.26.0 (migration 57).** Yom Kippur can
+fall on a Saturday. Confirmed empirically, not assumed — generating every occurrence from 2020 to
+2060 shows it only ever lands on Monday, Wednesday, Thursday, or Saturday, never Sunday or Friday.
+Until v2.26.0, this app hard-locked the **weekend** morning target to 2, unoverridable by design —
+unlike S2/S3/S4, which never had such a lock, so the effective-target raise above always applied to
+them cleanly regardless of guard count. If Yom Kippur fell on a Saturday, `kippur_day2` already covers
+S1 that day, and a 3-guard block alone would exceed that fixed ceiling of 2 with no override available
+— 2 guards worked fine that year, but a manager wanting 3 had to place the third guard by hand rather
+than through generation. Migration 57 (§2.4b) lets a manager explicitly override that Saturday's
+morning target to 3 before generating, and `withKippurAdjustments()` no longer skips its
+effective-target-raise step on a weekend Kippur day — a 3-guard Saturday Kippur block now flows
+through generation exactly like any weekday one. The same empirical check also confirms Yom Kippur
+never falls on a Sunday, which is why the eve-in-the-previous-week edge case
+`getYomKippurWeekInfo()` guards against is currently unreachable in practice, though the guard costs
+nothing to keep.
 
 **Testing**: like `afternoon_early`/`afternoon_late` and `occupies_slot` before it, neither shift type
 can ever appear in a golden-fixture engine output, so `solver/tests/run-fixtures.mjs` gained five
@@ -2976,6 +3028,7 @@ only ever constructed internally by `withKippurAdjustments()`.
 | **AD**    | Placeholder rows can optionally occupy a coverage slot (§12.9, migration 52, v2.23.0, §1.25): new `schedule_assignments.occupies_slot`, meaningful only on a `guard_id IS NULL` row (CHECK-enforced), counts a guard-less placeholder toward segment floor/target/ceiling like a real assignment while it stays invisible to every guard-specific rule (H1–H5, H7, קמות). `validate.ts` gained its first `guard_id === null` branch; a new per-row checkbox in `RosterEditor.tsx` drives it | ✅ complete                                                    |
 | **AE**    | Afternoon block segment shifts (§12.13, migration 53, v2.24.0, §1.26): two new manual-edit-only shift types, `afternoon_early`/`afternoon_late`, let the roster editor occupy just S2 or just S3 without the full `afternoon` shift or a 12h `day12`/`night12`. One real bug caught and fixed before shipping: `mockSolver.ts`'s candidate search also iterates the shift catalogue generically and started proposing the new manual-only types on its own, fixed with a new `SOLVER_SHIFT_TYPES` constant, confirmed via `test:compare` regaining exact mock/CP-SAT parity | ✅ complete                                                    |
 | **AF**    | Yom Kippur special-coverage feature (§12.14, migrations 54–56, v2.25.0, §1.27): two new manual-edit-only shift types, `kippur_day1`/`kippur_day2`, let 2–3 guards cover Yom Kippur's driving-prohibited block automatically from generation onward, once picked on a new manager-dashboard panel surfaced by real Hebrew-calendar detection (`@hebcal/hdate`). One real production bug found and fixed before merging: the block's own guaranteed coverage could exceed an already-configured, lower per-day segment ceiling regardless of anything the solver did — fixed by raising the referee's effective ceiling to the Kippur guard count, reproduced as a regression test | ✅ complete, live in production                                |
+| **AG**    | Per-day morning target override widened to any day and value 1 (§2.4b, migration 57, v2.26.0, §1.28): `weekly_morning_target_overrides` now allows `day_index` 0-6 (was 1-5) and `morning_target_slots` 1-3 (was 2-3), matching the every-day/as-low-as-1 flexibility S2/S3/S4 already had — the week-level baseline toggle itself stays a strict 2-or-3, weekday-only choice. Resolves the previously-permanent Yom-Kippur-on-a-Saturday limit (§1.27 item 106). One real correctness gap found and fixed before shipping: `ManagerDashboard.tsx`'s override-save normalisation compared against the week's baseline unconditionally, which would have stored a redundant explicit row on a weekend day set back to its true flat-2 default | ✅ complete                                                    |
 
 ### 14.2 Verification
 
@@ -3008,7 +3061,11 @@ coverage isolation and correct rest-hour derivation for shift/guard combinations
 produce. v2.25.0's Yom Kippur block (§12.14) follows the identical pattern: five referee-only checks
 covering segment isolation, the multi-base H1 requirement, exactly-2-shifts kamut accounting, the
 narrowly-scoped rest exemption, and a regression test reproducing the real production ceiling bug
-found while shipping it — `run-fixtures.mjs` now totals 119 passing assertions, up from 112.)
+found while shipping it — `run-fixtures.mjs` totalled 119 passing assertions at that point, up from
+112. One more added in v2.26.0 (§2.4b, §1.28): fixture 17 covers a weekday morning override of 1, a
+weekend day (Saturday) overridden to 3 — previously impossible outright — and an unoverridden weekend
+day (Sunday) still defaulting to its flat baseline of 2, bringing `run-fixtures.mjs` to 128 passing
+assertions.)
 
 Gate D (`manager.cloud.test.mjs`) has a known, pre-existing, date-driven **hazard**, not merely a
 flake — worth stating plainly after it cost real data once (2 September 2026): its `setup()` runs
@@ -3088,8 +3145,9 @@ Sunday/Monday this year), which is exactly what surfaced the real production cei
 in §1.27 item 105 before it ever reached a guard's actual roster. The fix was verified by
 reproducing the exact scenario as an automated regression test, not by a second live generation
 attempt confirmed in this document — the next real generation of that week is the first genuine
-end-to-end confirmation this feature gets. The Saturday-Kippur ceiling limit (§12.14, item 106) is a
-permanent, known constraint, not a pending check.
+end-to-end confirmation this feature gets. The Saturday-Kippur ceiling limit (§12.14, item 106) was
+resolved in v2.26.0 (§1.28 item 111, migration 57) — a manager can now explicitly override that
+Saturday's morning target before generating, so it is no longer a pending or permanent constraint.
 
 **v2.9's PWA support (§10.4) has one item still open**: real "Add to Home Screen" verification on a
 physical Android Chrome device and a physical iOS Safari device. Everything checkable from this
@@ -3151,4 +3209,4 @@ password — both appear in the development transcript.
 
 ---
 
-_Specification v2.24.0 — revised 3 September 2026._
+_Specification v2.26.0 — revised 23 September 2026._

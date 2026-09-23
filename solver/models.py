@@ -81,21 +81,22 @@ def is_weekend_day(day_index: int) -> bool:
 def morning_target_for_day(
     week_setting: int, day_index: int, overrides: dict[str, int] | None = None
 ) -> int:
-    """The raised target (3) applies Mon-Fri only; the weekend always runs 2.
+    """An explicit override always wins, any day 0-6 (migration 57). With no
+    override, the raised target (3) applies Mon-Fri only; the weekend
+    defaults to 2.
 
     `overrides` is a sparse day_index (as a string, matching the wire format)
     -> target map for THIS week only, e.g. a holiday week needing Mon-Wed at
-    2 but Thu-Fri at 3. A day with no entry just follows week_setting. Never
-    consulted for the weekend -- see morningTargetForDay() in
-    src/lib/shifts.ts, this is its mirror.
+    2 but Thu-Fri at 3, or a single short-staffed weekend day dropped to 1.
+    A day with no entry just follows week_setting (weekdays) or the flat
+    weekend default of 2 -- see morningTargetForDay() in src/lib/shifts.ts,
+    this is its mirror.
     """
-    if is_weekend_day(day_index):
-        return 2
     if overrides:
         override = overrides.get(str(day_index))
         if override is not None:
             return override
-    return week_setting
+    return 2 if is_weekend_day(day_index) else week_setting
 
 
 SecondarySegment = Literal["S2", "S3", "S4"]
@@ -256,10 +257,10 @@ class SecondaryTargetOverrides(BaseModel):
 class SolverInput(BaseModel):
     week_start: str
     morning_target_slots: Literal[2, 3] = 2
-    # Sparse day_index (as a string) -> target override for THIS week only.
-    # See morning_target_for_day() above. 0 is solving-input-only, same
-    # reasoning as SecondaryTargetOverrides above.
-    morning_target_overrides: dict[str, Literal[0, 2, 3]] = Field(default_factory=dict)
+    # Sparse day_index (as a string) -> target override for THIS week only,
+    # any day 0-6 as of migration 57. See morning_target_for_day() above. 0
+    # is solving-input-only, same reasoning as SecondaryTargetOverrides above.
+    morning_target_overrides: dict[str, Literal[0, 1, 2, 3]] = Field(default_factory=dict)
     secondary_target_overrides: SecondaryTargetOverrides = Field(
         default_factory=SecondaryTargetOverrides
     )

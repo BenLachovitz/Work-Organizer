@@ -129,11 +129,12 @@ export const secondaryTargetOverridesSchema = z
 export const solverInputSchema = z.object({
   week_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   morning_target_slots: z.union([z.literal(2), z.literal(3)]),
-  /** Sparse day_index (as a string) -> target override for THIS week only --
-   *  see morningTargetForDay() in src/lib/shifts.ts. 0 is solving-input-only,
-   *  same reasoning as secondarySegmentOverridesSchema above. */
+  /** Sparse day_index (as a string) -> target override for THIS week only,
+   *  any day 0-6 as of migration 57 -- see morningTargetForDay() in
+   *  src/lib/shifts.ts. 0 is solving-input-only, same reasoning as
+   *  secondarySegmentOverridesSchema above. */
   morning_target_overrides: z
-    .record(z.string(), z.union([z.literal(0), z.literal(2), z.literal(3)]))
+    .record(z.string(), z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]))
     .default({}),
   /** S2/S3/S4's own, independent per-day overrides -- see
    *  SecondaryTargetOverrides in src/lib/shifts.ts. */

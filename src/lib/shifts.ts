@@ -310,32 +310,34 @@ export function segmentPenaltyWeight(segment: Segment, morningPriorityBonus: num
   return segment === 'S1' ? segmentWeight(segment) + morningPriorityBonus : segmentWeight(segment);
 }
 
-export type MorningTarget = 2 | 3;
+export type MorningTarget = 1 | 2 | 3;
 
 /**
- * A week-specific exception to the week's own morningTarget, for individual
- * weekdays (day index 1-5, Mon-Fri) -- e.g. a holiday week needing Mon-Wed at
- * 2 guards but Thu-Fri at 3. Sparse: a day with no entry just follows the
- * week's own setting. Keyed by day index AS A STRING because this travels
- * over JSON (weekly_morning_target_overrides rows, the solver contract) where
- * object keys are always strings; morningTargetForDay() below does the
- * lookup so callers never have to think about the key type themselves.
+ * A week-specific exception to the week's own morningTarget, for any day of
+ * the week (0-6, Sun-Sat, as of migration 57 -- previously weekdays only) --
+ * e.g. a holiday week needing Mon-Wed at 2 guards but Thu-Fri at 3, or a
+ * single genuinely short-staffed day dropped to 1, weekday or weekend alike.
+ * Sparse: a day with no entry just follows the week's own setting (weekdays)
+ * or the flat weekend baseline of 2 (weekends). Keyed by day index AS A
+ * STRING because this travels over JSON (weekly_morning_target_overrides
+ * rows, the solver contract) where object keys are always strings;
+ * morningTargetForDay() below does the lookup so callers never have to think
+ * about the key type themselves.
  */
 export type MorningTargetOverrides = Partial<Record<string, MorningTarget>>;
 
 /**
  * Widens MorningTargetOverrides' value domain with 0 -- a value no manager
  * can ever pick through the UI (the per-day override buttons only ever offer
- * 2/3), and one `weekly_morning_target_overrides` itself can never store
- * (its CHECK constraint stays 2/3). It exists only for the solving input the
+ * 1/2/3), and one `weekly_morning_target_overrides` itself can never store
+ * (its CHECK constraint stays 1/2/3). It exists only for the solving input the
  * Yom Kippur feature builds (useGenerateSchedule.ts
  * withKippurSolvingAdjustments()): a segment the Kippur block already fully
  * covers needs to tell the solver its remaining need is genuinely zero, not
- * the real type's otherwise-lowest value of... there is no lower real value,
- * which is exactly the gap this widened parameter type exists to close for
- * morningTargetForDay()/segmentTargets() below. A real MorningTargetOverrides
- * is always assignable here (2|3 is a subset of 0|2|3) -- every other caller
- * is unaffected.
+ * the real type's otherwise-lowest value of 1, which is exactly the gap this
+ * widened parameter type exists to close for morningTargetForDay()/
+ * segmentTargets() below. A real MorningTargetOverrides is always assignable
+ * here (1|2|3 is a subset of 0|1|2|3) -- every other caller is unaffected.
  */
 type SolvingMorningTargetOverrides = Partial<Record<string, MorningTarget | 0>>;
 
@@ -372,21 +374,25 @@ type SolvingSecondaryTargetOverrides = Partial<
 /**
  * The morning target actually in force on a given day.
  *
- * The raised target (3) applies only to working days, Monday to Friday.
- * Saturday and Sunday are days off at the school and always run 2 in the
- * morning no matter what the week is set to -- an override never applies to
- * them, even if one somehow existed for that index.
+ * An explicit override (migration 57: any day 0-6, including weekends) always
+ * wins. With no override, the raised week-level target applies only to
+ * working days, Monday to Friday -- Saturday and Sunday are days off at the
+ * school and default to 2 in the morning regardless of the week's own
+ * setting. That weekend default is just a fallback now, not a hard lock: a
+ * manager can still explicitly override a specific Saturday/Sunday down to 1
+ * or up to 3 when that day genuinely needs it.
  *
  * `overrides` beats `weekSetting` for a day that has one -- see
- * MorningTargetOverrides for why this is sparse rather than a full 5-day map.
+ * MorningTargetOverrides for why this is sparse rather than a full 7-day map.
  */
 export function morningTargetForDay(
   weekSetting: MorningTarget,
   dayIndex: number,
   overrides?: SolvingMorningTargetOverrides,
 ): number {
-  if (!isWorkingDay(dayIndex)) return 2;
-  return overrides?.[String(dayIndex)] ?? weekSetting;
+  const override = overrides?.[String(dayIndex)];
+  if (override != null) return override;
+  return isWorkingDay(dayIndex) ? weekSetting : 2;
 }
 
 /** The S2/S3/S4 target actually in force on a given day -- flat 2 unless overridden. */
@@ -438,9 +444,9 @@ export function segmentFloors(
   const morning = morningTargetForDay(weekSetting, dayIndex, overrides);
   const targets = segmentTargets(weekSetting, dayIndex, overrides, secondaryOverrides);
   return {
-    // Math.min(1, morning), not a flat 1: every MorningTarget a manager can
-    // actually pick (2 or 3) already makes this identical to the flat 1 this
-    // replaced, but the Kippur-adjusted solving input (useGenerateSchedule.ts
+    // Math.min(1, morning), not a flat 1: an override of 1 (migration 57)
+    // needs its floor pinned down to 1 too, same as S2/S3/S4 below, and the
+    // Kippur-adjusted solving input (useGenerateSchedule.ts
     // withKippurSolvingAdjustments()) can legitimately drive morning to 0 for
     // a segment the Kippur block already fully covers -- a flat 1 there would
     // report a floor the solver structurally cannot reach without breaching

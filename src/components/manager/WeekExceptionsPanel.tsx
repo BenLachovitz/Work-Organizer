@@ -2,7 +2,6 @@ import { Collapsible, cn } from '@/components/ui';
 import { HEBREW_DAYS } from '@/lib/dates';
 import {
   SEGMENT_DEFS,
-  isWorkingDay,
   morningTargetForDay,
   secondaryTargetForDay,
   segmentFloors,
@@ -15,12 +14,14 @@ import {
 } from '@/lib/shifts';
 import type { RosterWeek } from '@/types/database';
 
-/** S2/S3/S4 have no separate weekend rule, unlike morning -- every day of
- *  the week is overridable for them. */
+/** Every day of the week is overridable for all four segments, including
+ *  morning (migration 57) -- only the STANDING week-level morning target
+ *  toggle above this section stays weekday-only. */
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
-/** Segment-level per-day overrides shown in the "החרגה ליום ספציפי" section,
- *  each with its own value range -- 1/2, not morning's 2/3. */
+/** Segment-level per-day overrides shown in the "החרגה ליום ספציפי" section.
+ *  Morning's value range is 1/2/3 (SEGMENT_DEFS.S1); S2/S3/S4 stay 1/2 --
+ *  they have no "raised" tier the way morning does. */
 const SECONDARY_SEGMENTS: SecondarySegment[] = ['S2', 'S3', 'S4'];
 
 /**
@@ -149,9 +150,9 @@ export function WeekExceptionsPanel({
             >
               <div className="space-y-2">
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  לשבוע חריג (למשל חג) אפשר לקבוע יעד שונה מהיעד הרגיל ליום ספציפי -- לבוקר (ימי
-                  שני-שישי), ולצהריים המוקדם/המאוחר וללילה (כל יום). יום שלא הוחרג ימשיך אחרי היעד
-                  הרגיל למעלה, גם אם הוא ישתנה בהמשך.
+                  לשבוע חריג (למשל חג, או יום מצוקת כוח אדם) אפשר לקבוע יעד שונה מהיעד הרגיל ליום
+                  ספציפי -- לבוקר, לצהריים המוקדם/המאוחר וללילה, בכל יום בשבוע כולל שבת וראשון. יום
+                  שלא הוחרג ימשיך אחרי היעד הרגיל למעלה, גם אם הוא ישתנה בהמשך.
                 </p>
                 {ALL_DAYS.map((dayIndex) => (
                   <div
@@ -162,16 +163,14 @@ export function WeekExceptionsPanel({
                       יום {HEBREW_DAYS[dayIndex]}
                     </p>
                     <div className="space-y-1">
-                      {isWorkingDay(dayIndex) && (
-                        <SegmentOverrideRow
-                          label={SEGMENT_DEFS.S1.he}
-                          options={[2, 3]}
-                          effective={morningTargetForDay(target, dayIndex, morningTargetOverrides)}
-                          overridden={morningTargetOverrides[String(dayIndex)] != null}
-                          saving={saving}
-                          onSelect={(t) => onSetDayOverride(dayIndex, t as MorningTarget)}
-                        />
-                      )}
+                      <SegmentOverrideRow
+                        label={SEGMENT_DEFS.S1.he}
+                        options={[1, 2, 3]}
+                        effective={morningTargetForDay(target, dayIndex, morningTargetOverrides)}
+                        overridden={morningTargetOverrides[String(dayIndex)] != null}
+                        saving={saving}
+                        onSelect={(t) => onSetDayOverride(dayIndex, t as MorningTarget)}
+                      />
                       {SECONDARY_SEGMENTS.map((seg) => (
                         <SegmentOverrideRow
                           key={seg}

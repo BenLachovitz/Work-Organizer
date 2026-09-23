@@ -310,6 +310,35 @@ for (const file of files) {
       : bad('morning-priority tie-break', `flexible assigned ${JSON.stringify(flexible)}, expected 'morning'`);
   }
 
+  if (file.startsWith('17-')) {
+    // Migration 57: morning overrides now allow 1 and apply on ANY day,
+    // including weekends. Day 3 (Wed, weekday) is overridden to 1, day 6
+    // (Sat, weekend) to 3, and day 0 (Sun, weekend) is left unoverridden --
+    // each day has more morning-available guards than its ceiling allows, so
+    // a leak in either direction (ceiling not enforced, or an override not
+    // taking effect) shows up as a wrong assignment count.
+    const s1Count = (d) =>
+      output.assignments.filter((a) => a.day === d && a.shift === 'morning').length;
+
+    s1Count(3) === 1
+      ? ok('a weekday overridden to 1 caps at exactly 1 despite 2 guards available')
+      : bad('weekday override to 1', `day 3 got ${s1Count(3)} morning assignments, expected 1`);
+    const day3FloorBreach = verdict.report.floor_breaches.some(
+      (b) => b.day === 3 && b.segment === 'S1',
+    );
+    !day3FloorBreach
+      ? ok('no spurious floor breach when a target-1 day is exactly met')
+      : bad('weekday override to 1 floor', 'day 3 S1 incorrectly reported as a floor breach');
+
+    s1Count(6) === 3
+      ? ok('a weekend day (Saturday) overridden to 3 actually reaches 3 -- previously impossible')
+      : bad('weekend override to 3', `day 6 got ${s1Count(6)} morning assignments, expected 3`);
+
+    s1Count(0) === 2
+      ? ok('an unoverridden weekend day (Sunday) still defaults to the flat ceiling of 2')
+      : bad('unoverridden weekend default', `day 0 got ${s1Count(0)} morning assignments, expected 2`);
+  }
+
   console.log(`    ${summarise(verdict.report).join(' · ')}\n`);
 }
 

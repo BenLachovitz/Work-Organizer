@@ -8,7 +8,6 @@ import {
   effectiveKamut,
   stretchTarget,
   guardShiftCeiling,
-  isWorkingDay,
   segmentTargets,
   type BaseShift,
   type MorningTarget,
@@ -150,19 +149,17 @@ function kippurAssignments(
  *    itself reads as an H6 breach. A genuine over-assignment BEYOND what
  *    the block guarantees is still correctly caught.
  *
- * Known, narrow limit worth stating plainly: Yom Kippur can fall on a
- * Saturday (confirmed empirically -- it only ever lands on Mon/Wed/Thu/Sat,
- * never Sun/Fri), and this app hard-locks the WEEKEND morning target to 2,
- * unoverridable by design (morningTargetForDay() in src/lib/shifts.ts, "an
- * override never applies to them, even if one somehow existed for that
- * index") -- unlike S2/S3/S4, which have no such lock and so the
- * effective-target raise above always applies cleanly to them. If Yom
- * Kippur falls on a Saturday, kippur_day2 already covers S1 that day, and a
- * 3-guard block alone exceeds that UNRAISABLE fixed ceiling of 2 --
- * generation will then correctly refuse (H6) with no override available to
- * fix it from here. Configuring only 2 Kippur guards in a year Yom Kippur
- * falls on a Saturday avoids this; a manager who wants 3 that year would
- * need to place the third guard by hand rather than through generation.
+ * Formerly a known, narrow limit, resolved by migration 57: Yom Kippur can
+ * fall on a Saturday (confirmed empirically -- it only ever lands on
+ * Mon/Wed/Thu/Sat, never Sun/Fri), and until migration 57 this app
+ * hard-locked the WEEKEND morning target to 2, unoverridable -- so a 3-guard
+ * block on a Saturday Kippur day (kippur_day2 covers S1) would exceed that
+ * fixed ceiling with no override available to fix it. Now that
+ * morningTargetForDay() honours an explicit override on any day (including
+ * weekends), the effective-target raise below applies to the morning segment
+ * on every Kippur day exactly like it always has for S2/S3/S4 -- a manager
+ * who needs a 3-guard block on a Saturday Kippur day can set that Saturday's
+ * morning override to 3 first.
  */
 function withKippurAdjustments(
   input: SolverInput,
@@ -190,25 +187,20 @@ function withKippurAdjustments(
     input.secondary_target_overrides,
   );
 
-  // These override maps deliberately use the WIDENED wire domain (secondary:
-  // 0|1|2|3 -- solverContract.ts caps a real per-day override at 2, but the
-  // effective target here can genuinely need to reach n=3), not shifts.ts's
-  // manager-facing SecondaryTarget (1|2) type: values above 2, and 0, are
-  // solving/referee-input-only concepts a manager can never pick through the
-  // UI. Morning stays 0|2|3 -- n is capped at 3 (GUARD_COUNTS in
-  // KippurPanel.tsx), matching morning's own existing ceiling.
-  const solvingMorning: Record<string, 0 | 2 | 3> = { ...input.morning_target_overrides };
-  const refereeMorning: Record<string, 0 | 2 | 3> = { ...input.morning_target_overrides };
-  // Weekends hard-lock the morning target to 2 regardless of any override --
-  // see the docstring above for what that means when Kippur day is a
-  // Saturday. Writing an override here would simply be ignored, so it's
-  // skipped rather than written for no effect (and left as the documented,
-  // unfixable limit).
-  if (isWorkingDay(dayDayIdx)) {
-    const effective = Math.max(realDay.S1, n);
-    solvingMorning[dayKey] = Math.max(0, effective - n) as 0 | 2 | 3;
-    refereeMorning[dayKey] = effective as 0 | 2 | 3;
-  }
+  // These override maps deliberately use the WIDENED wire domain (0|1|2|3 for
+  // both morning and secondary -- solverContract.ts caps a real per-day
+  // override lower, but the effective target here can genuinely need to
+  // reach n=3), not shifts.ts's manager-facing MorningTarget (1|2|3) /
+  // SecondaryTarget (1|2) types: values above what a manager can pick, and 0,
+  // are solving/referee-input-only concepts. n is capped at 3 (GUARD_COUNTS
+  // in KippurPanel.tsx), matching morning's own existing ceiling.
+  const solvingMorning: Record<string, 0 | 1 | 2 | 3> = { ...input.morning_target_overrides };
+  const refereeMorning: Record<string, 0 | 1 | 2 | 3> = { ...input.morning_target_overrides };
+  // Since migration 57, morning is raisable/overridable on every day exactly
+  // like S2/S3/S4 always have been -- no weekday gate needed any more.
+  const effectiveMorning = Math.max(realDay.S1, n);
+  solvingMorning[dayKey] = Math.max(0, effectiveMorning - n) as 0 | 1 | 2 | 3;
+  refereeMorning[dayKey] = effectiveMorning as 0 | 1 | 2 | 3;
 
   const solvingSecondary: Record<'S2' | 'S3' | 'S4', Record<string, 0 | 1 | 2 | 3>> = {
     S2: { ...input.secondary_target_overrides.S2 },

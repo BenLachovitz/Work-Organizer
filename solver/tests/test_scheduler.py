@@ -350,6 +350,37 @@ def main() -> int:
             else:
                 bad("secondary floor pinning (S4)", "Wednesday S4 reported a floor breach despite 1 guard assigned")
 
+        if name.startswith("17-"):
+            # Migration 57: morning overrides now allow 1 and apply on ANY
+            # day, including weekends. Day 3 (Wed, weekday) is overridden to
+            # 1, day 6 (Sat, weekend) to 3, and day 0 (Sun, weekend) is left
+            # unoverridden -- each day has more morning-available guards than
+            # its ceiling allows, so a leak in either direction shows up as a
+            # wrong assignment count.
+            def s1_count(d: int) -> int:
+                return len([a for a in out.assignments if a.day == d and a.shift == "morning"])
+
+            if s1_count(3) == 1:
+                ok("a weekday overridden to 1 caps at exactly 1 despite 2 guards available")
+            else:
+                bad("weekday override to 1", f"day 3 got {s1_count(3)} morning assignments, expected 1")
+
+            day3_floor_breach = any(b.day == 3 and b.segment == "S1" for b in report.floor_breaches)
+            if not day3_floor_breach:
+                ok("no spurious floor breach when a target-1 day is exactly met")
+            else:
+                bad("weekday override to 1 floor", "day 3 S1 incorrectly reported as a floor breach")
+
+            if s1_count(6) == 3:
+                ok("a weekend day (Saturday) overridden to 3 actually reaches 3 -- previously impossible")
+            else:
+                bad("weekend override to 3", f"day 6 got {s1_count(6)} morning assignments, expected 3")
+
+            if s1_count(0) == 2:
+                ok("an unoverridden weekend day (Sunday) still defaults to the flat ceiling of 2")
+            else:
+                bad("unoverridden weekend default", f"day 0 got {s1_count(0)} morning assignments, expected 2")
+
         print()
 
     # CP-SAT is optimal; the greedy mock is not. Recording the scores lets

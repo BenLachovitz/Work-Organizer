@@ -303,7 +303,7 @@ export function useVisibleRosters() {
       const overrideRows = (overrideRes.data ?? []) as {
         week_start: string;
         day_index: number;
-        morning_target_slots: 2 | 3;
+        morning_target_slots: 1 | 2 | 3;
       }[];
       const segmentOverrideRows = (segmentOverrideRes.data ?? []) as {
         week_start: string;

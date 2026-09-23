@@ -18,7 +18,7 @@ import {
 } from '@/hooks/useManager';
 import { formatWeekRange } from '@/lib/dates';
 import { useSchedulerSettings } from '@/hooks/useSchedulerSettings';
-import type { MorningTarget } from '@/lib/shifts';
+import { isWorkingDay, type MorningTarget } from '@/lib/shifts';
 import { useViewMode } from '@/contexts/ViewModeContext';
 import { visibleToViewMode } from '@/lib/viewMode';
 
@@ -116,16 +116,25 @@ export function ManagerDashboard() {
             updateWeek.mutate({ weekStart: selected, morningTarget: t })
           }
           morningTargetOverrides={morningTargetOverrides}
-          onSetDayOverride={(dayIndex, t) =>
+          onSetDayOverride={(dayIndex, t) => {
+            // Equal-to-baseline normalises to "no override row" (§1) --
+            // clicking the value that already matches the day's own baseline
+            // is how a manager clears an exception for that day. The
+            // baseline itself depends on the day: Mon-Fri follows the week's
+            // own setting, but Sat/Sun default to a flat 2 regardless of it
+            // (morningTargetForDay() in src/lib/shifts.ts) -- comparing
+            // against week.morning_target_slots unconditionally would store
+            // a redundant explicit override on a weekend day whose selected
+            // value already matches that flat default.
+            const baseline = isWorkingDay(dayIndex)
+              ? ((week?.morning_target_slots ?? 2) as MorningTarget)
+              : 2;
             updateDayOverride.mutate({
               weekStart: selected,
               dayIndex,
-              // Equal-to-baseline normalises to "no override row" (§1) --
-              // clicking the value that already matches the week setting is
-              // how a manager clears an exception for that day.
-              target: t === ((week?.morning_target_slots ?? 2) as MorningTarget) ? null : t,
-            })
-          }
+              target: t === baseline ? null : t,
+            });
+          }}
           segmentTargetOverrides={segmentTargetOverrides}
           onSetSegmentDayOverride={(dayIndex, segment, t) =>
             updateSegmentDayOverride.mutate({
