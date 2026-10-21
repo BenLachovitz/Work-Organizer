@@ -1,12 +1,12 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.26.0** — §14 there is the
-build status and roadmap, §1.17–§1.28 is the changelog for everything since v2.15. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.26.1** — §14 there is the
+build status and roadmap, §1.17–§1.29 is the changelog for everything since v2.15. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
-*Last updated: 23 September 2026*
+*Last updated: 21 October 2026*
 
 ---
 
@@ -852,12 +852,44 @@ live database, full TypeScript typecheck clean, `test:fixtures` (128, up from 11
 `test_scheduler.py` (117, up from 108) + `test:compare` (mock/CP-SAT parity holds, fixture 17 ties
 exactly) all green. `package.json`/`GitVersion.yml` bumped to 2.26.0, tagged `v2.26.0`.
 
+**v2.26.1 (21 October 2026) — bug fix: remote generation silently fell back to the mock** (spec
+§1.29, §2.8). Symptom: Generate produced a roster, but with the in-browser mock engine rather than
+CP-SAT. It looked like a Render outage, and a manual Render redeploy that same day also failed.
+That failure was a red herring: Render spent ~15 minutes provisioning before running `uvicorn` and
+hit its own 15-minute deploy timeout three seconds before the server bound its port. The
+already-live instance was healthy and running current code the whole time.
+
+The real cause was in the request. The browser's Network tab showed the edge function's 502 body:
+the solver had answered 422 because of `carry_in["null"] = "afternoon_early"`. `carry_in_shifts()`
+returns every row on the previous week's published Saturday. Since v2.23.0 that can include a
+placeholder row (`guard_id` NULL, which becomes the key `"null"` in a JS map). Since v2.24.0 and
+v2.25.0 it can include the manual-only types `afternoon_early`/`afternoon_late` and
+`kippur_day1`/`kippur_day2`. The Python `ShiftType` accepts only the five solver types. The zod
+`solverInputSchema.carry_in` accepts all nine, so the client let the payload through. The edge
+function returned a 502 and `useGenerateSchedule.ts` fell back to `mockSolve()` with nothing but a
+`console.warn`. Any week following a Saturday with one of those rows would hit this.
+
+Fix: `toSolverCarryIn()` (`src/lib/shifts.ts`), applied only to the remote payload. It drops the
+placeholder key and maps each manual-only type onto the solver type with the same end time
+(`afternoon_early → day12`, `afternoon_late`/`kippur_day2 → afternoon`, `kippur_day1 → night`).
+Carry-in only feeds rest, and rest depends only on the previous shift's end, so the mapping is
+lossless. The referee, mock and editor keep the exact types. Verified the patched payload passes
+the live solver's validation, `test:fixtures` (128) and typecheck green, and confirmed working in
+production by Ben. A follow-up audit compared every other contract field between zod and pydantic
+and found no other mismatch. The Kippur-adjusted overrides stay within 0–3. Code in `680eba3`;
+`package.json`/`GitVersion.yml` bumped to 2.26.1, tagged `v2.26.1`.
+
+**Lesson worth keeping:** when a manual-only shift type or a placeholder is added, check every
+place the solver *reads* data, not just what it may *assign*. Excluding a type from
+`SOLVER_SHIFT_TYPES` stops the engines from proposing it, but it does nothing to stop it arriving
+as input.
+
 ---
 
 ## What is left
 
 Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
-deliberately deferred design choice, not a build gap. Five things still open, not build gaps
+deliberately deferred design choice, not a build gap. Seven things still open, not build gaps
 (self-service forgot-PIN, formerly listed here, was fully reverted — see Step AB, fully reverted,
 above — and is not an open item, it's removed):
 
@@ -887,6 +919,13 @@ above — and is not an open item, it's removed):
   answered (v2.7, spec §3.10): a guard's own *explicit* request for fewer shifts is a real,
   guaranteed ceiling. Extending that to `configured_kamut` for everyone, unconditionally, is still a
   separate, undecided policy question if it comes up again.
+- **Silent mock fallback** (v2.26.1 follow-up, spec §14.3): a remote solver failure only reaches
+  `console.warn`, and the edge function's response body, which holds the real error, is thrown
+  away. That's how the carry-in bug went unnoticed. It should show the manager a visible warning
+  with the body.
+- **No TS↔Python contract test** (v2.26.1 follow-up): a small test that every `SHIFT_TYPES` entry
+  survives `toSolverCarryIn()` as a value the Python `ShiftType` accepts would catch the next drift
+  between `solverContract.ts` and `solver/models.py`.
 - The demo week `2026-08-09` carries hand-set עדיפות marks across the whole active roster (see
   demo data note below) — a deliberate sanity-test dataset, not real guard input. Any
   `requested_shifts` values on that week from v2.7 testing are the same: a controlled snapshot

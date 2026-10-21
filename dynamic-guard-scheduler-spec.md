@@ -1,6 +1,6 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.25.0 (build steps A–Y complete plus the double-shift display setting, the
+**Version:** 2.26.1 (build steps A–Y complete plus the double-shift display setting, the
 draft-preview export change, manager PIN-reset, a stale-past-week guard-view fix, two roster-
 editor polish items — an optionally coverage-occupying placeholder and split afternoon-
 segment shifts — and the Yom Kippur special-coverage feature below; live and in daily use;
@@ -8,7 +8,7 @@ deployed to production — the self-service forgot-PIN feature (§12.12) was ful
 a production session-persistence regression, see §14.1 Step AB and §14.3)
 **Roster Context:** Flexible team size, 6–12 registered guards, 15 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
-**Document Date:** 16 September 2026
+**Document Date:** 21 October 2026
 
 ---
 
@@ -304,6 +304,17 @@ assertions (`supabase/tests/manager.cloud.test.mjs`): a manager overriding a wee
 1, an out-of-range override value (4) and an out-of-range day_index (7) still rejected by the widened
 CHECKs, and a guard write still rejected by RLS. Migration 57 applied to the live database, full
 TypeScript typecheck clean. `package.json`/`GitVersion.yml` bumped to 2.26.0, tagged `v2.26.0`.
+
+### 1.29 Changes in Version 2.26.1 — carry-in bug fix (21 October 2026)
+
+| #   | Change | Rationale |
+| --- | ------ | --------- |
+| 113 | **Remote generation was silently falling back to the mock engine** for any week whose preceding Saturday held a placeholder row or a manual-only shift type. The CP-SAT service rejected the request with a 422, `generate-schedule` turned that into a 502, and `useGenerateSchedule.ts` caught the error and ran `mockSolve()` instead. The only visible trace was a console warning. | Found on 21 October 2026 while chasing what looked like a Render outage. Render was healthy and running current code; a failed Render redeploy the same day was unrelated, caused by Render's own ~15-minute provisioning delay. |
+| 114 | **Root cause — two later features never reached the solver contract's `carry_in` field.** `carry_in_shifts()` (§2.8) returns *every* row on the previous Saturday of the published run. Since v2.23.0 (migration 52) that can include a placeholder row with `guard_id = NULL`, which becomes the key `"null"` in a JS map. Since v2.24.0 and v2.25.0 (migrations 53 and 56) it can also hold `afternoon_early`, `afternoon_late`, `kippur_day1` or `kippur_day2`. `solver/models.py`'s `ShiftType` deliberately accepts only the five solver types. `solverInputSchema.carry_in` in `solverContract.ts` validates against the full nine-type `shiftTypeSchema`, so the client-side `parse()` let the payload through. The observed failure was `carry_in["null"] = "afternoon_early"`. | Both features were correctly kept out of `SOLVER_SHIFT_TYPES`, because neither engine may *propose* them. But carry-in is *input* the solver must *read*, and it was never narrowed to what the solver accepts. |
+| 115 | **Fix: `toSolverCarryIn()`** (`src/lib/shifts.ts`) runs only on the payload sent to `generate-schedule`. It drops the `"null"` placeholder key, then maps each remaining shift onto the `SOLVER_SHIFT_TYPES` entry with the same `endH`: `afternoon_early → day12` (18:45), `afternoon_late → afternoon` (22:45), `kippur_day1 → night` (06:45 next day), `kippur_day2 → afternoon` (22:45). The mapping is computed from `SHIFTS`, not hardcoded, and throws if a future type has no end-time twin. | **Lossless**: the solver reads carry-in only for H5/H7 rest, and `restHours(prev, next)` depends only on `prev`'s end time. The `kippur_day1 → kippur_day2` 0h exemption can't apply here, because the solver never schedules `kippur_day2`. A placeholder has no guard to rest. |
+| 116 | The in-browser referee (`verifySchedule()`), `mockSolve()` and the roster editor still receive the **exact** carry-in types | `REST_MATRIX` already classifies all nine types correctly, so narrowing there would only lose information. |
+
+Verified by reproducing the original 422 against the live service with the unpatched payload shape, then confirming that the patched payload passes validation. An unauthenticated request with a valid body returns 401, because FastAPI validates the body before the endpoint's auth check runs, so a body problem still shows as 422. `npm run test:fixtures` (128) and the typecheck are green. A follow-up audit compared every other `solverInputSchema` field with `SolverInput` and found no other mismatch. The Kippur-adjusted overrides stay within 0–3 because guard count n ≤ 3. `generate-schedule` is the only remote call site. Confirmed working in production by the manager. Two follow-ups remain open (§14.3): the silent mock fallback, and the absence of a test pinning the TS/Python carry-in domains together.
 
 ---
 
@@ -623,6 +634,8 @@ Exactly **four** penalised transitions remain, all of them 8-hour rests:
 The solver accepts a `carry_in` map of `{guard_id → shift worked on the previous Saturday}`, read from the previous week's **published** run. The full rest matrix (§2.6) is applied between that shift and each guard's Sunday assignment. In particular, a guard who worked Saturday `night` or `night12` cannot work Sunday `morning` or `day12`.
 
 The current week's Saturday assignments become the next week's carry-in, closing the loop.
+
+**Wire domain (v2.26.1, §1.29).** `carry_in_shifts()` returns every Saturday row, including placeholder rows (`guard_id` NULL) and manual-only types (`afternoon_early`/`afternoon_late`, `kippur_day1`/`kippur_day2`). The CP-SAT service accepts only the five `SOLVER_SHIFT_TYPES`. Before the payload goes to `generate-schedule`, `toSolverCarryIn()` therefore drops placeholder keys and maps each manual-only type onto the solver type that ends at the same time. Rest depends only on the previous shift's end, so the mapping is lossless. The in-browser referee keeps the exact types. **Any new shift type must have an end-time twin among the solver types, or `toSolverCarryIn()` throws.**
 
 ---
 
@@ -3131,6 +3144,14 @@ hard-constraint set changes. Open item 1 (2-level preference strength) shipped i
 item 10 (guard-requested shift count) shipped in v2.7 (§3.10), both the general mechanism and the
 5→6 exception. Everything else in §13 is either decided or a deliberately deferred design choice,
 not a build gap. v2.8's four features (§1.9) were a single requested batch, all shipped together.
+
+**v2.26.1's carry-in fix (§1.29) — resolved, two small hardening follow-ups open.** (1) The
+silent mock fallback in `useGenerateSchedule.ts` is what hid the carry-in bug. A remote failure
+only reaches `console.warn`, and the edge function's response body, which holds the solver's real
+error, is discarded. It should show the manager a visible warning with that body. (2) No test
+pins `solverInputSchema` to `SolverInput`. A cheap guard would be a test that every `SHIFT_TYPES`
+entry passes through `toSolverCarryIn()` into a value `solver/models.py`'s `ShiftType` accepts.
+Neither blocks anything today.
 
 **v2.23.0's coverage-occupying placeholders (§12.9) and v2.24.0's afternoon segment shifts
 (§12.13) — resolved, not open.** Both are pure roster-editor features with no device-specific
