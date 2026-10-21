@@ -578,6 +578,33 @@ export const REST_MATRIX: Record<ShiftType, Record<ShiftType, RestClass>> = Obje
   ]),
 ) as Record<ShiftType, Record<ShiftType, RestClass>>;
 
+/**
+ * The Python solver's carry_in only accepts SOLVER_SHIFT_TYPES, but last
+ * week's final day can hold a manual-only type (afternoon_early/late,
+ * kippur_day1/2). The solver reads carry-in for nothing but rest, and
+ * restHours() depends only on the previous shift's END, so each manual type
+ * maps losslessly onto the solver type that ends at the same time (e.g.
+ * afternoon_early 18:45 -> day12). Placeholder rows (guard_id null, keyed
+ * "null" once in a map) carry no guard and are dropped. Only for the payload
+ * sent to the remote solver -- the in-browser referee keeps the exact types.
+ */
+export function toSolverCarryIn(
+  carryIn: Record<string, ShiftType | null>,
+): Record<string, (typeof SOLVER_SHIFT_TYPES)[number] | null> {
+  const out: Record<string, (typeof SOLVER_SHIFT_TYPES)[number] | null> = {};
+  for (const [guardId, shift] of Object.entries(carryIn)) {
+    if (guardId === 'null') continue;
+    if (shift === null) {
+      out[guardId] = null;
+      continue;
+    }
+    const match = SOLVER_SHIFT_TYPES.find((s) => SHIFTS[s].endH === SHIFTS[shift].endH);
+    if (!match) throw new Error(`no solver shift ends when ${shift} does`);
+    out[guardId] = match;
+  }
+  return out;
+}
+
 /** True when `next` on day d+1 is illegal after `prev` on day d. */
 export function isRestViolation(prev: ShiftType, next: ShiftType): boolean {
   return classifyRest(prev, next) === 'blocked';

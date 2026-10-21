@@ -9,6 +9,7 @@ import {
   stretchTarget,
   guardShiftCeiling,
   segmentTargets,
+  toSolverCarryIn,
   type BaseShift,
   type MorningTarget,
   type MorningTargetOverrides,
@@ -385,7 +386,7 @@ export function useGenerateSchedule() {
 
       if (remote) {
         const { data: res, error } = await db.functions.invoke('generate-schedule', {
-          body: solvingInput,
+          body: { ...solvingInput, carry_in: toSolverCarryIn(solvingInput.carry_in) },
         });
         if (error) {
           // The service sleeps on Render's free tier and can be cold or down.
