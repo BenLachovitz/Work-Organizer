@@ -19,7 +19,7 @@ split cells are 12-hour shifts handing over at 18:45. Names are demo accounts.</
 
 ## The problem
 
-Every week, 10 guards each have different availability, and someone has to cover four segments
+Every week, about 10 guards each have different availability, and someone has to cover four segments
 a day, seven days a week. The rules are strict:
 
 - No guard works two shifts in one day.
