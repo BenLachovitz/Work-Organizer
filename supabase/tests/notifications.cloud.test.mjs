@@ -6,7 +6,7 @@
  * Instead it exercises the SQL primitives the function relies on directly,
  * the same way edit.cloud.test.mjs tests save_run_assignments without going
  * through a UI. The push-send path itself (VAPID signing, actual delivery)
- * needs a manual on-device check -- see BACKLOG.md.
+ * needs a manual on-device check -- see docs/BACKLOG.md.
  *
  *   node supabase/tests/notifications.cloud.test.mjs
  */

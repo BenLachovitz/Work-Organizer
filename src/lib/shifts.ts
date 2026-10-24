@@ -1,6 +1,6 @@
 /**
  * Single source of truth for the shift grid, segment coverage and rest rules.
- * Mirrors dynamic-guard-scheduler-spec.md v2.0 sections 2.2 - 2.6, and is
+ * Mirrors docs/dynamic-guard-scheduler-spec.md v2.0 sections 2.2 - 2.6, and is
  * mirrored in turn by solver/scheduler.py. Nothing here is duplicated by hand:
  * the rest matrix is DERIVED from the clock times below, so a change to a shift
  * window automatically re-derives every rest classification.

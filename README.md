@@ -109,9 +109,9 @@ supabase/tests       Cloud and local test suites
 
 This project was built incrementally and documented as it went:
 
-- [`dynamic-guard-scheduler-spec.md`](dynamic-guard-scheduler-spec.md) is the full technical
+- [`docs/dynamic-guard-scheduler-spec.md`](docs/dynamic-guard-scheduler-spec.md) is the full technical
   specification: rules, data model, RLS, solver model, and a changelog for every version.
-- [`BACKLOG.md`](BACKLOG.md) is the build journal: what shipped, what broke in production, and
+- [`docs/BACKLOG.md`](docs/BACKLOG.md) is the build journal: what shipped, what broke in production, and
   how it was fixed.
 
 ## Running locally

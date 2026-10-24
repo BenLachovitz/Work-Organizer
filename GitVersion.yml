@@ -6,11 +6,11 @@
 # git tag (`vX.Y.Z`) on the commit that ships each version. That trio is what
 # actually enables rollback: `git checkout vX.Y.Z` gets back to exactly the
 # state described by that version, matching the spec's own version history
-# (dynamic-guard-scheduler-spec.md's changelog).
+# (docs/dynamic-guard-scheduler-spec.md's changelog).
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see BACKLOG.md's Versioning section). Currently 2.26.1: bug fix, remote
+# version (see docs/BACKLOG.md's Versioning section). Currently 2.26.1: bug fix, remote
 # generation silently fell back to the mock engine. carry_in_shifts() returns
 # every row on the previous published Saturday, including placeholder rows
 # (guard_id NULL -> key "null", migration 52) and manual-only shift types
