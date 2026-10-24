@@ -13,6 +13,7 @@
  *   node supabase/tests/webauthn.cloud.test.mjs
  */
 
+import { randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -31,7 +32,9 @@ const ORIGIN = 'https://work-organizer-iota.vercel.app';
 const CODE_A = '990401'; // owner guard
 const CODE_B = '990402'; // other guard, used for cross-account RLS denial
 const CODE_M = '990403'; // manager, used for the is_manager() read clause
-const PIN = 'WebAuthn-1234';
+// Random per run: this repo is public, so a fixed PIN here would be a working
+// credential for any test account a crashed run failed to clean up.
+const PIN = 'T-' + randomBytes(12).toString('hex');
 const FAKE_CREDENTIAL_ID = 'test-cred-990401-aaaa';
 
 let passed = 0;

@@ -8,6 +8,7 @@
  *   node supabase/tests/auth.cloud.test.mjs
  */
 
+import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,7 +29,9 @@ const REF = URL_BASE.match(/https:\/\/([a-z0-9]+)\./)[1];
 const FN = `${URL_BASE}/functions/v1/claim-code`;
 const GUARD_CODE = '990001';
 const MGR_CODE = '990002';
-const PIN = '135790';
+// Random per run: this repo is public, so a fixed PIN here would be a working
+// credential for any test account a crashed run failed to clean up.
+const PIN = 'T-' + randomBytes(12).toString('hex');
 
 let passed = 0;
 const failures = [];

@@ -12,6 +12,7 @@
  *   node --experimental-strip-types supabase/tests/generate.cloud.test.mjs
  */
 
+import { randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -50,7 +51,9 @@ const REF = env.VITE_SUPABASE_URL.match(/https:\/\/([a-z0-9]+)\./)[1];
 
 const MGR = '990401';
 const GUARDS = ['990402', '990403', '990404', '990405', '990406', '990407'];
-const PIN = 'Gen-12345';
+// Random per run: this repo is public, so a fixed PIN here would be a working
+// credential for any test account a crashed run failed to clean up.
+const PIN = 'T-' + randomBytes(12).toString('hex');
 const WEEK = '2026-09-13'; // a Sunday, well clear of the live weeks
 
 let passed = 0;

@@ -12,6 +12,7 @@
  *   node supabase/tests/rls.cloud.test.mjs
  */
 
+import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,9 +30,12 @@ const APIKEY = env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const TOKEN = env.SUPABASE_ACCESS_TOKEN;
 const REF = URL_BASE.match(/https:\/\/([a-z0-9]+)\./)[1];
 
-const MANAGER = { code: '900001', name: 'בדיקה-מנהל', role: 'manager', pin: 'Test-1234' };
-const GUARD_A = { code: '900002', name: 'בדיקה-א', role: 'guard', pin: 'Test-1234' };
-const GUARD_B = { code: '900003', name: 'בדיקה-ב', role: 'guard', pin: 'Test-1234' };
+// Random per run: this repo is public, so a fixed PIN here would be a working
+// credential for any test account a crashed run failed to clean up.
+const TEST_PIN = 'T-' + randomBytes(12).toString('hex');
+const MANAGER = { code: '900001', name: 'בדיקה-מנהל', role: 'manager', pin: TEST_PIN };
+const GUARD_A = { code: '900002', name: 'בדיקה-א', role: 'guard', pin: TEST_PIN };
+const GUARD_B = { code: '900003', name: 'בדיקה-ב', role: 'guard', pin: TEST_PIN };
 
 // Weeks this suite OWNS. Nothing here borrows whichever weeks the lifecycle
 // happens to have produced: a test whose meaning depends on today's date
@@ -161,7 +165,7 @@ async function setup() {
     SELECT
       '00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated',
       'authenticated', c.code || '@guards.local',
-      extensions.crypt('Test-1234', extensions.gen_salt('bf')), NOW(),
+      extensions.crypt('${TEST_PIN}', extensions.gen_salt('bf')), NOW(),
       '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, NOW(), NOW(),
       '', '', '', ''
     FROM (VALUES ('900001'), ('900002'), ('900003')) AS c(code);
@@ -335,7 +339,7 @@ async function run() {
         confirmation_token, recovery_token, email_change_token_new, email_change)
       VALUES ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated',
         'authenticated', '${code}@guards.local',
-        extensions.crypt('Test-1234', extensions.gen_salt('bf')), NOW(),
+        extensions.crypt('${TEST_PIN}', extensions.gen_salt('bf')), NOW(),
         '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, NOW(), NOW(),
         '', '', '', '');
       INSERT INTO profiles (id, employee_code, display_name, role, is_active)

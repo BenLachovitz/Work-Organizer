@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { readFile } from 'node:fs/promises';
 const env = {};
@@ -11,7 +12,7 @@ let pass=0; const fails=[];
 const ok=(l)=>{pass++;console.log(`  \x1b[32mPASS\x1b[0m  ${l}`)};
 const bad=(l,d)=>{fails.push(l);console.log(`  \x1b[31mFAIL\x1b[0m  ${l}\n        ${d}`)};
 
-const MGR='990601', G1='990602', G2='990603', PIN='Edit-1234', WEEK='2026-09-20';
+const MGR='990601', G1='990602', G2='990603', PIN='T-' + randomBytes(12).toString('hex'), WEEK='2026-09-20';
 const clean=()=>sql(`DELETE FROM roster_weeks WHERE week_start='${WEEK}';
                      DELETE FROM auth.users WHERE email LIKE '9906%@guards.local';
                      DELETE FROM roster_codes WHERE employee_code LIKE '9906%';`);

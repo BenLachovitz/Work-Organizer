@@ -10,8 +10,13 @@
  *
  *   node supabase/tests/seed-testweek.mjs            # load
  *   node supabase/tests/seed-testweek.mjs --wipe     # remove the mock guards
+ *
+ * The mock guards were deleted from production on purpose (v2.26.2) before the
+ * repo went public. Running this without --wipe re-creates REAL, loginable
+ * accounts on the live project that the solver will schedule.
  */
 
+import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,7 +30,10 @@ for (const line of (await readFile(join(ROOT, '.env.local'), 'utf8')).split('\n'
 const REF = env.VITE_SUPABASE_URL.match(/https:\/\/([a-z0-9]+)\./)[1];
 
 const WEEK = '2026-08-09';
-const PIN = '123456'; // set anyway; costs nothing and saves a round trip later
+// Random, never printed: these accounts persist and the repo is public, so a
+// fixed PIN here would be a working login to the live app for anyone reading it.
+// Use the manager's PIN reset (Team Management) to log in as one of them.
+const PIN = 'T-' + randomBytes(12).toString('hex');
 
 async function sql(query) {
   const res = await fetch(`https://api.supabase.com/v1/projects/${REF}/database/query`, {

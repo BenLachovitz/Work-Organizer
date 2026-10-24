@@ -10,6 +10,7 @@
  *   node supabase/tests/preferences.cloud.test.mjs
  */
 
+import { randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -25,7 +26,9 @@ const REF = env.VITE_SUPABASE_URL.match(/https:\/\/([a-z0-9]+)\./)[1];
 
 const CODE = '990201';
 const CODE2 = '990202';
-const PIN = 'Pref-1234';
+// Random per run: this repo is public, so a fixed PIN here would be a working
+// credential for any test account a crashed run failed to clean up.
+const PIN = 'T-' + randomBytes(12).toString('hex');
 // Weeks this suite OWNS, so no assertion depends on today's date.
 const OPEN_WEEK = '2026-10-18';
 const LOCKED_WEEK = '2026-10-25';

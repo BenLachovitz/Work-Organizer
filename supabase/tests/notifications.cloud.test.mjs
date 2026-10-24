@@ -11,6 +11,7 @@
  *   node supabase/tests/notifications.cloud.test.mjs
  */
 
+import { randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -29,7 +30,9 @@ const A = '990502'; // active, submitted
 const B = '990503'; // active, not submitted -- SHOULD be reminded
 const C = '990504'; // active, not submitted, but is_demo -- excluded
 const D = '990505'; // not submitted, but is_active = false -- excluded
-const PIN = 'Notif-1234';
+// Random per run: this repo is public, so a fixed PIN here would be a working
+// credential for any test account a crashed run failed to clean up.
+const PIN = 'T-' + randomBytes(12).toString('hex');
 const WEEK = '2026-10-11'; // a Sunday clear of every other suite's dedicated week
 const WEEK2 = '2026-10-18'; // a second week, for the two-open-weeks robustness test
 

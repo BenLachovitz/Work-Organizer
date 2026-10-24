@@ -9,6 +9,7 @@
  *   node supabase/tests/client.cloud.test.mjs
  */
 
+import { randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -23,7 +24,9 @@ for (const line of (await readFile(join(ROOT, '.env.local'), 'utf8')).split('\n'
 const REF = env.VITE_SUPABASE_URL.match(/https:\/\/([a-z0-9]+)\./)[1];
 
 const CODE = '990009';
-const PIN = '246813';
+// Random per run: this repo is public, so a fixed PIN here would be a working
+// credential for any test account a crashed run failed to clean up.
+const PIN = 'T-' + randomBytes(12).toString('hex');
 
 let passed = 0;
 const failures = [];

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { readFile } from 'node:fs/promises';
 const env={};
@@ -7,7 +8,7 @@ for (const l of (await readFile('.env.local','utf8')).split('\n')) {
 const REF=env.VITE_SUPABASE_URL.match(/https:\/\/([a-z0-9]+)\./)[1];
 const sql=async(q)=>{const r=await fetch(`https://api.supabase.com/v1/projects/${REF}/database/query`,{method:'POST',headers:{Authorization:`Bearer ${env.SUPABASE_ACCESS_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify({query:q})});const b=await r.json().catch(()=>null);if(!r.ok)throw new Error(b?.message??r.status);return b;};
 
-const G='990701', MGR='990702', PIN='Rt-123456', WEEK='2026-09-27';
+const G='990701', MGR='990702', PIN='T-' + randomBytes(12).toString('hex'), WEEK='2026-09-27';
 const clean=()=>sql(`DELETE FROM roster_weeks WHERE week_start='${WEEK}';
                      DELETE FROM auth.users WHERE email LIKE '9907%@guards.local';
                      DELETE FROM roster_codes WHERE employee_code LIKE '9907%';`);
