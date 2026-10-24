@@ -81,6 +81,9 @@ a continuous two-day coverage block around it.
 
 The UI is Hebrew and right-to-left. All guard names shown are demo accounts.
 
+<p align="center"><img src="docs/screenshots/roster-grid-app.png" alt="In-app weekly roster grid on a phone in landscape" width="820"></p>
+<p align="center"><b>In-app roster grid</b><br><sub>The live weekly roster on a phone in landscape. The week scrolls sideways; split cells are two guards on 12-hour shifts handing over at 18:45, and a red dash marks an unfilled slot.</sub></p>
+
 <table>
   <tr>
     <td align="center" width="33%"><img src="docs/screenshots/guard-availability.png" alt="Guard availability form" width="260"></td>
