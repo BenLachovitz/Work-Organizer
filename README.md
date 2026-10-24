@@ -11,6 +11,10 @@ It's in daily production use by the team it was built for. The UI is Hebrew and 
 **Live:** https://work-organizer-iota.vercel.app. Sign-in uses employee badge codes issued by the
 manager, so there is no public demo account.
 
+![A generated weekly roster, exported as an image for the team's WhatsApp group](docs/screenshots/roster-export.jpg)
+<sub>A generated week, as exported for the team chat. Rows are morning, afternoon and night;
+split cells are 12-hour shifts handing over at 18:45. Names are demo accounts.</sub>
+
 ---
 
 ## The problem
@@ -72,6 +76,33 @@ requested shift count; a personal shift list; and the live published roster.
 
 **Calendar-aware:** detects the Yom Kippur week from the Hebrew calendar each year and schedules
 a continuous two-day coverage block around it.
+
+## Screenshots
+
+The UI is Hebrew and right-to-left. All guard names shown are demo accounts.
+
+<table>
+  <tr>
+    <td align="center" width="33%"><img src="docs/screenshots/guard-availability.png" alt="Guard availability form" width="260"></td>
+    <td align="center" width="33%"><img src="docs/screenshots/coverage-matrix.png" alt="Manager coverage matrix" width="260"></td>
+    <td align="center" width="33%"><img src="docs/screenshots/generate-and-report.png" alt="Generate button and coverage report" width="260"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Guard availability</b><br><sub>Guards mark the shifts they can work, with a live countdown to the submission deadline.</sub></td>
+    <td align="center"><b>Coverage pre-flight</b><br><sub>Before solving, the manager sees how many guards are available per shift, colour-coded against target and floor, plus each guard's minimum.</sub></td>
+    <td align="center"><b>Generate + coverage report</b><br><sub>One click runs CP-SAT. The report lists exactly what couldn't be achieved, e.g. each 8-hour rest it had to accept.</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/roster-editor.png" alt="Roster editor" width="260"></td>
+    <td align="center"><img src="docs/screenshots/login.png" alt="Login screen" width="260"></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Roster editor</b><br><sub>Tap any cell to swap guards, change the shift type, or add a note. Every save is re-checked against the hard rules.</sub></td>
+    <td align="center"><b>Login</b><br><sub>Badge code + PIN, or Face ID / fingerprint via a device-bound WebAuthn credential.</sub></td>
+    <td></td>
+  </tr>
+</table>
 
 ## Tech stack
 
