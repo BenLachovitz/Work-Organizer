@@ -10,18 +10,12 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see docs/BACKLOG.md's Versioning section). Currently 2.26.1: bug fix, remote
-# generation silently fell back to the mock engine. carry_in_shifts() returns
-# every row on the previous published Saturday, including placeholder rows
-# (guard_id NULL -> key "null", migration 52) and manual-only shift types
-# (afternoon_early/late, kippur_day1/2 -- migrations 53/56). The Python
-# solver's ShiftType accepts only the five solver types, so it answered 422,
-# the edge function 502, and the client quietly ran mockSolve(). Fixed by
-# toSolverCarryIn() (src/lib/shifts.ts) on the remote payload only: drop
-# placeholder keys, map each manual type onto the solver type with the same
-# end time (rest depends only on the previous shift's end, so lossless).
-# See spec section 1.29.
-next-version: 2.26.1
+# version (see docs/BACKLOG.md's Versioning section). Currently 2.26.2: repo
+# prepared for public visibility. The demo guards, whose PIN was readable in
+# the repo, were deleted from production; every cloud test now generates a
+# random PIN per run; README and screenshots added, docs moved into docs/.
+# See spec section 1.30.
+next-version: 2.26.2
 mode: Mainline
 branches:
   main:

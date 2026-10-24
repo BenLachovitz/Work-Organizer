@@ -1,14 +1,14 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.26.1 (build steps A–Y complete plus the double-shift display setting, the
+**Version:** 2.26.2 (build steps A–Y complete plus the double-shift display setting, the
 draft-preview export change, manager PIN-reset, a stale-past-week guard-view fix, two roster-
 editor polish items — an optionally coverage-occupying placeholder and split afternoon-
 segment shifts — and the Yom Kippur special-coverage feature below; live and in daily use;
 deployed to production — the self-service forgot-PIN feature (§12.12) was fully reverted after
 a production session-persistence regression, see §14.1 Step AB and §14.3)
-**Roster Context:** Flexible team size, 6–12 registered guards, 15 currently active
+**Roster Context:** Flexible team size, 6–12 registered guards, 9 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
-**Document Date:** 21 October 2026
+**Document Date:** 24 October 2026
 
 ---
 
@@ -315,6 +315,18 @@ TypeScript typecheck clean. `package.json`/`GitVersion.yml` bumped to 2.26.0, ta
 | 116 | The in-browser referee (`verifySchedule()`), `mockSolve()` and the roster editor still receive the **exact** carry-in types | `REST_MATRIX` already classifies all nine types correctly, so narrowing there would only lose information. |
 
 Verified by reproducing the original 422 against the live service with the unpatched payload shape, then confirming that the patched payload passes validation. An unauthenticated request with a valid body returns 401, because FastAPI validates the body before the endpoint's auth check runs, so a body problem still shows as 422. `npm run test:fixtures` (128) and the typecheck are green. A follow-up audit compared every other `solverInputSchema` field with `SolverInput` and found no other mismatch. The Kippur-adjusted overrides stay within 0–3 because guard count n ≤ 3. `generate-schedule` is the only remote call site. Confirmed working in production by the manager. Two follow-ups remain open (§14.3): the silent mock fallback, and the absence of a test pinning the TS/Python carry-in domains together.
+
+---
+
+### 1.30 Changes in Version 2.26.2 — repo prepared for public visibility (24 October 2026)
+
+| #   | Change | Rationale |
+| --- | ------ | --------- |
+| 117 | **Demo guards removed from production.** The 7 mock guards (`100001`–`100007`, `is_demo = TRUE`, §12.8) were deleted through Team Management (`delete_employee`, §12.4), which also removes their `roster_codes` rows. | Their PIN, `123456`, set by `seed-testweek.mjs`, was readable in the repo, so a public repo would have handed anyone a working guard login that could read real rosters and submit availability the solver acts on. They appeared only in unpublished drafts of the 2026-08-09 demo week, so no real roster changed. |
+| 118 | **Random per-run test PINs.** Every cloud test (`supabase/tests/*.cloud.test.mjs`) and `seed-testweek.mjs` now generate their PIN with `randomBytes` instead of a literal. | There is no separate test database (§14.2), so a fixed PIN for a test account a crashed run left behind, some of them managers, would also be a working production login. |
+| 119 | **Repository cleanup for a public audience:** a README with screenshots (`docs/screenshots/`, demo names only); this spec and BACKLOG.md moved into `docs/`; the stale v2.0-era PDF of this spec deleted. | The repo is a portfolio piece. A full history audit found no committed secrets, so no history rewrite was needed; the manager chose to keep the history as-is. |
+
+Verified after the deletion: zero `100001`–`100007` codes, auth users or `is_demo` profiles remain; signing in as `100001`/`123456` returns 400; `claim-code` reports the code as nonexistent; the real team (9 profiles, 9 codes) is intact. The `is_demo` column and the real/test view toggle remain in the code with no profile flagged.
 
 ---
 
@@ -3230,4 +3242,4 @@ password — both appear in the development transcript.
 
 ---
 
-_Specification v2.26.0 — revised 23 September 2026._
+_Specification v2.26.2 — revised 24 October 2026._

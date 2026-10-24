@@ -1,12 +1,12 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.26.1** — §14 there is the
-build status and roadmap, §1.17–§1.29 is the changelog for everything since v2.15. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.26.2** — §14 there is the
+build status and roadmap, §1.17–§1.30 is the changelog for everything since v2.15. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
-*Last updated: 21 October 2026*
+*Last updated: 24 October 2026*
 
 ---
 
@@ -884,6 +884,30 @@ place the solver *reads* data, not just what it may *assign*. Excluding a type f
 `SOLVER_SHIFT_TYPES` stops the engines from proposing it, but it does nothing to stop it arriving
 as input.
 
+**v2.26.2 (24 October 2026) — repo prepared for public visibility** (spec §1.30). Ben is making the
+GitHub repo public as a portfolio piece. A full audit of all git history found no committed secrets
+(no keys, tokens, DB URLs or VAPID private key; `.env.local` never committed; commit email is
+GitHub's noreply address). It did find working credentials. The 7 demo guards (`100001`–`100007`)
+had PIN `123456` on the live project, set by `seed-testweek.mjs` and readable in the repo. Every
+cloud test also hardcoded a PIN, and some of those test accounts are managers. Fixes:
+
+- **Demo guards deleted** by Ben through Team Management (`delete_employee`, which also removes
+  their `roster_codes` rows so the codes can't be re-claimed). Checked first: they appeared only in
+  unpublished drafts of the 2026-08-09 demo week, never in a published or real roster. Verified
+  after: zero codes, users and `is_demo` profiles remain; signing in as `100001`/`123456` returns
+  400.
+- **Random per-run test PINs** (`randomBytes` from `node:crypto`) in every cloud test and in
+  `seed-testweek.mjs`, which now also warns that running it re-creates real, loginable accounts.
+- **Portfolio README** with screenshots (`docs/screenshots/`, demo names only); the spec and this
+  file moved into `docs/`; the stale v2.0-era spec PDF deleted.
+
+Accepted as-is, Ben's call: old commits stay readable, including Ben's badge code (also in the
+shipped JS bundle via `viewMode.ts`, so never secret) and teammates' first names. The real
+protection for a known badge code is a strong PIN.
+
+**Lesson worth keeping:** in a public repo, any literal PIN, password or token is a working login to
+production, because there is no separate test database here. Generate test credentials at runtime.
+
 ---
 
 ## What is left
@@ -926,10 +950,9 @@ above — and is not an open item, it's removed):
 - **No TS↔Python contract test** (v2.26.1 follow-up): a small test that every `SHIFT_TYPES` entry
   survives `toSolverCarryIn()` as a value the Python `ShiftType` accepts would catch the next drift
   between `solverContract.ts` and `solver/models.py`.
-- The demo week `2026-08-09` carries hand-set עדיפות marks across the whole active roster (see
-  demo data note below) — a deliberate sanity-test dataset, not real guard input. Any
-  `requested_shifts` values on that week from v2.7 testing are the same: a controlled snapshot
-  comparison, not live guard requests.
+- **Cloud-test fixture weeks are now real past weeks** — Gate D's `2026-09-06`, edit's
+  `2026-09-20` and realtime's `2026-09-27`. Their setup `DELETE`s would wipe real archived
+  rosters, so `test:cloud` must not be run until fixture dates are computed relative to today.
 
 ---
 
@@ -942,28 +965,18 @@ The in-browser mock remains the automatic fallback if Render is unreachable (its
 after 15 minutes idle, ~50s cold start). The mock is always *legal* but never optimal. If a roster
 looks wrong, check `solver_status`: `MOCK` means the fallback ran.
 
-**Demo data note:** the 7 mock guards' preferences for week `2026-08-09` were replaced with Ben's
-real WhatsApp-sourced availability from the team, so testing against that week reflects genuine
-scheduling tension rather than synthetic data. `npm run preview:cpsat` (after dumping the week via
-`preview-week.mjs --dump`) is the fastest way to see a fresh CP-SAT result without writing to the
-live database. Since v2.7, `preview-week.mjs` also takes `--request <guard_id>:<n>` (repeatable) to
-try a hypothetical `requested_shifts` value for a specific guard against real data — in-memory only,
-nothing written — which is how the step O weight measurement (spec §3.10) was done.
+`npm run preview:cpsat` (after dumping a week via `preview-week.mjs --dump`) is the fastest way to
+see a fresh CP-SAT result without writing to the live database. Since v2.7, `preview-week.mjs` also
+takes `--request <guard_id>:<n>` (repeatable) to try a hypothetical `requested_shifts` value for a
+specific guard — in-memory only, nothing written — which is how the step O weight measurement
+(spec §3.10) was done.
 
-**On top of that base availability**, every active guard's multi-option days (any day they marked
-more than one shift) also carry a hand-set עדיפות mark, applied by a consistent priority — night
-preferred over afternoon, afternoon preferred over morning, whichever the guard actually marked
-that day. This is a deliberate sanity-test layer for the preference-strength feature, not real
-guard input — don't mistake a generated roster for this week as evidence real guards' preferences
-were honoured; it's evidence the *mechanism* works. One exception worth knowing: Shelly's
-Wednesday-night availability row was deleted outright (not just left unpreferred) as a data-hygiene
-step — she had added it manually *after* the roster was already published once, so it was never
-part of a genuine weekly submission, and leaving it in was distorting her כמות math during testing.
-
-**The 7 mock guards are now explicitly flagged** (`is_demo = TRUE` on `profiles`/`roster_codes`,
-migration 34, spec §12.8) rather than only identifiable by their `- דמה` display-name suffix. This
-is what the admin header's real/test view-mode toggle filters on — display-only, doesn't change who
-the solver schedules.
+**Demo data — removed in v2.26.2.** The 7 mock guards (`{שם} - דמה`, codes `100001`–`100007`,
+flagged `is_demo = TRUE` by migration 34) and their hand-set availability for week `2026-08-09` were
+the project's realistic test dataset. They were deleted before the repo went public, because their
+PIN was in the repo (see v2.26.2 above). The 2026-08-09 draft runs still exist with only Ben's rows
+left. The `is_demo` column and the admin real/test view toggle (spec §12.8) are still in the code,
+but no profile is currently flagged.
 
 **Weight measured, not assumed — still open for the newest one.** Step L's preference weight and
 step O's stretch weight were each verified against live data before shipping (spec §3.8, §3.10). The
@@ -1032,22 +1045,18 @@ rejected the push — often a stale subscription that's already been pruned by t
   plain `UPDATE`, not committed anywhere. (The abandoned WhatsApp design's three `WHATSAPP_*`
   secrets were never set and are moot now; `request-pin-reset`'s reuse of this cron-secret pair for
   the `pin_reset_otp` type is moot too — that function is deleted as of the v2.22.1 revert.)
-- 56 migrations applied, tracked in a `schema_migrations` ledger
+- 57 migrations applied, tracked in a `schema_migrations` ledger
 
-### Current database contents
+### Current database contents (24 October 2026)
 
-- Weeks `2026-08-02` (locked, archive), `2026-08-09` (generated — many draft versions accumulated
-  during step L/M/O testing against the demo data above, including roster version 30, the run that
-  surfaced the step O production bug (spec §3.10); none published), `2026-08-16` (open for
-  submissions, morning target 3)
-- 9 profiles: Ben, the 7 mock guards (`{שם} - דמה`, now also flagged `is_demo = TRUE`), and one real
-  team member (עידן) who has already claimed their real badge code
-- 16 badge codes: the 8 original (Ben + 7 mocks) plus 8 real codes Ben has started registering for
-  the actual team (one claimed so far)
+- 9 profiles and 9 badge codes: Ben plus 8 real team members, all claimed and active. No demo
+  accounts (removed in v2.26.2).
+- Weeks are created and opened/locked by `ensure_roster_weeks()`; past weeks form the manager
+  archive. `2026-08-09` holds old draft runs from step L/M/O testing (never published), now with
+  only Ben's rows.
 
-`npm run seed:testweek -- --wipe` removes the mock guards and frees their badge codes -- **do not
-run this** — the mocks are renamed and Ben is deliberately keeping them, and real registrations are
-now in progress alongside them.
+**Do not run `npm run seed:testweek`** (without `--wipe`): it re-creates the 7 demo guards as real,
+loginable accounts on production that the solver will schedule.
 
 ---
 
@@ -1059,10 +1068,9 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.26.0**
-(per-day morning target override widened to any day and value 1, Step AG — matches the every-day,
-as-low-as-1 flexibility S2/S3/S4 already had, and resolves the Yom Kippur-on-a-Saturday limit Step AF
-left open), tagged `v2.26.0`.
+state that version describes), matching the spec's own version history. Currently at **2.26.2**
+(repo prepared for public visibility: demo guards removed, random test PINs, README), tagged
+`v2.26.2`.
 
 ## Commands
 
