@@ -31,7 +31,7 @@ register(
   import.meta.url,
 );
 
-const { computePayroll, quarterlyLeaveDayValue, consecutiveSickDayCount, sickPayPercent } =
+const { computePayroll, monthlyLeaveDayValue, consecutiveSickDayCount, sickPayPercent } =
   await import('./payroll.ts');
 const { addDays, israelDateTime } = await import('./dates.ts');
 
@@ -277,42 +277,43 @@ function checkValue(name, actual, expected, tolerance = 0.01) {
   }
 }
 
-// 11. quarterlyLeaveDayValue: a single plain 8h day divides by the 1 day
-//     actually worked -- NOT a fixed constant. Regular wage (hours x flat
-//     rate) only, same as the law's own "total wage / days worked" shape.
+// 11. monthlyLeaveDayValue: a single plain 8h day's gross (320) divided by
+//     the FIXED 22, NOT by the 1 day actually worked (320/1=320 would be
+//     the "textbook" formula this superseded -- too high in practice).
 checkValue(
-  'quarterlyLeaveDayValue: one plain 8h day / 1 day worked',
-  quarterlyLeaveDayValue([entry(MONDAY, 6.75, 14.75)], FLAT_HISTORY),
-  8 * RATE, // 320
+  'monthlyLeaveDayValue divides by the FIXED 22, not by days worked',
+  monthlyLeaveDayValue([entry(MONDAY, 6.75, 14.75)], FLAT_HISTORY),
+  (8 * RATE) / 22,
 );
 
-// 12. A 12h day is NOT capped at 8h -- its full hours count, just at the
-//     FLAT rate (no overtime premium). Averaged with a plain 8h day over
-//     the 2 days actually worked: (12*40 + 8*40) / 2 = 400.
+// 12. Multiple days SUM their gross first -- a 12h weekday (8h@100% +
+//     2h@125% + 2h@150% = 540) plus a plain 8h day (320) = 860 total,
+//     divided by the fixed 22, not averaged over the 2 days worked.
 checkValue(
-  'quarterlyLeaveDayValue: full (uncapped) hours, averaged over days worked',
-  quarterlyLeaveDayValue([entry(MONDAY, 6.75, 18.75), entry(THURSDAY, 6.75, 14.75)], FLAT_HISTORY),
-  (12 * RATE + 8 * RATE) / 2, // 400
+  'monthlyLeaveDayValue sums every day in the month before dividing',
+  monthlyLeaveDayValue([entry(MONDAY, 6.75, 18.75), entry(THURSDAY, 6.75, 14.75)], FLAT_HISTORY),
+  (40 * (8 + 1.25 * 2 + 1.5 * 2) + 8 * RATE) / 22, // (540 + 320) / 22
 );
 
-// 13. The Shabbat/holiday premium is excluded -- a 12h Saturday shift
-//     counts its full 12h, but at the flat rate, not computePayroll's
-//     150%/175% premium (which would give 780, not 480).
+// 13. Overtime and Shabbat/holiday premiums ARE included in the total --
+//     this is meant to match a real payslip's gross line, which includes
+//     them. A 12h Saturday shift's full premium gross (780, from the
+//     already-tested overtime engine) counts, not a flat/capped figure.
 checkValue(
-  'quarterlyLeaveDayValue excludes the Shabbat/overtime premium entirely',
-  quarterlyLeaveDayValue([entry(SATURDAY, 6.75, 18.75)], FLAT_HISTORY),
-  12 * RATE, // 480, not 780
+  'monthlyLeaveDayValue includes real overtime/Shabbat premiums in the total',
+  monthlyLeaveDayValue([entry(SATURDAY, 6.75, 18.75)], FLAT_HISTORY),
+  (40 * (8 * 1.5 + 2 * 1.75 + 2 * 2.0)) / 22, // 780 / 22
 );
 
-// 14. quarterlyLeaveDayValue with no entries at all returns 0 (nothing to
+// 14. monthlyLeaveDayValue with no entries at all returns 0 (nothing to
 //     value an absence against yet), rather than NaN or throwing.
 {
-  const value = quarterlyLeaveDayValue([], FLAT_HISTORY);
+  const value = monthlyLeaveDayValue([], FLAT_HISTORY);
   if (value === 0) {
-    console.log('  \x1b[32mok\x1b[0m   quarterlyLeaveDayValue([]) is 0, not NaN');
+    console.log('  \x1b[32mok\x1b[0m   monthlyLeaveDayValue([]) is 0, not NaN');
   } else {
     failures++;
-    console.log(`  \x1b[31mFAIL\x1b[0m quarterlyLeaveDayValue([]) expected 0, got ${value}`);
+    console.log(`  \x1b[31mFAIL\x1b[0m monthlyLeaveDayValue([]) expected 0, got ${value}`);
   }
 }
 

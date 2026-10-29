@@ -7,7 +7,7 @@ import { addDays, israelDateTime, type DateKey } from '@/lib/dates';
 import { SHIFTS, type ShiftType } from '@/lib/shifts';
 import {
   consecutiveSickDayCount,
-  quarterlyLeaveDayValue,
+  monthlyLeaveDayValue,
   sickPayPercent,
   type RateHistoryEntry,
 } from '@/lib/payroll';
@@ -343,15 +343,13 @@ export function useMonthlySalarySummary(monthKey: string) {
 // balance/ledger: these hooks only ever read/write what the guard logged.
 // ---------------------------------------------------------------------------
 
-/** ~3 months -- the reference period Israeli Annual Leave Law uses for an
- *  hourly/daily worker's day value (quarterlyLeaveDayValue in payroll.ts).
- *  Deliberately "the 3 months right before this absence", not the law's
- *  stricter "highest-earning 3-consecutive-month stretch in the trailing
- *  12 months" -- see that function's own comment for why. */
-const ABSENCE_DAYS_OF_HISTORY = 90;
 /** Generous margin for backtracking a consecutive sick-day streak -- real
  *  streaks are rarely more than a handful of days. */
 const SICK_STREAK_LOOKBACK_DAYS = 10;
+
+function monthKeyOf(date: DateKey): string {
+  return date.slice(0, 7);
+}
 
 export function useAbsencesWeek(weekStart: DateKey) {
   const { profile } = useAuth();
@@ -455,20 +453,21 @@ export interface AbsencePayout {
   /** 1 for vacation; 0/0.5/1 for sick, by which day of a consecutive run
    *  this one is (Israeli Sick Pay Law). */
   percent: number;
-  /** quarterlyLeaveDayValue(...) for this absence's own trailing window,
-   *  times `percent`. 0 if there is no logged work history yet. */
+  /** monthlyLeaveDayValue(...) for the CALENDAR MONTH this absence falls
+   *  in, times `percent`. 0 if there is no logged work history yet. */
   value: number;
 }
 
 /**
  * Values a set of absences (one roster week's or one month's worth) against
- * the guard's own work history. Each absence is valued from a window
- * ENDING AT ITS OWN DATE -- never from work logged afterward -- the same
- * "don't let the future rewrite the past" principle the rate history
- * already follows. One combined fetch covers every absence passed in
- * (bounded by the earliest/latest date among them) rather than one round
- * trip per absence; each absence's own window is then a client-side slice
- * of that shared fetch.
+ * the guard's own work history. Each absence is valued from its own
+ * CALENDAR MONTH's total (monthlyLeaveDayValue in payroll.ts) -- including
+ * days after the absence within that same month, since real payroll
+ * finalizes a month's figures as a whole, unlike the rate history's
+ * "never let the future rewrite the past" rule. One combined fetch covers
+ * every absence passed in (spanning every month touched by any of them)
+ * rather than one round trip per absence; each absence's own month is
+ * then a client-side slice of that shared fetch.
  */
 export function useAbsencePayouts(
   absences: WorkLogAbsence[],
@@ -480,13 +479,14 @@ export function useAbsencePayouts(
   const dates = absences.map((a) => a.target_date).sort();
   const minDate = dates[0];
   const maxDate = dates[dates.length - 1];
+  const fetchStart = minDate ? monthRange(monthKeyOf(minDate)).start : undefined;
+  const fetchEnd = maxDate ? monthRange(monthKeyOf(maxDate)).end : undefined;
 
   const query = useQuery({
-    queryKey: ['absencePayoutContext', guardId, minDate, maxDate],
-    enabled: Boolean(guardId && minDate && maxDate),
+    queryKey: ['absencePayoutContext', guardId, fetchStart, fetchEnd],
+    enabled: Boolean(guardId && fetchStart && fetchEnd),
     queryFn: async (): Promise<{ entries: WorkLogEntry[]; sickDates: Set<DateKey> }> => {
       const db = requireSupabase();
-      const entriesFrom = addDays(minDate!, -ABSENCE_DAYS_OF_HISTORY);
       const sickFrom = addDays(minDate!, -SICK_STREAK_LOOKBACK_DAYS);
 
       const [entriesRes, sickRes] = await Promise.all([
@@ -494,8 +494,8 @@ export function useAbsencePayouts(
           .from('work_log_entries')
           .select('*')
           .eq('guard_id', guardId)
-          .gte('target_date', entriesFrom)
-          .lte('target_date', maxDate!),
+          .gte('target_date', fetchStart!)
+          .lte('target_date', fetchEnd!),
         db
           .from('work_log_absences')
           .select('target_date')
@@ -520,11 +520,9 @@ export function useAbsencePayouts(
     if (!query.data) return [];
     const { entries, sickDates } = query.data;
     return absences.map((absence) => {
-      const windowStart = addDays(absence.target_date, -ABSENCE_DAYS_OF_HISTORY);
-      const relevant = entries.filter(
-        (e) => e.target_date >= windowStart && e.target_date <= absence.target_date,
-      );
-      const dayValue = quarterlyLeaveDayValue(relevant, rateHistory);
+      const { start, end } = monthRange(monthKeyOf(absence.target_date));
+      const relevant = entries.filter((e) => e.target_date >= start && e.target_date <= end);
+      const dayValue = monthlyLeaveDayValue(relevant, rateHistory);
       const percent =
         absence.type === 'vacation'
           ? 1

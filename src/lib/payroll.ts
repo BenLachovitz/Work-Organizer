@@ -343,55 +343,56 @@ export function computePayroll(
 // ---------------------------------------------------------------------------
 
 /**
- * A guard's day value for vacation/sick pay, per Israeli Annual Leave
- * Law's actual formula for an hourly/daily-paid worker: sum the REGULAR
- * wage (base rate x hours actually worked -- NOT capped at a standard
- * day, but also NOT multiplied by any overtime/Shabbat premium) over the
- * reference period, and divide by the number of DAYS ACTUALLY WORKED in
- * that period -- never a fixed constant. A worked example from the
- * owner's own source: 3 months of 6200/20 days, 5800/18 days, 6500/21
- * days -> (6200+5800+6500)/(20+18+21) = 18500/59 = 313.55/day. The
- * equivalent hours-based shortcut for a fixed hourly rate: average daily
- * HOURS actually worked x the current rate.
- *
- * This went through three wrong turns before landing here, each one
- * surfaced by the owner checking real payslip numbers against it:
- * (1) averaging the full OVERTIME-INCLUSIVE gross (computePayroll) over
- * actual worked days -- too high, since real overtime/Shabbat premiums
- * don't belong in "regular wage" at all; (2) capping each day's hours at
- * a standard 8h/7h day -- an invention of this codebase, not something
- * any real source described, and still too high; (3) summing the full
- * premium-inclusive gross and dividing by a FIXED divisor of 75 (a single
- * forum anecdote, since superseded by a clearer, worked-example source) --
- * far too LOW, because a fixed divisor assumes ~25 workdays/month, nothing
- * like this guard's actual ~9. This version removes the premium multiplier
- * (point 1's mistake) without capping hours (point 2's invention) and
- * divides by actual days worked, not a fixed constant (point 3's mistake).
- *
- * Callers are expected to pass only entries dated ON OR BEFORE the absence
- * being valued -- see rateForDate's own "never recalculate the past"
- * principle, which this mirrors. Returns 0 if there is no day with both
- * logged hours and a known rate to average from yet.
+ * Fixed monthly divisor the owner's own company appears to use for
+ * valuing a vacation/sick day: a STANDARD month's workdays (~21-22 for a
+ * 5-day-week-style convention), regardless of how many days the guard
+ * actually worked that month. 22 chosen as the round middle of the
+ * 21-21.67 range various sources give; try 21 if 22 doesn't match once
+ * calibrated against a real payslip figure.
  */
-export function quarterlyLeaveDayValue(
-  entries: WorkLogEntry[],
-  rateHistory: RateHistoryEntry[],
-): number {
-  const hoursByDate = new Map<DateKey, number>();
+const MONTHLY_LEAVE_DIVISOR = 22;
+
+/**
+ * A guard's day value for vacation/sick pay: that calendar month's TOTAL
+ * gross earnings (overtime and Shabbat/holiday premiums INCLUDED -- this
+ * is meant to match the "gross" line on a real payslip, which does
+ * include overtime pay) divided by the FIXED monthly divisor above --
+ * never by how many days the guard actually worked. Callers are expected
+ * to pass entries scoped to ONE CALENDAR MONTH (the month the absence
+ * falls in), not an arbitrary trailing window -- real payroll finalizes
+ * a month's figures as a whole at month-end, so unlike the rate history's
+ * "never let the future rewrite the past" rule, using the WHOLE month
+ * (including days after the absence itself) is intentional here.
+ *
+ * This is the fourth formula this function has gone through, each
+ * iteration surfaced by the owner checking real payslip numbers against
+ * it: (1) full overtime-inclusive gross averaged over actual worked days
+ * -- too high; (2) hours capped at a standard 8h/7h day, averaged over
+ * actual worked days -- still too high; (3) full gross summed over ~3
+ * months and divided by a FIXED 75 (a 6-day-week, 3-month convention) --
+ * far too low; (4) the textbook "regular wage / actual days worked"
+ * formula (a clearer worked-example source) -- STILL too high even once
+ * the system had ~2.5 real months of backfilled history to average over,
+ * which is what ruled out "not enough data" as the explanation and
+ * pointed at a fixed-divisor, standard-month convention instead -- this
+ * version. If this also doesn't match a real payslip figure, the next
+ * things to try are the divisor (21 vs 22) and whether the reference
+ * period should be the preceding month rather than the month the absence
+ * itself falls in.
+ */
+export function monthlyLeaveDayValue(entries: WorkLogEntry[], rateHistory: RateHistoryEntry[]): number {
+  const byDate = new Map<DateKey, WorkLogEntry[]>();
   for (const entry of entries) {
-    const hours = (new Date(entry.actual_end).getTime() - new Date(entry.actual_start).getTime()) / MS_PER_HOUR;
-    hoursByDate.set(entry.target_date, (hoursByDate.get(entry.target_date) ?? 0) + hours);
+    const list = byDate.get(entry.target_date);
+    if (list) list.push(entry);
+    else byDate.set(entry.target_date, [entry]);
   }
 
   let total = 0;
-  let countedDays = 0;
-  for (const [date, hours] of hoursByDate) {
-    const rate = rateForDate(rateHistory, date);
-    if (rate == null) continue; // no known rate that far back -- exclude, don't count as 0
-    total += hours * rate; // regular wage only: flat rate, no overtime/Shabbat premium
-    countedDays++;
+  for (const dayEntries of byDate.values()) {
+    total += computePayroll(dayEntries, rateHistory).grossEstimate;
   }
-  return countedDays === 0 ? 0 : total / countedDays;
+  return total / MONTHLY_LEAVE_DIVISOR;
 }
 
 /**
