@@ -101,36 +101,60 @@ check(
   },
 );
 
-// 3. Overnight weekday (Thursday night -> Friday morning, both well before
-//    the Friday 16:00 Shabbat cutoff): attributed wholly to Thursday, 8h
-//    regular, no weekend premium even though it crosses midnight.
+// 3. Overnight shift (Thursday 22:45 -> Friday 06:45): 7.25h of it falls
+//    inside 22:00-06:00, so this IS a night shift (7h standard day, not 8)
+//    even though it's a plain weekday -- 7h regular + 1h @125%, still no
+//    weekend premium (well before the Friday 16:00 cutoff).
 check(
-  'overnight weekday shift (Thu night -> Fri morning)',
+  'overnight weekday shift is a NIGHT shift (7h day, not 8h)',
   computePayroll([entry(THURSDAY, 22.75, 30.75)], FLAT_HISTORY),
-  { regularHours: 8, ot125Hours: 0, ot150Hours: 0, shabbatHours: 0, grossEstimate: 8 * RATE },
+  { regularHours: 7, ot125Hours: 1, ot150Hours: 0, shabbatHours: 0, grossEstimate: (7 + 1.25) * RATE },
 );
 
-// 4. Friday night -> Saturday morning: fully inside the Fri16:00-Sun00:00
-//    weekend window, so all 8h move to shabbatHours at the flat 150%.
+// 4. Friday night -> Saturday morning: a night shift (7h day) AND fully
+//    inside the Fri16:00-Sun00:00 weekend window, so all 8h land in
+//    shabbatHours (RAW, same as the actual duration), split 7h at the
+//    150% weekend base + 1h at 150%+25pp=175% (additive, not 150%x1.25).
 check(
-  'Friday night into Saturday (full Shabbat shift)',
+  'Friday night into Saturday (night shift + Shabbat, additive stacking)',
   computePayroll([entry(FRIDAY, 22.75, 30.75)], FLAT_HISTORY),
-  { regularHours: 0, ot125Hours: 0, ot150Hours: 0, shabbatHours: 8, grossEstimate: 1.5 * 8 * RATE },
+  {
+    regularHours: 0,
+    ot125Hours: 0,
+    ot150Hours: 0,
+    shabbatHours: 8, // raw hours, NOT pay-weighted
+    grossEstimate: (1.5 * 7 + 1.75 * 1) * RATE,
+  },
 );
 
-// 5. 10h Saturday shift: daily OT tiers (8 regular + 2 @125%) both fall
-//    entirely inside the weekend window, so BOTH stack with the 150%
-//    Shabbat premium -- regular/ot125 end up at 0 (reclassified into
-//    shabbatHours), and the gross reflects the stacked 1.5x/1.875x rates.
+// 5. 10h Saturday shift (daytime, not a night shift -- no overlap with
+//    22:00-06:00): daily OT tiers (8 @150% + 2 @150%+25pp=175%) both fall
+//    inside the weekend window. shabbatHours is the raw 10h actually
+//    worked; the gross uses additive stacking (175%, not 150%x125%=187.5%).
 check(
-  '10h Saturday shift (OT stacks with Shabbat premium)',
+  '10h Saturday shift (day shift, OT stacks ADDITIVELY with Shabbat)',
   computePayroll([entry(SATURDAY, 6.75, 16.75)], FLAT_HISTORY),
   {
     regularHours: 0,
     ot125Hours: 0,
     ot150Hours: 0,
-    shabbatHours: 10.5, // 8h*1 + 2h*1.25, pre-weighted
-    grossEstimate: 1.5 * 10.5 * RATE, // = (1.5*8 + 1.875*2) * RATE = 15.75 * RATE
+    shabbatHours: 10, // raw hours, NOT pay-weighted
+    grossEstimate: (1.5 * 8 + 1.75 * 2) * RATE,
+  },
+);
+
+// 5b. The user's own example: a 12h night shift on an ordinary weekday
+//     (Monday 18:45 -> Tuesday 06:45) -- 7h regular, hours 8-9 @125%,
+//     hours 10-12 @150%. No weekend involved at all.
+check(
+  '12h Monday night shift (7h/2h/3h split, the reported-law example)',
+  computePayroll([entry(MONDAY, 18.75, 30.75)], FLAT_HISTORY),
+  {
+    regularHours: 7,
+    ot125Hours: 2,
+    ot150Hours: 3,
+    shabbatHours: 0,
+    grossEstimate: (7 + 1.25 * 2 + 1.5 * 3) * RATE,
   },
 );
 
