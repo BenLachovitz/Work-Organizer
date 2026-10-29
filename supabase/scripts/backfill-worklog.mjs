@@ -1,9 +1,18 @@
 /**
  * One-time backfill: seeds work_log_entries for every guard's PUBLISHED
- * roster assignments in the current calendar month, so the owner can see
- * the new personal work-log/estimated-salary feature populated immediately
- * after deploying it -- instead of waiting for each guard to open /worklog
+ * roster assignments across ALL of history (every published week, not
+ * just the current month), so the estimated-salary feature -- and in
+ * particular the vacation/sick-pay formula in src/lib/payroll.ts's
+ * quarterlyLeaveDayValue(), which needs several real months of history
+ * to be meaningful at all -- has real data to work from immediately,
+ * instead of waiting for each guard to open every past week in /worklog
  * themselves (useWorkLogWeek only seeds lazily, one guard/week at a time).
+ *
+ * Originally scoped to just the current month (when the owner only
+ * needed to see this month's numbers); widened once it became clear the
+ * absence-pay formula's wild swings during calibration were at least
+ * partly because the system had almost no real history to average over,
+ * not purely a wrong formula.
  *
  * Deliberately PUBLISHED-only (schedule_runs.is_published), never a draft or
  * merely 'generated' week -- an unpublished roster is not a real commitment
@@ -22,8 +31,8 @@
  * change to a shift's clock window will not silently desync it; just update
  * both if that ever happens.
  *
- * Run manually, once, after Phases 1-5 are deployed:
- *   node supabase/scripts/backfill-worklog-month.mjs
+ * Run manually, whenever needed (safe to re-run):
+ *   node supabase/scripts/backfill-worklog.mjs
  */
 
 import { readFile } from 'node:fs/promises';
@@ -53,15 +62,10 @@ async function sql(query) {
 }
 
 // "Today" in Asia/Jerusalem, the same convention src/lib/dates.ts's
-// todayInIsrael() uses -- the month this backfills is Israel's current one,
-// not whatever month the machine running this script happens to be in.
+// todayInIsrael() uses.
 const todayIsrael = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date());
-const [y, m] = todayIsrael.split('-').map(Number);
-const monthStart = `${y}-${String(m).padStart(2, '0')}-01`;
-const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
-const monthEnd = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
-console.log(`Backfilling work_log_entries for ${monthStart}..${monthEnd} (published rosters only)\n`);
+console.log(`Backfilling work_log_entries for every published roster through ${todayIsrael}\n`);
 
 const result = await sql(`
   WITH shift_hours (shift, start_h, end_h) AS (
@@ -87,7 +91,7 @@ const result = await sql(`
       JOIN shift_hours sh ON sh.shift = a.shift
      WHERE r.is_published
        AND a.guard_id IS NOT NULL
-       AND a.target_date BETWEEN '${monthStart}' AND '${monthEnd}'
+       AND a.target_date <= '${todayIsrael}'
   ),
   inserted AS (
     INSERT INTO work_log_entries
@@ -100,8 +104,9 @@ const result = await sql(`
     RETURNING source_assignment_id
   )
   SELECT p.display_name,
+         MIN(t.target_date)                                        AS earliest_date,
          COUNT(t.assignment_id)                                    AS published_assignments,
-         COUNT(i.source_assignment_id)                             AS newly_inserted
+         COUNT(i.source_assignment_id)                              AS newly_inserted
     FROM target t
     JOIN profiles p ON p.id = t.guard_id
     LEFT JOIN inserted i ON i.source_assignment_id = t.assignment_id
@@ -110,10 +115,10 @@ const result = await sql(`
 `);
 
 const rows = result?.[0]?.rows ?? result?.result ?? result;
-console.log('guard                published  newly inserted');
+console.log('guard                earliest date  published  newly inserted');
 for (const row of Array.isArray(rows) ? rows : []) {
   console.log(
-    `${String(row.display_name).padEnd(20)} ${String(row.published_assignments).padStart(9)}  ${String(row.newly_inserted).padStart(14)}`,
+    `${String(row.display_name).padEnd(20)} ${String(row.earliest_date).padEnd(13)}  ${String(row.published_assignments).padStart(9)}  ${String(row.newly_inserted).padStart(14)}`,
   );
 }
 console.log('\nDone. Already-seeded or guard-edited entries were left untouched.');
