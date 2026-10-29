@@ -6,7 +6,7 @@ import type { AbsenceType, ScheduleAssignment, WorkLogAbsence, WorkLogEntry, Wor
 import { addDays, israelDateTime, type DateKey } from '@/lib/dates';
 import { SHIFTS, type ShiftType } from '@/lib/shifts';
 import {
-  averageDailyGross,
+  averageDailyBaseWage,
   consecutiveSickDayCount,
   sickPayPercent,
   type RateHistoryEntry,
@@ -450,7 +450,7 @@ export interface AbsencePayout {
   /** 1 for vacation; 0/0.5/1 for sick, by which day of a consecutive run
    *  this one is (Israeli Sick Pay Law). */
   percent: number;
-  /** averageDailyGross(...) for this absence's own trailing window, times
+  /** averageDailyBaseWage(...) for this absence's own trailing window, times
    *  `percent`. 0 if there is no logged work history to average from yet. */
   value: number;
 }
@@ -519,7 +519,7 @@ export function useAbsencePayouts(
       const relevant = entries.filter(
         (e) => e.target_date >= windowStart && e.target_date <= absence.target_date,
       );
-      const avgDaily = averageDailyGross(relevant, rateHistory);
+      const avgDaily = averageDailyBaseWage(relevant, rateHistory);
       const percent =
         absence.type === 'vacation'
           ? 1

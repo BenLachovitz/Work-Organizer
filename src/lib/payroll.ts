@@ -334,38 +334,46 @@ export function computePayroll(
 // ---------------------------------------------------------------------------
 // Sick/vacation absences (migration 64) -- NOT worked time, never touches
 // the overtime engine above. A completely separate, much simpler
-// calculation: a guard's own average daily gross pay, times a percentage
+// calculation: a guard's average REGULAR daily wage, times a percentage
 // (100% for vacation; 0/50/100% for sick, by Israeli law, depending on
 // which day of a consecutive run of sick days this one is). There is no
 // balance/ledger here by deliberate choice -- see the feature plan.
 // ---------------------------------------------------------------------------
 
 /**
- * A guard's average gross pay per worked day, from their own logged work
- * entries (NOT absences). Groups by date and runs computePayroll once per
- * day rather than once over the whole set, so a day's own overtime/rest-
- * day premiums land in ITS average contribution rather than being blended
- * across the whole window first. Callers are expected to pass only entries
- * dated ON OR BEFORE the absence being valued -- see rateForDate's own
- * "never recalculate the past" principle, which this mirrors: an absence
- * logged for a past date should value itself from history up to that date,
- * not from work logged afterward. Returns 0 if `entries` is empty (nothing
- * to average yet).
+ * A guard's average REGULAR wage per worked day -- average(hours worked
+ * that day) x the rate in effect on that day, deliberately EXCLUDING any
+ * overtime or rest-day premium. This matches Israeli law directly:
+ * vacation/sick pay is based on the regular wage a day would normally earn,
+ * not on whatever premium a guard happened to earn on days they actually
+ * worked. An earlier version of this function ran every historical day
+ * through the full overtime engine (computePayroll) and averaged THAT --
+ * which skewed heavily toward whatever a guard who often works 12h/
+ * weekend shifts actually earns, nowhere near a plain 8h day's value (a
+ * guard who mostly works 12h shifts saw a ~570 estimate for a vacation day
+ * they expected to be ~300-330, i.e. roughly an 8h day's regular wage).
+ *
+ * Callers are expected to pass only entries dated ON OR BEFORE the absence
+ * being valued -- see rateForDate's own "never recalculate the past"
+ * principle, which this mirrors. Returns 0 if there is no day with both
+ * logged hours and a known rate to average from yet.
  */
-export function averageDailyGross(entries: WorkLogEntry[], rateHistory: RateHistoryEntry[]): number {
-  const byDate = new Map<DateKey, WorkLogEntry[]>();
+export function averageDailyBaseWage(entries: WorkLogEntry[], rateHistory: RateHistoryEntry[]): number {
+  const hoursByDate = new Map<DateKey, number>();
   for (const entry of entries) {
-    const list = byDate.get(entry.target_date);
-    if (list) list.push(entry);
-    else byDate.set(entry.target_date, [entry]);
+    const hours = (new Date(entry.actual_end).getTime() - new Date(entry.actual_start).getTime()) / MS_PER_HOUR;
+    hoursByDate.set(entry.target_date, (hoursByDate.get(entry.target_date) ?? 0) + hours);
   }
-  if (byDate.size === 0) return 0;
 
   let total = 0;
-  for (const dayEntries of byDate.values()) {
-    total += computePayroll(dayEntries, rateHistory).grossEstimate;
+  let countedDays = 0;
+  for (const [date, hours] of hoursByDate) {
+    const rate = rateForDate(rateHistory, date);
+    if (rate == null) continue; // no known rate that far back -- exclude, don't count as 0
+    total += hours * rate;
+    countedDays++;
   }
-  return total / byDate.size;
+  return countedDays === 0 ? 0 : total / countedDays;
 }
 
 /**

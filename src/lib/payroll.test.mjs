@@ -31,7 +31,7 @@ register(
   import.meta.url,
 );
 
-const { computePayroll, averageDailyGross, consecutiveSickDayCount, sickPayPercent } =
+const { computePayroll, averageDailyBaseWage, consecutiveSickDayCount, sickPayPercent } =
   await import('./payroll.ts');
 const { addDays, israelDateTime } = await import('./dates.ts');
 
@@ -268,34 +268,50 @@ check(
   }
 }
 
-// 11. averageDailyGross: two worked days with different gross pay (one
-//     plain 8h, one with 2h of OT) should average to the mean of the two
-//     days' OWN gross, not something derived from total hours overall.
+// 11. averageDailyBaseWage: an 8h day and a 10h day should average to the
+//     mean of hours x rate per day (8*40=320, 10*40=400 -> 360) -- plain
+//     hours, no overtime tiering at all.
 {
-  const plainDayGross = 8 * RATE; // day A: 320
-  const otDayGross = (8 + 1.25 * 2) * RATE; // day B: 420
-  const avg = averageDailyGross(
+  const avg = averageDailyBaseWage(
     [entry(MONDAY, 6.75, 14.75), entry(THURSDAY, 6.75, 16.75)],
     FLAT_HISTORY,
   );
-  const expected = (plainDayGross + otDayGross) / 2;
+  const expected = (8 * RATE + 10 * RATE) / 2; // 360
   if (Math.abs(avg - expected) <= 0.01) {
-    console.log('  \x1b[32mok\x1b[0m   averageDailyGross averages per-day gross, not total/hours');
+    console.log('  \x1b[32mok\x1b[0m   averageDailyBaseWage averages hours x rate per day');
   } else {
     failures++;
-    console.log(`  \x1b[31mFAIL\x1b[0m averageDailyGross: expected ${expected}, got ${avg}`);
+    console.log(`  \x1b[31mFAIL\x1b[0m averageDailyBaseWage: expected ${expected}, got ${avg}`);
   }
 }
 
-// 12. averageDailyGross with no entries at all returns 0 (nothing to
-//     value an absence against yet), rather than NaN or throwing.
+// 12. The actual bug this fixes: a 12h shift on a Saturday would be worth
+//     FAR more than 12 x rate once computePayroll's overtime/Shabbat
+//     premiums are applied (150%/175% stacking) -- but averageDailyBaseWage
+//     must still count it as plain hours x rate, never the premium-
+//     inflated gross. Reported by the owner: a guard who regularly works
+//     long/weekend shifts saw a ~570 vacation-day estimate instead of the
+//     ~320 a plain 8h day (and real Israeli law) says it should be.
 {
-  const avg = averageDailyGross([], FLAT_HISTORY);
-  if (avg === 0) {
-    console.log('  \x1b[32mok\x1b[0m   averageDailyGross([]) is 0, not NaN');
+  const avg = averageDailyBaseWage([entry(SATURDAY, 6.75, 18.75)], FLAT_HISTORY); // 12h
+  const expected = 12 * RATE; // 480, NOT computePayroll's much higher Shabbat/OT gross
+  if (Math.abs(avg - expected) <= 0.01) {
+    console.log('  \x1b[32mok\x1b[0m   averageDailyBaseWage excludes overtime/Shabbat premium entirely');
   } else {
     failures++;
-    console.log(`  \x1b[31mFAIL\x1b[0m averageDailyGross([]) expected 0, got ${avg}`);
+    console.log(`  \x1b[31mFAIL\x1b[0m averageDailyBaseWage: expected ${expected} (plain hours), got ${avg}`);
+  }
+}
+
+// 13. averageDailyBaseWage with no entries at all returns 0 (nothing to
+//     value an absence against yet), rather than NaN or throwing.
+{
+  const avg = averageDailyBaseWage([], FLAT_HISTORY);
+  if (avg === 0) {
+    console.log('  \x1b[32mok\x1b[0m   averageDailyBaseWage([]) is 0, not NaN');
+  } else {
+    failures++;
+    console.log(`  \x1b[31mFAIL\x1b[0m averageDailyBaseWage([]) expected 0, got ${avg}`);
   }
 }
 
