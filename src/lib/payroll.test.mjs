@@ -31,7 +31,8 @@ register(
   import.meta.url,
 );
 
-const { computePayroll } = await import('./payroll.ts');
+const { computePayroll, averageDailyGross, consecutiveSickDayCount, sickPayPercent } =
+  await import('./payroll.ts');
 const { addDays, israelDateTime } = await import('./dates.ts');
 
 // An arbitrary Sunday -- every other date below is derived from it with
@@ -222,6 +223,81 @@ check(
   computePayroll([entry(RH_EVE, 18, 22)], FLAT_HISTORY),
   { hours100: 0, hours125: 0, hours150: 4, hours175: 0, hours200: 0, grossEstimate: 1.5 * 4 * RATE },
 );
+
+// 9. sickPayPercent: Israeli Sick Pay Law's 0% / 50% / 100% tiers.
+{
+  const cases = [[1, 0], [2, 0.5], [3, 0.5], [4, 1], [5, 1]];
+  let ok = true;
+  for (const [day, expected] of cases) {
+    if (sickPayPercent(day) !== expected) {
+      ok = false;
+      console.log(`       sickPayPercent(${day}) = ${sickPayPercent(day)}, expected ${expected}`);
+    }
+  }
+  if (ok) console.log('  \x1b[32mok\x1b[0m   sickPayPercent day-tier mapping (1/2/3/4/5 -> 0/.5/.5/1/1)');
+  else {
+    failures++;
+    console.log('  \x1b[31mFAIL\x1b[0m sickPayPercent day-tier mapping');
+  }
+}
+
+// 10. consecutiveSickDayCount: counts backward through a run, stops at a
+//     gap -- a guard sick Mon-Wed, back at work Thu, sick again Fri should
+//     NOT see Friday as day 4 of the earlier run.
+{
+  const sickDates = new Set([MONDAY, addDays(MONDAY, 1), addDays(MONDAY, 2), addDays(MONDAY, 4)]);
+  const cases = [
+    [MONDAY, 1],
+    [addDays(MONDAY, 1), 2],
+    [addDays(MONDAY, 2), 3],
+    [addDays(MONDAY, 3), 0], // Thursday: not sick, gap
+    [addDays(MONDAY, 4), 1], // Friday: sick again, but the run restarts
+  ];
+  let ok = true;
+  for (const [date, expected] of cases) {
+    const actual = consecutiveSickDayCount(sickDates, date);
+    if (actual !== expected) {
+      ok = false;
+      console.log(`       consecutiveSickDayCount(${date}) = ${actual}, expected ${expected}`);
+    }
+  }
+  if (ok) console.log('  \x1b[32mok\x1b[0m   consecutiveSickDayCount stops at a gap and restarts after it');
+  else {
+    failures++;
+    console.log('  \x1b[31mFAIL\x1b[0m consecutiveSickDayCount');
+  }
+}
+
+// 11. averageDailyGross: two worked days with different gross pay (one
+//     plain 8h, one with 2h of OT) should average to the mean of the two
+//     days' OWN gross, not something derived from total hours overall.
+{
+  const plainDayGross = 8 * RATE; // day A: 320
+  const otDayGross = (8 + 1.25 * 2) * RATE; // day B: 420
+  const avg = averageDailyGross(
+    [entry(MONDAY, 6.75, 14.75), entry(THURSDAY, 6.75, 16.75)],
+    FLAT_HISTORY,
+  );
+  const expected = (plainDayGross + otDayGross) / 2;
+  if (Math.abs(avg - expected) <= 0.01) {
+    console.log('  \x1b[32mok\x1b[0m   averageDailyGross averages per-day gross, not total/hours');
+  } else {
+    failures++;
+    console.log(`  \x1b[31mFAIL\x1b[0m averageDailyGross: expected ${expected}, got ${avg}`);
+  }
+}
+
+// 12. averageDailyGross with no entries at all returns 0 (nothing to
+//     value an absence against yet), rather than NaN or throwing.
+{
+  const avg = averageDailyGross([], FLAT_HISTORY);
+  if (avg === 0) {
+    console.log('  \x1b[32mok\x1b[0m   averageDailyGross([]) is 0, not NaN');
+  } else {
+    failures++;
+    console.log(`  \x1b[31mFAIL\x1b[0m averageDailyGross([]) expected 0, got ${avg}`);
+  }
+}
 
 if (failures > 0) {
   console.error(`\n${failures} fixture(s) failed.\n`);

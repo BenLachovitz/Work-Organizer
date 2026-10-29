@@ -138,3 +138,18 @@ export interface WorkLogEntry {
   created_at: string;
   updated_at: string;
 }
+
+export type AbsenceType = 'sick' | 'vacation';
+
+/** A guard's self-reported sick/vacation day -- no balance or ledger, see
+ *  migration 64. Not worked time; never read by computePayroll's overtime
+ *  engine, only by the separate sick/vacation pay calculation. */
+export interface WorkLogAbsence {
+  id: string;
+  guard_id: string;
+  target_date: string;
+  type: AbsenceType;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}

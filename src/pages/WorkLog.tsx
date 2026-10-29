@@ -2,11 +2,17 @@ import { useMemo, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { Alert, Button, Card, EmptyState, Modal, Spinner, cn } from '@/components/ui';
 import {
+  useAbsencePayouts,
+  useAbsencesWeek,
+  useDeleteAbsence,
   useDeleteWorkLogEntry,
+  useMonthlyAbsences,
   useMonthlySalarySummary,
   useMyRateHistory,
+  useUpsertAbsence,
   useUpsertWorkLogEntry,
   useWorkLogWeek,
+  type AbsencePayout,
 } from '@/hooks/useWorkLog';
 import {
   HEBREW_DAYS,
@@ -22,7 +28,7 @@ import {
 } from '@/lib/dates';
 import { SHIFTS, SHIFT_TYPES, type ShiftType } from '@/lib/shifts';
 import { computePayroll, type RateHistoryEntry } from '@/lib/payroll';
-import type { WorkLogEntry } from '@/types/database';
+import type { AbsenceType, WorkLogAbsence, WorkLogEntry } from '@/types/database';
 
 const SOURCE_BADGE: Record<WorkLogEntry['source'], { label: string; tone: string }> = {
   roster: { label: 'מהסידור', tone: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400' },
@@ -137,9 +143,13 @@ function WeeklyView({
   setEditing: (v: WorkLogEntry | 'new' | null) => void;
 }) {
   const { data: entries, isLoading } = useWorkLogWeek(weekStart);
+  const { data: absences, isLoading: absencesLoading } = useAbsencesWeek(weekStart);
+  const [editingAbsence, setEditingAbsence] = useState<WorkLogAbsence | 'new' | null>(null);
   const rows = entries ?? [];
+  const absenceRows = absences ?? [];
   const totalHours = rows.reduce((sum, e) => sum + durationHours(e), 0);
   const breakdown = useMemo(() => computePayroll(rows, rateHistory), [rows, rateHistory]);
+  const { payouts: absencePayouts } = useAbsencePayouts(absenceRows, rateHistory);
 
   return (
     <>
@@ -155,7 +165,12 @@ function WeeklyView({
         </Button>
       </div>
 
-      <PayrollCard totalHours={totalHours} hasRate={rateHistory.length > 0} breakdown={breakdown} />
+      <PayrollCard
+        totalHours={totalHours}
+        hasRate={rateHistory.length > 0}
+        breakdown={breakdown}
+        absencePayouts={absencePayouts}
+      />
 
       <div className="space-y-4">
         {isLoading ? (
@@ -185,11 +200,36 @@ function WeeklyView({
         </Button>
       </div>
 
+      {!absencesLoading && absenceRows.length > 0 && (
+        <Card className="space-y-0 divide-y divide-slate-100 p-0 dark:divide-slate-800">
+          {absencePayouts.map((payout) => (
+            <AbsenceRow
+              key={payout.absence.id}
+              payout={payout}
+              today={today}
+              onClick={() => setEditingAbsence(payout.absence)}
+            />
+          ))}
+        </Card>
+      )}
+
+      <Button fullWidth variant="ghost" onClick={() => setEditingAbsence('new')}>
+        + הוספת היעדרות
+      </Button>
+
       {editing && (
         <WorkLogEntryEditor
           entry={editing === 'new' ? null : editing}
           defaultDate={editing === 'new' ? today : editing.target_date}
           onClose={() => setEditing(null)}
+        />
+      )}
+
+      {editingAbsence && (
+        <AbsenceEditor
+          absence={editingAbsence === 'new' ? null : editingAbsence}
+          defaultDate={editingAbsence === 'new' ? today : editingAbsence.target_date}
+          onClose={() => setEditingAbsence(null)}
         />
       )}
     </>
@@ -253,15 +293,86 @@ function EntryRow({
   );
 }
 
+const ABSENCE_LABEL: Record<AbsenceType, string> = { vacation: 'חופשה', sick: 'מחלה' };
+const ABSENCE_BADGE_TONE: Record<AbsenceType, string> = {
+  vacation: 'bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-400',
+  sick: 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400',
+};
+const ABSENCE_BAR_COLOR: Record<AbsenceType, string> = { vacation: '#38bdf8', sick: '#fb7185' };
+
+/** Shared row rendering for a sick/vacation absence, same interactive-vs-
+ *  read-only shape as EntryRow. Shows the computed ₪ value and, for a sick
+ *  day, which percentage tier it landed on -- vacation is always 100%, so
+ *  showing a percentage there would be noise. */
+function AbsenceRow({
+  payout,
+  today,
+  onClick,
+}: {
+  payout: AbsencePayout;
+  today: DateKey;
+  onClick?: () => void;
+}) {
+  const { absence, percent, value } = payout;
+  const isToday = absence.target_date === today;
+  const className = cn(
+    'flex w-full items-center gap-3 px-4 py-3 text-start transition-colors',
+    onClick && 'hover:bg-slate-50 dark:hover:bg-slate-800/60',
+    isToday && 'bg-brand-50/70 dark:bg-brand-950/40',
+  );
+  const content = (
+    <>
+      <span
+        className="w-1.5 self-stretch rounded-full"
+        style={{ backgroundColor: ABSENCE_BAR_COLOR[absence.type] }}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
+            יום {HEBREW_DAYS[dayIndex(absence.target_date)]}
+          </p>
+          <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-bold', ABSENCE_BADGE_TONE[absence.type])}>
+            {ABSENCE_LABEL[absence.type]}
+          </span>
+        </div>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          {formatDayMonth(absence.target_date)}
+          {absence.note && ` · ${absence.note}`}
+        </p>
+      </div>
+      <div className="text-end">
+        <p className="num text-xs font-bold text-slate-700 dark:text-slate-300">₪{value.toFixed(0)}</p>
+        {absence.type === 'sick' && (
+          <p className="num text-[10px] text-slate-400 dark:text-slate-500">{Math.round(percent * 100)}%</p>
+        )}
+      </div>
+    </>
+  );
+  return onClick ? (
+    <button type="button" onClick={onClick} className={className}>
+      {content}
+    </button>
+  ) : (
+    <div className={className}>{content}</div>
+  );
+}
+
 function PayrollCard({
   totalHours,
   hasRate,
   breakdown,
+  absencePayouts,
 }: {
   totalHours: number;
   hasRate: boolean;
   breakdown: ReturnType<typeof computePayroll>;
+  absencePayouts: AbsencePayout[];
 }) {
+  const vacation = absencePayouts.filter((p) => p.absence.type === 'vacation');
+  const sick = absencePayouts.filter((p) => p.absence.type === 'sick');
+  const vacationTotal = vacation.reduce((sum, p) => sum + p.value, 0);
+  const sickTotal = sick.reduce((sum, p) => sum + p.value, 0);
+  const grandTotal = breakdown.grossEstimate + vacationTotal + sickTotal;
   return (
     <Card className="space-y-1">
       <div className="flex items-center justify-between">
@@ -294,10 +405,22 @@ function PayrollCard({
                 </span>
               ))}
           </div>
+          {vacation.length > 0 && (
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+              <span>חופשה · {vacation.length} ימים</span>
+              <span className="num">₪{vacationTotal.toFixed(0)}</span>
+            </div>
+          )}
+          {sick.length > 0 && (
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+              <span>מחלה · {sick.length} ימים</span>
+              <span className="num">₪{sickTotal.toFixed(0)}</span>
+            </div>
+          )}
           <div className="flex items-center justify-between border-t border-slate-100 pt-1.5 dark:border-slate-800">
             <p className="text-sm font-bold text-brand-700 dark:text-brand-400">הערכת שכר ברוטו</p>
             <p className="num text-base font-bold text-brand-700 dark:text-brand-400">
-              ₪{breakdown.grossEstimate.toFixed(0)}
+              ₪{grandTotal.toFixed(0)}
             </p>
           </div>
         </>
@@ -321,11 +444,18 @@ function MonthlySummary({
   today: DateKey;
 }) {
   const { data: entries, isLoading } = useMonthlySalarySummary(monthKey);
+  const { data: absences, isLoading: absencesLoading } = useMonthlyAbsences(monthKey);
   const [editing, setEditing] = useState<WorkLogEntry | null>(null);
+  const [editingAbsence, setEditingAbsence] = useState<WorkLogAbsence | null>(null);
   const rows = entries ?? [];
+  const absenceRows = absences ?? [];
   const totalHours = rows.reduce((sum, e) => sum + durationHours(e), 0);
   const breakdown = useMemo(() => computePayroll(rows, rateHistory), [rows, rateHistory]);
+  const { payouts: absencePayouts } = useAbsencePayouts(absenceRows, rateHistory);
   const sortedRows = [...rows].sort((a, b) => a.target_date.localeCompare(b.target_date));
+  const sortedAbsencePayouts = [...absencePayouts].sort((a, b) =>
+    a.absence.target_date.localeCompare(b.absence.target_date),
+  );
 
   return (
     <>
@@ -353,7 +483,12 @@ function MonthlySummary({
         </Card>
       ) : (
         <>
-          <PayrollCard totalHours={totalHours} hasRate={rateHistory.length > 0} breakdown={breakdown} />
+          <PayrollCard
+            totalHours={totalHours}
+            hasRate={rateHistory.length > 0}
+            breakdown={breakdown}
+            absencePayouts={absencePayouts}
+          />
 
           {sortedRows.length === 0 ? (
             <Card className="p-0">
@@ -378,6 +513,22 @@ function MonthlySummary({
               ))}
             </Card>
           )}
+
+          {!absencesLoading && sortedAbsencePayouts.length > 0 && (
+            <Card className="space-y-0 divide-y divide-slate-100 p-0 dark:divide-slate-800">
+              <div className="px-4 py-2.5">
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">היעדרויות החודש</p>
+              </div>
+              {sortedAbsencePayouts.map((payout) => (
+                <AbsenceRow
+                  key={payout.absence.id}
+                  payout={payout}
+                  today={today}
+                  onClick={() => setEditingAbsence(payout.absence)}
+                />
+              ))}
+            </Card>
+          )}
         </>
       )}
 
@@ -390,6 +541,14 @@ function MonthlySummary({
           entry={editing}
           defaultDate={editing.target_date}
           onClose={() => setEditing(null)}
+        />
+      )}
+
+      {editingAbsence && (
+        <AbsenceEditor
+          absence={editingAbsence}
+          defaultDate={editingAbsence.target_date}
+          onClose={() => setEditingAbsence(null)}
         />
       )}
     </>
@@ -517,6 +676,108 @@ function WorkLogEntryEditor({
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="לדוגמה: נשארתי לסגור פרצה"
+            className={inputClass}
+          />
+        </Field>
+
+        {upsert.isError && <Alert tone="error">{(upsert.error as Error).message}</Alert>}
+        {del.isError && <Alert tone="error">{(del.error as Error).message}</Alert>}
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Logs a sick/vacation day -- a day off, not worked time, so there are no
+ * time fields at all. No balance/ledger check against either type (see the
+ * feature plan): the guard is trusted to know what they actually have left.
+ * The computed ₪ value itself is shown in the row list after saving, not
+ * live in this modal -- it depends on a trailing-history query keyed to
+ * the date, which is already what the list view fetches for every row.
+ */
+function AbsenceEditor({
+  absence,
+  defaultDate,
+  onClose,
+}: {
+  /** NULL for a brand-new absence. */
+  absence: WorkLogAbsence | null;
+  defaultDate: DateKey;
+  onClose: () => void;
+}) {
+  const upsert = useUpsertAbsence();
+  const del = useDeleteAbsence();
+
+  const [date, setDate] = useState<DateKey>(defaultDate);
+  const [type, setType] = useState<AbsenceType>(absence?.type ?? 'vacation');
+  const [note, setNote] = useState(absence?.note ?? '');
+
+  const save = () => {
+    upsert.mutate(
+      { id: absence?.id, target_date: date, type, note: note.trim() || null },
+      { onSuccess: onClose },
+    );
+  };
+
+  return (
+    <Modal
+      title={absence ? 'עריכת היעדרות' : 'הוספת היעדרות'}
+      onClose={onClose}
+      footer={
+        <div className="flex items-center gap-2">
+          <Button fullWidth loading={upsert.isPending} onClick={save}>
+            שמירה
+          </Button>
+          {absence && (
+            <Button
+              variant="danger"
+              loading={del.isPending}
+              onClick={() => del.mutate(absence.id, { onSuccess: onClose })}
+            >
+              מחיקה
+            </Button>
+          )}
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {!absence && (
+          <Field label="תאריך">
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className={inputClass}
+            />
+          </Field>
+        )}
+
+        <Field label="סוג היעדרות">
+          <div className="grid grid-cols-2 gap-2">
+            {(['vacation', 'sick'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setType(t)}
+                className={cn(
+                  'rounded-xl border-2 px-3 py-2.5 text-center text-sm font-bold transition-all',
+                  type === t
+                    ? 'border-brand-600 bg-brand-50 text-brand-700 dark:bg-brand-950/50 dark:text-brand-400'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300',
+                )}
+              >
+                {ABSENCE_LABEL[t]}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        <Field label="הערה (אופציונלי)">
+          <input
+            type="text"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="לדוגמה: אישור רופא"
             className={inputClass}
           />
         </Field>

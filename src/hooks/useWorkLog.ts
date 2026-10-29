@@ -1,10 +1,16 @@
+import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { requireSupabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import type { ScheduleAssignment, WorkLogEntry, WorkLogSource } from '@/types/database';
+import type { AbsenceType, ScheduleAssignment, WorkLogAbsence, WorkLogEntry, WorkLogSource } from '@/types/database';
 import { addDays, israelDateTime, type DateKey } from '@/lib/dates';
 import { SHIFTS, type ShiftType } from '@/lib/shifts';
-import type { RateHistoryEntry } from '@/lib/payroll';
+import {
+  averageDailyGross,
+  consecutiveSickDayCount,
+  sickPayPercent,
+  type RateHistoryEntry,
+} from '@/lib/payroll';
 
 export const workLogKeys = {
   week: (guardId: string, weekStart: DateKey) => ['workLogWeek', guardId, weekStart] as const,
@@ -329,4 +335,202 @@ export function useMonthlySalarySummary(monthKey: string) {
       return (data as WorkLogEntry[]) ?? [];
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Sick/vacation absences (migration 64) -- see src/lib/payroll.ts's own
+// "Sick/vacation absences" section for the calculation itself. No
+// balance/ledger: these hooks only ever read/write what the guard logged.
+// ---------------------------------------------------------------------------
+
+const ABSENCE_DAYS_OF_HISTORY = 90;
+/** Generous margin for backtracking a consecutive sick-day streak -- real
+ *  streaks are rarely more than a handful of days. */
+const SICK_STREAK_LOOKBACK_DAYS = 10;
+
+export function useAbsencesWeek(weekStart: DateKey) {
+  const { profile } = useAuth();
+  const guardId = profile?.id ?? '';
+  const weekEnd = addDays(weekStart, 6);
+
+  return useQuery({
+    queryKey: ['workLogAbsenceWeek', guardId, weekStart],
+    enabled: Boolean(guardId && weekStart),
+    queryFn: async (): Promise<WorkLogAbsence[]> => {
+      const { data, error } = await requireSupabase()
+        .from('work_log_absences')
+        .select('*')
+        .eq('guard_id', guardId)
+        .gte('target_date', weekStart)
+        .lte('target_date', weekEnd);
+      if (error) throw new Error(error.message);
+      return ((data as WorkLogAbsence[]) ?? []).sort((a, b) => a.target_date.localeCompare(b.target_date));
+    },
+  });
+}
+
+export function useMonthlyAbsences(monthKey: string) {
+  const { profile } = useAuth();
+  const guardId = profile?.id ?? '';
+  const { start, end } = monthRange(monthKey);
+
+  return useQuery({
+    queryKey: ['workLogAbsenceMonth', guardId, monthKey],
+    enabled: Boolean(guardId),
+    queryFn: async (): Promise<WorkLogAbsence[]> => {
+      const { data, error } = await requireSupabase()
+        .from('work_log_absences')
+        .select('*')
+        .eq('guard_id', guardId)
+        .gte('target_date', start)
+        .lte('target_date', end);
+      if (error) throw new Error(error.message);
+      return ((data as WorkLogAbsence[]) ?? []).sort((a, b) => a.target_date.localeCompare(b.target_date));
+    },
+  });
+}
+
+const invalidateAllAbsenceViews = (qc: ReturnType<typeof useQueryClient>) =>
+  void qc.invalidateQueries({
+    predicate: (query) =>
+      query.queryKey[0] === 'workLogAbsenceWeek' ||
+      query.queryKey[0] === 'workLogAbsenceMonth' ||
+      query.queryKey[0] === 'absencePayoutContext',
+  });
+
+export interface UpsertAbsenceInput {
+  id?: string;
+  target_date: DateKey;
+  type: AbsenceType;
+  note?: string | null;
+}
+
+/** Adds or edits a single absence. A guard can log at most one absence per
+ *  day (migration 64's UNIQUE constraint) -- surfaced here as a friendly
+ *  message rather than a raw Postgres error. */
+export function useUpsertAbsence() {
+  const qc = useQueryClient();
+  const { profile } = useAuth();
+  const guardId = profile?.id ?? '';
+
+  return useMutation({
+    mutationFn: async (input: UpsertAbsenceInput) => {
+      const db = requireSupabase();
+      const row = {
+        guard_id: guardId,
+        target_date: input.target_date,
+        type: input.type,
+        note: input.note ?? null,
+      };
+      const { error } = input.id
+        ? await db.from('work_log_absences').update(row).eq('id', input.id)
+        : await db.from('work_log_absences').insert(row);
+      if (error) {
+        if (error.code === '23505') throw new Error('כבר קיים רישום היעדרות לתאריך הזה.');
+        throw new Error(error.message);
+      }
+    },
+    onSuccess: () => invalidateAllAbsenceViews(qc),
+  });
+}
+
+export function useDeleteAbsence() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await requireSupabase().from('work_log_absences').delete().eq('id', id);
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => invalidateAllAbsenceViews(qc),
+  });
+}
+
+export interface AbsencePayout {
+  absence: WorkLogAbsence;
+  /** 1 for vacation; 0/0.5/1 for sick, by which day of a consecutive run
+   *  this one is (Israeli Sick Pay Law). */
+  percent: number;
+  /** averageDailyGross(...) for this absence's own trailing window, times
+   *  `percent`. 0 if there is no logged work history to average from yet. */
+  value: number;
+}
+
+/**
+ * Values a set of absences (one roster week's or one month's worth) against
+ * the guard's own work history. Each absence is valued from a window
+ * ENDING AT ITS OWN DATE -- never from work logged afterward -- the same
+ * "don't let the future rewrite the past" principle the rate history
+ * already follows. One combined fetch covers every absence passed in
+ * (bounded by the earliest/latest date among them) rather than one round
+ * trip per absence; each absence's own window is then a client-side slice
+ * of that shared fetch.
+ */
+export function useAbsencePayouts(
+  absences: WorkLogAbsence[],
+  rateHistory: RateHistoryEntry[],
+): { payouts: AbsencePayout[]; total: number; isLoading: boolean } {
+  const { profile } = useAuth();
+  const guardId = profile?.id ?? '';
+
+  const dates = absences.map((a) => a.target_date).sort();
+  const minDate = dates[0];
+  const maxDate = dates[dates.length - 1];
+
+  const query = useQuery({
+    queryKey: ['absencePayoutContext', guardId, minDate, maxDate],
+    enabled: Boolean(guardId && minDate && maxDate),
+    queryFn: async (): Promise<{ entries: WorkLogEntry[]; sickDates: Set<DateKey> }> => {
+      const db = requireSupabase();
+      const entriesFrom = addDays(minDate!, -ABSENCE_DAYS_OF_HISTORY);
+      const sickFrom = addDays(minDate!, -SICK_STREAK_LOOKBACK_DAYS);
+
+      const [entriesRes, sickRes] = await Promise.all([
+        db
+          .from('work_log_entries')
+          .select('*')
+          .eq('guard_id', guardId)
+          .gte('target_date', entriesFrom)
+          .lte('target_date', maxDate!),
+        db
+          .from('work_log_absences')
+          .select('target_date')
+          .eq('guard_id', guardId)
+          .eq('type', 'sick')
+          .gte('target_date', sickFrom)
+          .lte('target_date', maxDate!),
+      ]);
+      if (entriesRes.error) throw new Error(entriesRes.error.message);
+      if (sickRes.error) throw new Error(sickRes.error.message);
+
+      return {
+        entries: (entriesRes.data as WorkLogEntry[]) ?? [],
+        sickDates: new Set(
+          ((sickRes.data as { target_date: DateKey }[]) ?? []).map((r) => r.target_date),
+        ),
+      };
+    },
+  });
+
+  const payouts = useMemo((): AbsencePayout[] => {
+    if (!query.data) return [];
+    const { entries, sickDates } = query.data;
+    return absences.map((absence) => {
+      const windowStart = addDays(absence.target_date, -ABSENCE_DAYS_OF_HISTORY);
+      const relevant = entries.filter(
+        (e) => e.target_date >= windowStart && e.target_date <= absence.target_date,
+      );
+      const avgDaily = averageDailyGross(relevant, rateHistory);
+      const percent =
+        absence.type === 'vacation'
+          ? 1
+          : sickPayPercent(consecutiveSickDayCount(sickDates, absence.target_date));
+      return { absence, percent, value: avgDaily * percent };
+    });
+  }, [query.data, absences, rateHistory]);
+
+  return {
+    payouts,
+    total: payouts.reduce((sum, p) => sum + p.value, 0),
+    isLoading: query.isLoading,
+  };
 }

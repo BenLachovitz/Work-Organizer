@@ -330,3 +330,64 @@ export function computePayroll(
 
   return { hours100, hours125, hours150, hours175, hours200, grossEstimate };
 }
+
+// ---------------------------------------------------------------------------
+// Sick/vacation absences (migration 64) -- NOT worked time, never touches
+// the overtime engine above. A completely separate, much simpler
+// calculation: a guard's own average daily gross pay, times a percentage
+// (100% for vacation; 0/50/100% for sick, by Israeli law, depending on
+// which day of a consecutive run of sick days this one is). There is no
+// balance/ledger here by deliberate choice -- see the feature plan.
+// ---------------------------------------------------------------------------
+
+/**
+ * A guard's average gross pay per worked day, from their own logged work
+ * entries (NOT absences). Groups by date and runs computePayroll once per
+ * day rather than once over the whole set, so a day's own overtime/rest-
+ * day premiums land in ITS average contribution rather than being blended
+ * across the whole window first. Callers are expected to pass only entries
+ * dated ON OR BEFORE the absence being valued -- see rateForDate's own
+ * "never recalculate the past" principle, which this mirrors: an absence
+ * logged for a past date should value itself from history up to that date,
+ * not from work logged afterward. Returns 0 if `entries` is empty (nothing
+ * to average yet).
+ */
+export function averageDailyGross(entries: WorkLogEntry[], rateHistory: RateHistoryEntry[]): number {
+  const byDate = new Map<DateKey, WorkLogEntry[]>();
+  for (const entry of entries) {
+    const list = byDate.get(entry.target_date);
+    if (list) list.push(entry);
+    else byDate.set(entry.target_date, [entry]);
+  }
+  if (byDate.size === 0) return 0;
+
+  let total = 0;
+  for (const dayEntries of byDate.values()) {
+    total += computePayroll(dayEntries, rateHistory).grossEstimate;
+  }
+  return total / byDate.size;
+}
+
+/**
+ * Which day, counting backward, `date` is within a consecutive run of sick
+ * days -- 1 if `date` itself is the first (nothing the day before it is
+ * also sick), 2 if the day before was also sick, etc. `sickDates` need only
+ * contain dates within a few days of `date`; anything further back is
+ * irrelevant once a gap is found.
+ */
+export function consecutiveSickDayCount(sickDates: ReadonlySet<DateKey>, date: DateKey): number {
+  let count = 0;
+  let d = date;
+  while (sickDates.has(d)) {
+    count++;
+    d = addDays(d, -1);
+  }
+  return count;
+}
+
+/** Israeli Sick Pay Law: day 1 unpaid, days 2-3 at 50%, day 4+ at 100%. */
+export function sickPayPercent(consecutiveDayNumber: number): number {
+  if (consecutiveDayNumber <= 1) return 0;
+  if (consecutiveDayNumber <= 3) return 0.5;
+  return 1;
+}
