@@ -343,60 +343,55 @@ export function computePayroll(
 // ---------------------------------------------------------------------------
 
 /**
- * Fixed divisor from Israeli Annual Leave Law (חוק חופשה שנתית §10) for an
- * hourly/daily-paid worker on a 6-day work week: day value = total wages
- * earned over 3 months / 75 (3 x 25 standard workdays/month). A 5-day-week
- * worker instead divides by ~65 (3 x 21.67) -- not used here because this
- * app's guards rotate across all 7 days (a 24/7 coverage roster), which is
- * the 6-day-week case. Confirmed against the owner's own August payslip
- * (two vacation days paid ~294 each).
- */
-const QUARTERLY_LEAVE_DIVISOR = 75;
-
-/**
- * A guard's day value for vacation/sick pay, per Israeli Annual Leave Law's
- * formula for an hourly/daily-paid worker: SUM of actual gross earnings
- * (overtime and Shabbat/holiday premiums INCLUDED -- this is total real
- * wages, not a "regular wage only" figure) over the reference period,
- * divided by the FIXED divisor above -- never by how many days were
- * actually worked. That fixed-divisor shape is what makes this come out
- * so much lower than "total ÷ days worked": a guard who works ~9 days a
- * month is still divided as if there were ~25 workdays in that stretch.
+ * A guard's day value for vacation/sick pay, per Israeli Annual Leave
+ * Law's actual formula for an hourly/daily-paid worker: sum the REGULAR
+ * wage (base rate x hours actually worked -- NOT capped at a standard
+ * day, but also NOT multiplied by any overtime/Shabbat premium) over the
+ * reference period, and divide by the number of DAYS ACTUALLY WORKED in
+ * that period -- never a fixed constant. A worked example from the
+ * owner's own source: 3 months of 6200/20 days, 5800/18 days, 6500/21
+ * days -> (6200+5800+6500)/(20+18+21) = 18500/59 = 313.55/day. The
+ * equivalent hours-based shortcut for a fixed hourly rate: average daily
+ * HOURS actually worked x the current rate.
  *
- * This went through two wrong turns before landing here, both surfaced by
- * the owner checking real payslip numbers: first, averaging per-day gross
- * over ACTUAL worked days (too high, since it implicitly assumes a worker
- * works every "normal" day); then, averaging HOURS CAPPED at a standard
- * day with no overtime at all (closer, but excluding real overtime pay
- * entirely turned out not to match either, once the fixed-divisor version
- * of the law was found). The strict legal version also picks the highest-
- * earning 3-consecutive-month stretch out of the trailing 12 months, not
- * simply "the 3 months right before this absence" -- deliberately
- * simplified to the latter here (the caller's own trailing window), since
- * the fixed divisor is doing the real work and the owner asked to ship
- * this and calibrate against production rather than chase that refinement
- * first.
+ * This went through three wrong turns before landing here, each one
+ * surfaced by the owner checking real payslip numbers against it:
+ * (1) averaging the full OVERTIME-INCLUSIVE gross (computePayroll) over
+ * actual worked days -- too high, since real overtime/Shabbat premiums
+ * don't belong in "regular wage" at all; (2) capping each day's hours at
+ * a standard 8h/7h day -- an invention of this codebase, not something
+ * any real source described, and still too high; (3) summing the full
+ * premium-inclusive gross and dividing by a FIXED divisor of 75 (a single
+ * forum anecdote, since superseded by a clearer, worked-example source) --
+ * far too LOW, because a fixed divisor assumes ~25 workdays/month, nothing
+ * like this guard's actual ~9. This version removes the premium multiplier
+ * (point 1's mistake) without capping hours (point 2's invention) and
+ * divides by actual days worked, not a fixed constant (point 3's mistake).
  *
  * Callers are expected to pass only entries dated ON OR BEFORE the absence
  * being valued -- see rateForDate's own "never recalculate the past"
- * principle, which this mirrors.
+ * principle, which this mirrors. Returns 0 if there is no day with both
+ * logged hours and a known rate to average from yet.
  */
 export function quarterlyLeaveDayValue(
   entries: WorkLogEntry[],
   rateHistory: RateHistoryEntry[],
 ): number {
-  const byDate = new Map<DateKey, WorkLogEntry[]>();
+  const hoursByDate = new Map<DateKey, number>();
   for (const entry of entries) {
-    const list = byDate.get(entry.target_date);
-    if (list) list.push(entry);
-    else byDate.set(entry.target_date, [entry]);
+    const hours = (new Date(entry.actual_end).getTime() - new Date(entry.actual_start).getTime()) / MS_PER_HOUR;
+    hoursByDate.set(entry.target_date, (hoursByDate.get(entry.target_date) ?? 0) + hours);
   }
 
   let total = 0;
-  for (const dayEntries of byDate.values()) {
-    total += computePayroll(dayEntries, rateHistory).grossEstimate;
+  let countedDays = 0;
+  for (const [date, hours] of hoursByDate) {
+    const rate = rateForDate(rateHistory, date);
+    if (rate == null) continue; // no known rate that far back -- exclude, don't count as 0
+    total += hours * rate; // regular wage only: flat rate, no overtime/Shabbat premium
+    countedDays++;
   }
-  return total / QUARTERLY_LEAVE_DIVISOR;
+  return countedDays === 0 ? 0 : total / countedDays;
 }
 
 /**

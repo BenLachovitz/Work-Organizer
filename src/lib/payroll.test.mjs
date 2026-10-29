@@ -277,39 +277,31 @@ function checkValue(name, actual, expected, tolerance = 0.01) {
   }
 }
 
-// 11. quarterlyLeaveDayValue: Israeli Annual Leave Law's hourly/daily-
-//     worker formula -- total gross earnings / a FIXED 75 (3 months x 25
-//     standard workdays, 6-day work week), never divided by how many days
-//     were actually worked. A single plain 8h day (gross 320) divided by
-//     the fixed 75, NOT by 1 worked day -- this is the whole point of the
-//     fixed divisor: it comes out much lower than "320 per worked day".
+// 11. quarterlyLeaveDayValue: a single plain 8h day divides by the 1 day
+//     actually worked -- NOT a fixed constant. Regular wage (hours x flat
+//     rate) only, same as the law's own "total wage / days worked" shape.
 checkValue(
-  'quarterlyLeaveDayValue divides by the FIXED 75, not by days worked',
+  'quarterlyLeaveDayValue: one plain 8h day / 1 day worked',
   quarterlyLeaveDayValue([entry(MONDAY, 6.75, 14.75)], FLAT_HISTORY),
-  (8 * RATE) / 75,
+  8 * RATE, // 320
 );
 
-// 12. Multiple worked days SUM their gross first -- three plain 8h days
-//     (960 total) / 75, not an average of the three days' own values.
+// 12. A 12h day is NOT capped at 8h -- its full hours count, just at the
+//     FLAT rate (no overtime premium). Averaged with a plain 8h day over
+//     the 2 days actually worked: (12*40 + 8*40) / 2 = 400.
 checkValue(
-  'quarterlyLeaveDayValue sums every worked day before dividing',
-  quarterlyLeaveDayValue(
-    [entry(MONDAY, 6.75, 14.75), entry(THURSDAY, 6.75, 14.75), entry(SATURDAY, 6.75, 14.75)],
-    FLAT_HISTORY,
-  ),
-  (8 * RATE + 8 * RATE + 1.5 * 8 * RATE) / 75, // Saturday's 8h is at the 150% rest-day base
+  'quarterlyLeaveDayValue: full (uncapped) hours, averaged over days worked',
+  quarterlyLeaveDayValue([entry(MONDAY, 6.75, 18.75), entry(THURSDAY, 6.75, 14.75)], FLAT_HISTORY),
+  (12 * RATE + 8 * RATE) / 2, // 400
 );
 
-// 13. Unlike the two earlier (superseded) attempts, overtime and Shabbat
-//     premiums ARE included in the total here -- this is real total
-//     earnings per the legal formula, not a "regular wage only" figure.
-//     A 12h Saturday shift (8h@150% + 2h@175% + 2h@200% = 780 gross, from
-//     the already-tested overtime engine) contributes its full 780, not a
-//     capped-at-8h, no-premium figure.
+// 13. The Shabbat/holiday premium is excluded -- a 12h Saturday shift
+//     counts its full 12h, but at the flat rate, not computePayroll's
+//     150%/175% premium (which would give 780, not 480).
 checkValue(
-  'quarterlyLeaveDayValue includes real overtime/Shabbat premiums in the total',
+  'quarterlyLeaveDayValue excludes the Shabbat/overtime premium entirely',
   quarterlyLeaveDayValue([entry(SATURDAY, 6.75, 18.75)], FLAT_HISTORY),
-  ((8 * 1.5 + 2 * 1.75 + 2 * 2.0) * RATE) / 75, // 780 / 75 = 10.4
+  12 * RATE, // 480, not 780
 );
 
 // 14. quarterlyLeaveDayValue with no entries at all returns 0 (nothing to
