@@ -8,6 +8,7 @@ import { Login } from '@/pages/Login';
 import { GuardHome } from '@/pages/GuardHome';
 import { Preferences } from '@/pages/Preferences';
 import { RosterView } from '@/pages/RosterView';
+import { WorkLog } from '@/pages/WorkLog';
 import { NotFound } from '@/pages/Placeholders';
 import { Spinner } from '@/components/ui';
 
@@ -104,6 +105,14 @@ function AppRoutes() {
         element={
           <Protected>
             <RosterView />
+          </Protected>
+        }
+      />
+      <Route
+        path="/worklog"
+        element={
+          <Protected>
+            <WorkLog />
           </Protected>
         }
       />

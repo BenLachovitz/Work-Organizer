@@ -185,6 +185,17 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    to: '/worklog',
+    label: 'יומן עבודה',
+    icon: (
+      <path
+        d="M12 7v5l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    ),
+  },
+  {
     to: '/manage',
     label: 'ניהול',
     managerOnly: true,
