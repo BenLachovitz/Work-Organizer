@@ -48,7 +48,6 @@ export interface AddEmployeeInput {
   employeeCode: string;
   displayName: string;
   defaultKamut: number;
-  hourlyRate?: number | null;
 }
 
 /**
@@ -65,7 +64,6 @@ export function useAddEmployee() {
         display_name: input.displayName,
         initial_role: 'guard',
         default_kamut: input.defaultKamut,
-        hourly_rate: input.hourlyRate ?? null,
       });
       if (error) {
         if (error.code === '23505') throw new Error('קוד עובד זה כבר קיים במערכת.');
@@ -152,33 +150,6 @@ export function useUpdateDefaultKamut() {
         : await db
             .from('roster_codes')
             .update({ default_kamut: input.value })
-            .eq('employee_code', input.employeeCode);
-      if (error) throw new Error(error.message);
-    },
-    onSuccess: () => void invalidateCodes(qc),
-  });
-}
-
-/**
- * Updates the flat hourly wage -- same dual-location shape as
- * useUpdateDefaultKamut: writes to profiles once claimed, to roster_codes
- * before (profileId: null means "still pending"). `value: null` clears it
- * back to "no rate set".
- */
-export function useUpdateHourlyRate() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: {
-      employeeCode: string;
-      profileId: string | null;
-      value: number | null;
-    }) => {
-      const db = requireSupabase();
-      const { error } = input.profileId
-        ? await db.from('profiles').update({ hourly_rate: input.value }).eq('id', input.profileId)
-        : await db
-            .from('roster_codes')
-            .update({ hourly_rate: input.value })
             .eq('employee_code', input.employeeCode);
       if (error) throw new Error(error.message);
     },

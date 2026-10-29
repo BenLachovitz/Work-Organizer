@@ -186,10 +186,64 @@ export function useDeleteWorkLogEntry(weekStart: DateKey) {
   });
 }
 
-/** Read-only: the guard's own hourly rate, manager-set. NULL = not set yet. */
-export function useGuardHourlyRate() {
-  const { profile } = useAuth();
-  return profile?.hourly_rate ?? null;
+/**
+ * The CALLER's own flat hourly rate -- one rate for every guard, a separate
+ * one for the manager (set once in Manager Settings, not per person). Goes
+ * through the my_hourly_rate() RPC rather than a table read: a guard has no
+ * read policy on payroll_settings at all, so the manager's own rate is
+ * never exposed to anyone else. NULL = not set yet.
+ */
+export function useMyHourlyRate() {
+  return useQuery({
+    queryKey: ['myHourlyRate'],
+    queryFn: async (): Promise<number | null> => {
+      const { data, error } = await requireSupabase().rpc('my_hourly_rate');
+      if (error) throw new Error(error.message);
+      return (data as number | null) ?? null;
+    },
+  });
+}
+
+export interface PayrollSettings {
+  guard_hourly_rate: number | null;
+  manager_hourly_rate: number | null;
+}
+
+const payrollSettingsKey = ['payrollSettings'] as const;
+
+/** Manager-only: both flat rates, for the Manager Settings editor. A guard
+ *  querying this gets zero rows (no read policy) -- see useMyHourlyRate for
+ *  what a guard is meant to use instead. */
+export function usePayrollSettings() {
+  return useQuery({
+    queryKey: payrollSettingsKey,
+    queryFn: async (): Promise<PayrollSettings> => {
+      const { data, error } = await requireSupabase()
+        .from('payroll_settings')
+        .select('guard_hourly_rate, manager_hourly_rate')
+        .eq('id', true)
+        .single();
+      if (error) throw new Error(error.message);
+      return data as PayrollSettings;
+    },
+  });
+}
+
+export function useUpdatePayrollSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: Partial<PayrollSettings>) => {
+      const { error } = await requireSupabase()
+        .from('payroll_settings')
+        .update(input)
+        .eq('id', true);
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: payrollSettingsKey });
+      void qc.invalidateQueries({ queryKey: ['myHourlyRate'] });
+    },
+  });
 }
 
 /** 'YYYY-MM' -> the first/last calendar DATE of that month (not the Sun-Sat

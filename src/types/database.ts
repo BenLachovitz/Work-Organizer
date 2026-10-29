@@ -21,9 +21,6 @@ export interface Profile {
   /** True for a seeded mock guard used to sanity-test the scheduler. Source
    *  of truth for the admin real/test view-mode toggle (src/lib/viewMode.ts). */
   is_demo: boolean;
-  /** Flat gross hourly wage, manager-set. NULL until set. Used only by the
-   *  personal work-log/estimated-salary feature (src/lib/payroll.ts). */
-  hourly_rate: number | null;
 }
 
 export interface RosterWeek {

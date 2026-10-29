@@ -254,10 +254,6 @@ export interface RosterCodeStatus {
   /** Same real/demo flag as Profile.is_demo, from whichever of roster_codes
    *  / profiles currently holds the truth for this row. */
   is_demo: boolean;
-  /** Flat gross hourly wage -- from roster_codes before claiming, from
-   *  profiles (the live, editable value) after. NULL until the manager sets
-   *  one. Used only by the personal work-log/estimated-salary feature. */
-  hourly_rate: number | null;
 }
 
 /** Registration status per badge code, for chasing guards who never signed up

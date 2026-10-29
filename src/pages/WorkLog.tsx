@@ -3,8 +3,8 @@ import { AppShell } from '@/components/layout/AppShell';
 import { Alert, Button, Card, EmptyState, Modal, Spinner, cn } from '@/components/ui';
 import {
   useDeleteWorkLogEntry,
-  useGuardHourlyRate,
   useMonthlySalarySummary,
+  useMyHourlyRate,
   useUpsertWorkLogEntry,
   useWorkLogWeek,
 } from '@/hooks/useWorkLog';
@@ -76,7 +76,7 @@ export function WorkLog() {
   const [weekStart, setWeekStart] = useState<DateKey>(weekStartOf(todayInIsrael()));
   const [monthKey, setMonthKey] = useState<string>(monthKeyOf(todayInIsrael()));
   const [editing, setEditing] = useState<WorkLogEntry | 'new' | null>(null);
-  const hourlyRate = useGuardHourlyRate();
+  const { data: hourlyRate = null } = useMyHourlyRate();
 
   const today = todayInIsrael();
 

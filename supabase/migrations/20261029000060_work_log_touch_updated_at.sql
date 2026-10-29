@@ -1,5 +1,5 @@
 -- ============================================================================
--- Migration 61 : Keep work_log_entries.updated_at honest
+-- Migration 60 : Keep work_log_entries.updated_at honest
 --
 -- Reuses touch_updated_at() (migration 2), already attached to
 -- weekly_submissions, for the same reason: an edited/manual entry's

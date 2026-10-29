@@ -1,6 +1,7 @@
 import { AppShell } from '@/components/layout/AppShell';
 import { DefaultMorningTargetSettings } from '@/components/manager/DefaultMorningTargetSettings';
 import { KippurHandlingSettings } from '@/components/manager/KippurHandlingSettings';
+import { PayrollRateSettings } from '@/components/manager/PayrollRateSettings';
 import { SubmissionWindowSettings } from '@/components/manager/SubmissionWindowSettings';
 import { ButtonLink } from '@/components/ui';
 
@@ -24,6 +25,7 @@ export function ManagerSettings() {
         <DefaultMorningTargetSettings defaultExpanded />
         <SubmissionWindowSettings defaultExpanded />
         <KippurHandlingSettings defaultExpanded />
+        <PayrollRateSettings defaultExpanded />
       </div>
     </AppShell>
   );

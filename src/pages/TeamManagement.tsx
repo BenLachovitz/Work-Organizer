@@ -10,7 +10,6 @@ import {
   useDeleteEmployee,
   useResetGuardPin,
   useUpdateDefaultKamut,
-  useUpdateHourlyRate,
 } from '@/hooks/useTeam';
 import { useViewMode } from '@/contexts/ViewModeContext';
 import { visibleToViewMode } from '@/lib/viewMode';
@@ -99,25 +98,20 @@ function AddEmployeeCard({ existingCodes }: { existingCodes: string[] }) {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [defaultKamut, setDefaultKamut] = useState(0);
-  const [hourlyRate, setHourlyRate] = useState('');
   const add = useAddEmployee();
 
   const codeTaken = existingCodes.includes(code);
   const canSubmit = name.trim().length > 0 && isValidEmployeeCode(code) && !codeTaken;
 
-  const parsedRate = hourlyRate.trim() === '' ? null : Number(hourlyRate);
-  const rateValid = parsedRate === null || (Number.isFinite(parsedRate) && parsedRate > 0);
-
   const submit = () => {
-    if (!canSubmit || !rateValid) return;
+    if (!canSubmit) return;
     add.mutate(
-      { employeeCode: code, displayName: name.trim(), defaultKamut, hourlyRate: parsedRate },
+      { employeeCode: code, displayName: name.trim(), defaultKamut },
       {
         onSuccess: () => {
           setName('');
           setCode('');
           setDefaultKamut(0);
-          setHourlyRate('');
         },
       },
     );
@@ -181,40 +175,13 @@ function AddEmployeeCard({ existingCodes }: { existingCodes: string[] }) {
         <Stepper value={defaultKamut} onChange={setDefaultKamut} />
       </div>
 
-      <div>
-        <label
-          className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300"
-          htmlFor="new-emp-rate"
-        >
-          שכר לשעה (₪) - אופציונלי
-        </label>
-        <input
-          id="new-emp-rate"
-          type="number"
-          min={0}
-          step="0.01"
-          value={hourlyRate}
-          onChange={(e) => setHourlyRate(e.target.value)}
-          placeholder="לדוגמה 35"
-          className={cn(
-            'w-full rounded-xl border-2 border-slate-200 p-3 text-sm text-slate-800',
-            'dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100',
-            'placeholder:text-slate-400 focus:border-brand-400 focus:outline-none dark:placeholder:text-slate-500',
-            !rateValid && 'border-rose-400',
-          )}
-        />
-        {!rateValid && (
-          <p className="mt-1.5 text-xs font-semibold text-rose-600">שכר לשעה חייב להיות מספר חיובי</p>
-        )}
-      </div>
-
       {add.isError && (
         <Alert tone="error">
           {add.error instanceof Error ? add.error.message : 'ההוספה נכשלה.'}
         </Alert>
       )}
 
-      <Button fullWidth disabled={!canSubmit || !rateValid} loading={add.isPending} onClick={submit}>
+      <Button fullWidth disabled={!canSubmit} loading={add.isPending} onClick={submit}>
         הוספת עובד
       </Button>
     </Card>
@@ -263,7 +230,6 @@ function TeamSection({
 function EmployeeRow({ row }: { row: RosterCodeStatus }) {
   const { profile } = useAuth();
   const updateDefault = useUpdateDefaultKamut();
-  const updateRate = useUpdateHourlyRate();
   const deleteEmployee = useDeleteEmployee();
   const resetPin = useResetGuardPin();
   const [confirming, setConfirming] = useState(false);
@@ -321,18 +287,6 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
           />
         </div>
       </div>
-
-      <HourlyRateField
-        value={row.hourly_rate}
-        disabled={updateRate.isPending}
-        onSave={(v) =>
-          updateRate.mutate({
-            employeeCode: row.employee_code,
-            profileId: row.profile_id,
-            value: v,
-          })
-        }
-      />
 
       {isSelf ? (
         <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
@@ -409,90 +363,14 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
         <Alert tone="success">הסיסמה אופסה. מסור ל{row.display_name} את הקוד החדש שבחרת.</Alert>
       )}
 
-      {(updateDefault.isError || updateRate.isError || deleteEmployee.isError || resetPin.isError) && (
+      {(updateDefault.isError || deleteEmployee.isError || resetPin.isError) && (
         <p className="mt-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800 dark:bg-rose-950/50 dark:text-rose-400">
-          {[updateDefault.error, updateRate.error, deleteEmployee.error, resetPin.error]
+          {[updateDefault.error, deleteEmployee.error, resetPin.error]
             .filter((e): e is Error => e instanceof Error)
             .map((e) => e.message)
             .join(' · ') || 'הפעולה נכשלה.'}
         </p>
       )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-
-/**
- * Inline editor for a guard's flat hourly wage (estimated-salary feature).
- * Shows the saved value as plain text; switches to an editable number input
- * on click, with a save button that only appears once the value actually
- * changed and is a valid positive number (or empty, to clear it back to
- * "no rate set").
- */
-function HourlyRateField({
-  value,
-  disabled,
-  onSave,
-}: {
-  value: number | null;
-  disabled?: boolean;
-  onSave: (value: number | null) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
-
-  const startEditing = () => {
-    setDraft(value != null ? String(value) : '');
-    setEditing(true);
-  };
-
-  const parsed = draft.trim() === '' ? null : Number(draft);
-  const valid = parsed === null || (Number.isFinite(parsed) && parsed > 0);
-  const changed = parsed !== value;
-
-  const save = () => {
-    if (!valid) return;
-    onSave(parsed);
-    setEditing(false);
-  };
-
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        onClick={startEditing}
-        className="mt-2 flex items-center gap-1.5 text-xs text-slate-500 hover:text-brand-600 dark:text-slate-400 dark:hover:text-brand-400"
-      >
-        <span className="font-semibold">שכר לשעה:</span>
-        <span className="num">{value != null ? `₪${value}` : 'לא הוגדר'}</span>
-      </button>
-    );
-  }
-
-  return (
-    <div className="mt-2 flex items-center gap-2">
-      <input
-        type="number"
-        min={0}
-        step="0.01"
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        placeholder="לדוגמה 35"
-        className={cn(
-          'num w-24 rounded-lg border-2 border-slate-200 p-1.5 text-xs text-slate-800',
-          'dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100',
-          'focus:border-brand-400 focus:outline-none',
-          !valid && 'border-rose-400',
-        )}
-      />
-      <Button size="sm" variant="ghost" disabled={!valid || !changed || disabled} onClick={save}>
-        שמור
-      </Button>
-      <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
-        ביטול
-      </Button>
     </div>
   );
 }
