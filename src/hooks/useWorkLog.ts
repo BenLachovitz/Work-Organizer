@@ -6,8 +6,8 @@ import type { AbsenceType, ScheduleAssignment, WorkLogAbsence, WorkLogEntry, Wor
 import { addDays, israelDateTime, type DateKey } from '@/lib/dates';
 import { SHIFTS, type ShiftType } from '@/lib/shifts';
 import {
-  averageDailyBaseWage,
   consecutiveSickDayCount,
+  quarterlyLeaveDayValue,
   sickPayPercent,
   type RateHistoryEntry,
 } from '@/lib/payroll';
@@ -343,6 +343,11 @@ export function useMonthlySalarySummary(monthKey: string) {
 // balance/ledger: these hooks only ever read/write what the guard logged.
 // ---------------------------------------------------------------------------
 
+/** ~3 months -- the reference period Israeli Annual Leave Law uses for an
+ *  hourly/daily worker's day value (quarterlyLeaveDayValue in payroll.ts).
+ *  Deliberately "the 3 months right before this absence", not the law's
+ *  stricter "highest-earning 3-consecutive-month stretch in the trailing
+ *  12 months" -- see that function's own comment for why. */
 const ABSENCE_DAYS_OF_HISTORY = 90;
 /** Generous margin for backtracking a consecutive sick-day streak -- real
  *  streaks are rarely more than a handful of days. */
@@ -450,8 +455,8 @@ export interface AbsencePayout {
   /** 1 for vacation; 0/0.5/1 for sick, by which day of a consecutive run
    *  this one is (Israeli Sick Pay Law). */
   percent: number;
-  /** averageDailyBaseWage(...) for this absence's own trailing window, times
-   *  `percent`. 0 if there is no logged work history to average from yet. */
+  /** quarterlyLeaveDayValue(...) for this absence's own trailing window,
+   *  times `percent`. 0 if there is no logged work history yet. */
   value: number;
 }
 
@@ -519,12 +524,12 @@ export function useAbsencePayouts(
       const relevant = entries.filter(
         (e) => e.target_date >= windowStart && e.target_date <= absence.target_date,
       );
-      const avgDaily = averageDailyBaseWage(relevant, rateHistory);
+      const dayValue = quarterlyLeaveDayValue(relevant, rateHistory);
       const percent =
         absence.type === 'vacation'
           ? 1
           : sickPayPercent(consecutiveSickDayCount(sickDates, absence.target_date));
-      return { absence, percent, value: avgDaily * percent };
+      return { absence, percent, value: dayValue * percent };
     });
   }, [query.data, absences, rateHistory]);
 

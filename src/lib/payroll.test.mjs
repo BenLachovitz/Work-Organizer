@@ -31,7 +31,7 @@ register(
   import.meta.url,
 );
 
-const { computePayroll, averageDailyBaseWage, consecutiveSickDayCount, sickPayPercent } =
+const { computePayroll, quarterlyLeaveDayValue, consecutiveSickDayCount, sickPayPercent } =
   await import('./payroll.ts');
 const { addDays, israelDateTime } = await import('./dates.ts');
 
@@ -268,65 +268,59 @@ check(
   }
 }
 
-// 11. averageDailyBaseWage: a plain 8h day and a 10h day both cap at the
-//     8h standard day, so both contribute 8*40=320 -- the 10h day's extra
-//     2h never counts, even at the plain (non-OT) rate.
-{
-  const avg = averageDailyBaseWage(
-    [entry(MONDAY, 6.75, 14.75), entry(THURSDAY, 6.75, 16.75)],
+function checkValue(name, actual, expected, tolerance = 0.01) {
+  if (Math.abs(actual - expected) <= tolerance) {
+    console.log(`  \x1b[32mok\x1b[0m   ${name}`);
+  } else {
+    failures++;
+    console.log(`  \x1b[31mFAIL\x1b[0m ${name}: expected ${expected}, got ${actual}`);
+  }
+}
+
+// 11. quarterlyLeaveDayValue: Israeli Annual Leave Law's hourly/daily-
+//     worker formula -- total gross earnings / a FIXED 75 (3 months x 25
+//     standard workdays, 6-day work week), never divided by how many days
+//     were actually worked. A single plain 8h day (gross 320) divided by
+//     the fixed 75, NOT by 1 worked day -- this is the whole point of the
+//     fixed divisor: it comes out much lower than "320 per worked day".
+checkValue(
+  'quarterlyLeaveDayValue divides by the FIXED 75, not by days worked',
+  quarterlyLeaveDayValue([entry(MONDAY, 6.75, 14.75)], FLAT_HISTORY),
+  (8 * RATE) / 75,
+);
+
+// 12. Multiple worked days SUM their gross first -- three plain 8h days
+//     (960 total) / 75, not an average of the three days' own values.
+checkValue(
+  'quarterlyLeaveDayValue sums every worked day before dividing',
+  quarterlyLeaveDayValue(
+    [entry(MONDAY, 6.75, 14.75), entry(THURSDAY, 6.75, 14.75), entry(SATURDAY, 6.75, 14.75)],
     FLAT_HISTORY,
-  );
-  const expected = 8 * RATE; // 320 -- both days capped to 8h
-  if (Math.abs(avg - expected) <= 0.01) {
-    console.log('  \x1b[32mok\x1b[0m   averageDailyBaseWage caps each day at its standard length');
-  } else {
-    failures++;
-    console.log(`  \x1b[31mFAIL\x1b[0m averageDailyBaseWage: expected ${expected}, got ${avg}`);
-  }
-}
+  ),
+  (8 * RATE + 8 * RATE + 1.5 * 8 * RATE) / 75, // Saturday's 8h is at the 150% rest-day base
+);
 
-// 12. The actual bug this fixes (two layers, both reported by the owner
-//     against their real payslip): a 12h shift on a Saturday would be
-//     worth far more than 8h x rate once (a) computePayroll's overtime/
-//     Shabbat premiums are applied, and (b) even without those, its full
-//     12 raw hours are counted instead of a standard 8h day. A guard who
-//     regularly works long/weekend shifts saw a ~570, then a ~411,
-//     vacation-day estimate before this -- their real payslip said ~294
-//     (8h x their ~40/h rate).
-{
-  const avg = averageDailyBaseWage([entry(SATURDAY, 6.75, 18.75)], FLAT_HISTORY); // 12h, daytime
-  const expected = 8 * RATE; // 320 -- capped to a standard 8h day, not 12h and not Shabbat-weighted
-  if (Math.abs(avg - expected) <= 0.01) {
-    console.log('  \x1b[32mok\x1b[0m   averageDailyBaseWage caps a long Saturday shift at a plain 8h day');
-  } else {
-    failures++;
-    console.log(`  \x1b[31mFAIL\x1b[0m averageDailyBaseWage: expected ${expected} (capped 8h), got ${avg}`);
-  }
-}
+// 13. Unlike the two earlier (superseded) attempts, overtime and Shabbat
+//     premiums ARE included in the total here -- this is real total
+//     earnings per the legal formula, not a "regular wage only" figure.
+//     A 12h Saturday shift (8h@150% + 2h@175% + 2h@200% = 780 gross, from
+//     the already-tested overtime engine) contributes its full 780, not a
+//     capped-at-8h, no-premium figure.
+checkValue(
+  'quarterlyLeaveDayValue includes real overtime/Shabbat premiums in the total',
+  quarterlyLeaveDayValue([entry(SATURDAY, 6.75, 18.75)], FLAT_HISTORY),
+  ((8 * 1.5 + 2 * 1.75 + 2 * 2.0) * RATE) / 75, // 780 / 75 = 10.4
+);
 
-// 13. A NIGHT shift caps at 7h, not 8 -- same classification the overtime
-//     engine itself uses (>=2h inside 22:00-06:00). A 12h night shift
-//     (night12-shaped) should contribute 7*rate, not 8*rate or 12*rate.
-{
-  const avg = averageDailyBaseWage([entry(MONDAY, 18.75, 30.75)], FLAT_HISTORY); // 12h night
-  const expected = 7 * RATE; // 280
-  if (Math.abs(avg - expected) <= 0.01) {
-    console.log('  \x1b[32mok\x1b[0m   averageDailyBaseWage caps a night shift at 7h, not 8h');
-  } else {
-    failures++;
-    console.log(`  \x1b[31mFAIL\x1b[0m averageDailyBaseWage: expected ${expected} (capped 7h), got ${avg}`);
-  }
-}
-
-// 14. averageDailyBaseWage with no entries at all returns 0 (nothing to
+// 14. quarterlyLeaveDayValue with no entries at all returns 0 (nothing to
 //     value an absence against yet), rather than NaN or throwing.
 {
-  const avg = averageDailyBaseWage([], FLAT_HISTORY);
-  if (avg === 0) {
-    console.log('  \x1b[32mok\x1b[0m   averageDailyBaseWage([]) is 0, not NaN');
+  const value = quarterlyLeaveDayValue([], FLAT_HISTORY);
+  if (value === 0) {
+    console.log('  \x1b[32mok\x1b[0m   quarterlyLeaveDayValue([]) is 0, not NaN');
   } else {
     failures++;
-    console.log(`  \x1b[31mFAIL\x1b[0m averageDailyBaseWage([]) expected 0, got ${avg}`);
+    console.log(`  \x1b[31mFAIL\x1b[0m quarterlyLeaveDayValue([]) expected 0, got ${value}`);
   }
 }
 

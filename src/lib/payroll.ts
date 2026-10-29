@@ -333,39 +333,58 @@ export function computePayroll(
 
 // ---------------------------------------------------------------------------
 // Sick/vacation absences (migration 64) -- NOT worked time, never touches
-// the overtime engine above. A completely separate, much simpler
-// calculation: a guard's average REGULAR daily wage, times a percentage
-// (100% for vacation; 0/50/100% for sick, by Israeli law, depending on
-// which day of a consecutive run of sick days this one is). There is no
-// balance/ledger here by deliberate choice -- see the feature plan.
+// the overtime engine above for the absence itself (an absence has no
+// clock times to run through it at all). A completely separate
+// calculation: a guard's day value under Israeli Annual Leave Law's
+// formula for an hourly/daily-paid worker, times a percentage (100% for
+// vacation; 0/50/100% for sick, depending on which day of a consecutive
+// run of sick days this one is). There is no balance/ledger here by
+// deliberate choice -- see the feature plan.
 // ---------------------------------------------------------------------------
 
 /**
- * A guard's average REGULAR wage per worked day -- average(hours worked
- * that day, CAPPED at that day's own standard length) x the rate in effect
- * on that day. Deliberately excludes overtime twice over: not just the
- * premium rate (125%/150%), but the extra HOURS themselves -- a 12h or 16h
- * shift only contributes its first 8 standard hours (7 for a night shift,
- * same NIGHT_SHIFT_MIN_HOURS/*_REGULAR_HOURS classification the overtime
- * engine above already uses) to the average, never the full duration.
+ * Fixed divisor from Israeli Annual Leave Law (חוק חופשה שנתית §10) for an
+ * hourly/daily-paid worker on a 6-day work week: day value = total wages
+ * earned over 3 months / 75 (3 x 25 standard workdays/month). A 5-day-week
+ * worker instead divides by ~65 (3 x 21.67) -- not used here because this
+ * app's guards rotate across all 7 days (a 24/7 coverage roster), which is
+ * the 6-day-week case. Confirmed against the owner's own August payslip
+ * (two vacation days paid ~294 each).
+ */
+const QUARTERLY_LEAVE_DIVISOR = 75;
+
+/**
+ * A guard's day value for vacation/sick pay, per Israeli Annual Leave Law's
+ * formula for an hourly/daily-paid worker: SUM of actual gross earnings
+ * (overtime and Shabbat/holiday premiums INCLUDED -- this is total real
+ * wages, not a "regular wage only" figure) over the reference period,
+ * divided by the FIXED divisor above -- never by how many days were
+ * actually worked. That fixed-divisor shape is what makes this come out
+ * so much lower than "total ÷ days worked": a guard who works ~9 days a
+ * month is still divided as if there were ~25 workdays in that stretch.
  *
- * This matches Israeli law directly: vacation/sick pay is based on the
- * regular wage a day would normally earn, not on whatever a guard who
- * often works long/weekend shifts actually earns including their overtime.
- * Two real-world corrections landed here, both reported by the owner
- * against their own payslip: (1) averaging the full OVERTIME-INCLUSIVE
- * gross (via computePayroll) instead of the regular wage at all -- fixed
- * first; (2) even after that, still averaging the full RAW HOURS of long
- * shifts instead of capping them at a standard day -- this fix. A guard
- * who mostly works 12h shifts had seen a ~570, then ~411, estimate for a
- * vacation day whose real payslip value was ~294 (8h x their ~40/h rate).
+ * This went through two wrong turns before landing here, both surfaced by
+ * the owner checking real payslip numbers: first, averaging per-day gross
+ * over ACTUAL worked days (too high, since it implicitly assumes a worker
+ * works every "normal" day); then, averaging HOURS CAPPED at a standard
+ * day with no overtime at all (closer, but excluding real overtime pay
+ * entirely turned out not to match either, once the fixed-divisor version
+ * of the law was found). The strict legal version also picks the highest-
+ * earning 3-consecutive-month stretch out of the trailing 12 months, not
+ * simply "the 3 months right before this absence" -- deliberately
+ * simplified to the latter here (the caller's own trailing window), since
+ * the fixed divisor is doing the real work and the owner asked to ship
+ * this and calibrate against production rather than chase that refinement
+ * first.
  *
  * Callers are expected to pass only entries dated ON OR BEFORE the absence
  * being valued -- see rateForDate's own "never recalculate the past"
- * principle, which this mirrors. Returns 0 if there is no day with both
- * logged hours and a known rate to average from yet.
+ * principle, which this mirrors.
  */
-export function averageDailyBaseWage(entries: WorkLogEntry[], rateHistory: RateHistoryEntry[]): number {
+export function quarterlyLeaveDayValue(
+  entries: WorkLogEntry[],
+  rateHistory: RateHistoryEntry[],
+): number {
   const byDate = new Map<DateKey, WorkLogEntry[]>();
   for (const entry of entries) {
     const list = byDate.get(entry.target_date);
@@ -374,30 +393,10 @@ export function averageDailyBaseWage(entries: WorkLogEntry[], rateHistory: RateH
   }
 
   let total = 0;
-  let countedDays = 0;
-  for (const [date, dayEntries] of byDate) {
-    const rate = rateForDate(rateHistory, date);
-    if (rate == null) continue; // no known rate that far back -- exclude, don't count as 0
-
-    const { start: nightStart, end: nightEnd } = nightWindow(date);
-    const nightStartMs = nightStart.getTime();
-    const nightEndMs = nightEnd.getTime();
-
-    let rawHours = 0;
-    let nightOverlapHours = 0;
-    for (const entry of dayEntries) {
-      const startMs = new Date(entry.actual_start).getTime();
-      const endMs = new Date(entry.actual_end).getTime();
-      rawHours += (endMs - startMs) / MS_PER_HOUR;
-      nightOverlapHours += overlapMs(startMs, endMs, nightStartMs, nightEndMs) / MS_PER_HOUR;
-    }
-    const standardDayHours =
-      nightOverlapHours >= NIGHT_SHIFT_MIN_HOURS ? NIGHT_SHIFT_REGULAR_HOURS : DAY_SHIFT_REGULAR_HOURS;
-
-    total += Math.min(rawHours, standardDayHours) * rate;
-    countedDays++;
+  for (const dayEntries of byDate.values()) {
+    total += computePayroll(dayEntries, rateHistory).grossEstimate;
   }
-  return countedDays === 0 ? 0 : total / countedDays;
+  return total / QUARTERLY_LEAVE_DIVISOR;
 }
 
 /**
