@@ -141,12 +141,24 @@ export interface UpsertWorkLogEntryInput {
   source_assignment_id?: string | null;
 }
 
+/** Matches every work-log week/month query regardless of which guard or
+ *  which week/month -- broader than strictly necessary, but a single edit
+ *  can affect a weekly view AND a monthly rollup at once (editing from
+ *  MonthlySummary, see WorkLog.tsx), and these queries are cheap enough
+ *  that precision here buys nothing worth the bookkeeping. */
+const invalidateAllWorkLogViews = (qc: ReturnType<typeof useQueryClient>) =>
+  void qc.invalidateQueries({
+    predicate: (query) => query.queryKey[0] === 'workLogWeek' || query.queryKey[0] === 'workLogMonth',
+  });
+
 /**
  * Adds a manual entry or edits an existing one -- a single row, direct
  * upsert (not an RPC): unlike a whole week's preferences, one entry has no
- * cross-row atomicity to protect.
+ * cross-row atomicity to protect. Not bound to any one week -- usable from
+ * both the weekly view and the monthly summary (WorkLog.tsx), which is
+ * also why invalidation is broad rather than keyed to a specific week.
  */
-export function useUpsertWorkLogEntry(weekStart: DateKey) {
+export function useUpsertWorkLogEntry() {
   const qc = useQueryClient();
   const { profile } = useAuth();
   const guardId = profile?.id ?? '';
@@ -169,21 +181,19 @@ export function useUpsertWorkLogEntry(weekStart: DateKey) {
         : await db.from('work_log_entries').insert(row);
       if (error) throw new Error(error.message);
     },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: workLogKeys.week(guardId, weekStart) }),
+    onSuccess: () => invalidateAllWorkLogViews(qc),
   });
 }
 
-export function useDeleteWorkLogEntry(weekStart: DateKey) {
+export function useDeleteWorkLogEntry() {
   const qc = useQueryClient();
-  const { profile } = useAuth();
-  const guardId = profile?.id ?? '';
 
   return useMutation({
     mutationFn: async (id: string) => {
       const { error } = await requireSupabase().from('work_log_entries').delete().eq('id', id);
       if (error) throw new Error(error.message);
     },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: workLogKeys.week(guardId, weekStart) }),
+    onSuccess: () => invalidateAllWorkLogViews(qc),
   });
 }
 

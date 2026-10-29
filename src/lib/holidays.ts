@@ -9,7 +9,7 @@
  * hand-rolled.
  */
 
-import { greg2abs, HDate } from '@hebcal/hdate';
+import { greg2abs, HDate, months } from '@hebcal/hdate';
 import { addDays, type DateKey } from '@/lib/dates';
 
 /** Yom Kippur itself is the 10th of Tishrei; "Kippur eve" is the 9th. */
@@ -70,4 +70,45 @@ export function getYomKippurWeekInfo(weekStart: DateKey): YomKippurWeekInfo | nu
 
   if (!erevDate || !dayDate) return null;
   return { erevDate, dayDate };
+}
+
+// ---------------------------------------------------------------------------
+// Major holidays (estimated-salary feature -- src/lib/payroll.ts)
+//
+// Under the Hours of Work and Rest Law, working a "Yom Tov" (major
+// biblical festival) day carries the same rest-day pay premium as Shabbat.
+// Only these 8 days qualify -- NOT the intermediate Chol HaMoed days of
+// Sukkot/Pesach (ordinary workdays), and NOT minor/modern holidays
+// (Chanukah, Purim, Yom HaAtzmaut, etc.), which carry no premium at all.
+// Dates are as observed in Israel: a single day for Sukkot/Pesach's last
+// day, not the diaspora's extra day.
+//
+// IMPORTANT: uses getMonth() + the `months` FIXED constants (NISAN=1,
+// SIVAN=3, TISHREI=7 -- always, regardless of leap year), NOT
+// getTishreiMonth() above. getTishreiMonth() numbers months relative to
+// Tishrei within the civil Hebrew year, which SHIFTS by one for Nisan/
+// Sivan/etc. in a leap year (Adar I+II inserted before them) -- it only
+// happens to work for Yom Kippur above because Tishrei is that scheme's
+// own reference point. getMonth()'s fixed constants have no such issue.
+// ---------------------------------------------------------------------------
+const MAJOR_HOLIDAYS: ReadonlyArray<readonly [number, number]> = [
+  [months.TISHREI, 1], // Rosh Hashanah day 1
+  [months.TISHREI, 2], // Rosh Hashanah day 2
+  [months.TISHREI, 10], // Yom Kippur (also handled specially above, for scheduling)
+  [months.TISHREI, 15], // Sukkot day 1
+  [months.TISHREI, 22], // Shmini Atzeret / Simchat Torah (combined, Israel)
+  [months.NISAN, 15], // Pesach day 1
+  [months.NISAN, 21], // Pesach day 7 (Israel)
+  [months.SIVAN, 6], // Shavuot
+];
+
+/** Whether `date` is one of the 8 major Yom Tov days (see MAJOR_HOLIDAYS'
+ *  own comment for exactly which, and which days are deliberately
+ *  excluded). Used only for the estimated-salary rest-day premium -- the
+ *  Yom Kippur scheduling feature above does not use this at all. */
+export function isMajorJewishHoliday(date: DateKey): boolean {
+  const hd = toHDate(date);
+  const month = hd.getMonth();
+  const day = hd.getDate();
+  return MAJOR_HOLIDAYS.some(([m, d]) => m === month && d === day);
 }

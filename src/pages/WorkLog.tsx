@@ -187,7 +187,6 @@ function WeeklyView({
 
       {editing && (
         <WorkLogEntryEditor
-          weekStart={weekStart}
           entry={editing === 'new' ? null : editing}
           defaultDate={editing === 'new' ? today : editing.target_date}
           onClose={() => setEditing(null)}
@@ -277,12 +276,23 @@ function PayrollCard({
         </p>
       ) : (
         <>
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>
-              רגיל {breakdown.regularHours.toFixed(1)} ש׳ · 125% {breakdown.ot125Hours.toFixed(1)} ש׳ ·
-              150% {breakdown.ot150Hours.toFixed(1)} ש׳
-              {breakdown.shabbatHours > 0 && ` · שבת ${breakdown.shabbatHours.toFixed(1)} ש׳`}
-            </span>
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+            {(
+              [
+                ['100%', breakdown.hours100],
+                ['125%', breakdown.hours125],
+                ['150%', breakdown.hours150],
+                ['175%', breakdown.hours175],
+                ['200%', breakdown.hours200],
+              ] as const
+            )
+              .filter(([, hours]) => hours > 0.005)
+              .map(([label, hours], i) => (
+                <span key={label}>
+                  {i > 0 && '· '}
+                  {label} {hours.toFixed(1)} ש׳
+                </span>
+              ))}
           </div>
           <div className="flex items-center justify-between border-t border-slate-100 pt-1.5 dark:border-slate-800">
             <p className="text-sm font-bold text-brand-700 dark:text-brand-400">הערכת שכר ברוטו</p>
@@ -311,6 +321,7 @@ function MonthlySummary({
   today: DateKey;
 }) {
   const { data: entries, isLoading } = useMonthlySalarySummary(monthKey);
+  const [editing, setEditing] = useState<WorkLogEntry | null>(null);
   const rows = entries ?? [];
   const totalHours = rows.reduce((sum, e) => sum + durationHours(e), 0);
   const breakdown = useMemo(() => computePayroll(rows, rateHistory), [rows, rateHistory]);
@@ -359,11 +370,11 @@ function MonthlySummary({
                   כל המשמרות החודש
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {sortedRows.length} רישומים · לעריכה, עבור/י לתצוגה השבועית
+                  {sortedRows.length} רישומים · לחיצה על רישום פותחת אותו לעריכה
                 </p>
               </div>
               {sortedRows.map((entry) => (
-                <EntryRow key={entry.id} entry={entry} today={today} />
+                <EntryRow key={entry.id} entry={entry} today={today} onClick={() => setEditing(entry)} />
               ))}
             </Card>
           )}
@@ -373,6 +384,14 @@ function MonthlySummary({
       <p className="px-1 text-xs text-slate-400 dark:text-slate-500">
         מסכם רק שבועות שכבר נצפו ביומן השבועי (ונזרעו אוטומטית). שבוע שלא נפתח עדיין לא יופיע כאן.
       </p>
+
+      {editing && (
+        <WorkLogEntryEditor
+          entry={editing}
+          defaultDate={editing.target_date}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </>
   );
 }
@@ -380,19 +399,17 @@ function MonthlySummary({
 // ---------------------------------------------------------------------------
 
 function WorkLogEntryEditor({
-  weekStart,
   entry,
   defaultDate,
   onClose,
 }: {
-  weekStart: DateKey;
   /** NULL for a brand-new manual entry. */
   entry: WorkLogEntry | null;
   defaultDate: DateKey;
   onClose: () => void;
 }) {
-  const upsert = useUpsertWorkLogEntry(weekStart);
-  const del = useDeleteWorkLogEntry(weekStart);
+  const upsert = useUpsertWorkLogEntry();
+  const del = useDeleteWorkLogEntry();
 
   const [date, setDate] = useState<DateKey>(defaultDate);
   const [shift, setShift] = useState<ShiftType | ''>(entry?.shift ?? '');

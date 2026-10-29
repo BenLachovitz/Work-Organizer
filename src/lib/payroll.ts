@@ -7,55 +7,62 @@
  * aliases the rest of the app uses (those only resolve under Vite).
  *
  * This is explicitly an ESTIMATE, not a legally-binding payroll calculation
- * -- see the feature plan for the specific simplifications: a fixed Friday
- * 16:00 - Sunday 00:00 Shabbat window (no sunset/candle-lighting data
- * exists in this repo) and no OTHER Jewish holidays in v1 (src/lib/
- * holidays.ts only knows Yom Kippur today).
+ * -- see the feature plan for the specific simplification: a fixed 16:00
+ * "erev" cutoff for both Shabbat and holidays (real start/end follows
+ * sunset, which this repo has no data for).
  */
 import { addDays, dayIndex, israelDateTime, type DateKey } from './dates';
+import { isMajorJewishHoliday } from './holidays';
 import type { WorkLogEntry } from '../types/database';
 
 export interface PayrollBreakdown {
-  /** All four hour buckets below are RAW, actual elapsed hours -- never
-   *  pay-weighted. They sum exactly to the total hours in the input, each
-   *  hour counted in exactly one bucket. Only grossEstimate applies rates/
-   *  multipliers; these are for display and for cross-checking against
-   *  another time-tracking source, which is exactly what surfaced the
-   *  previous version's bug (it exposed a pay-WEIGHTED shabbatHours under a
-   *  plain "hours" label, inflating it beyond real elapsed time). */
-  regularHours: number;
-  ot125Hours: number;
-  ot150Hours: number;
-  /** Raw hours that overlapped the weekend/Shabbat window, regardless of
-   *  which overtime tier they'd otherwise fall in -- see PayrollBreakdown's
-   *  own note above: this is a real hour count, not weighted. */
-  shabbatHours: number;
+  /**
+   * All five buckets are RAW, actual elapsed hours -- never pay-weighted
+   * -- and sum exactly to the total hours in the input, each hour counted
+   * in exactly one bucket by the RATE IT IS ACTUALLY PAID AT. There is no
+   * separate "Shabbat hours" category: a rest-day's (Shabbat or major
+   * holiday) base rate is 150%, so its own un-worked-overtime hours land
+   * in `hours150` together with an ordinary weekday's SECOND overtime
+   * tier -- they are paid identically, so they are counted identically.
+   * Only grossEstimate applies rates; these are for display and for
+   * cross-checking against another time-tracking source, which is
+   * exactly what surfaced a bug in an earlier version (it exposed a pay-
+   * WEIGHTED number under a plain "hours" label, inflating it beyond real
+   * elapsed time).
+   */
+  hours100: number;
+  hours125: number;
+  hours150: number;
+  hours175: number;
+  hours200: number;
   grossEstimate: number;
 }
 
 /**
- * Daily overtime tiers (Israeli law): the first OT_WIDTH_HOURS beyond the
- * standard day are +25 percentage points over the base rate, everything
- * beyond that is +50pp. The standard day itself is shorter for a NIGHT
- * shift -- 7h instead of 8 -- because Israeli law entitles a night-shift
- * employee (at least 2h of the shift inside the 22:00-06:00 window) to a
- * shorter standard day; overtime simply starts one hour earlier as a
- * result. The +25pp/+50pp SIZE is the same either way.
+ * Daily overtime tiers (Israeli law): the first OT_TIER_1_WIDTH_HOURS
+ * beyond the standard day are +25 percentage points over the base rate,
+ * everything beyond that is +50pp more (so +75pp total over the weekday
+ * base). The standard day itself is shorter for a NIGHT shift -- 7h
+ * instead of 8 -- because Israeli law entitles a night-shift employee (at
+ * least 2h of the shift inside the 22:00-06:00 window) to a shorter
+ * standard day; overtime simply starts one hour earlier as a result. The
+ * +25pp/+50pp SIZE is the same either way.
  *
  * Critically, these increments are ADDED to the base rate, never
  * multiplied onto it: a weekday's base is 100%, so its tiers read as the
- * familiar 100/125/150%. A rest-day's (Shabbat/holiday) base is already
- * 150% (see weekendWindow() below) BEFORE any daily overtime is even
- * considered, so the SAME +25/+50pp increments land at 150/175/200% there
- * -- not 150%x1.25 / 150%x1.5 (187.5%/225%), which the previous version of
- * this file incorrectly used. Stacking in Israeli law is additive on top
- * of whichever base rate applies, not multiplicative.
+ * familiar 100/125/150%. A rest-day's (Shabbat or major holiday) base is
+ * already 150% (see restDayOverlapHours() below) BEFORE any daily
+ * overtime is even considered, so the SAME +25/+50pp increments land at
+ * 150/175/200% there -- not 150%x1.25 / 150%x1.5 (187.5%/225%). Stacking
+ * in Israeli law is additive on top of whichever base rate applies, not
+ * multiplicative.
  */
 const DAY_SHIFT_REGULAR_HOURS = 8;
 const NIGHT_SHIFT_REGULAR_HOURS = 7;
 const OT_TIER_1_WIDTH_HOURS = 2;
 const OT_TIER_1_INCREMENT = 0.25;
 const OT_TIER_2_INCREMENT = 0.5;
+const REST_DAY_BASE = 1.5;
 
 /** A shift counts as a "night shift" for the 7h-day entitlement once at
  *  least this many hours of it fall inside 22:00-06:00 (standard Israeli
@@ -64,28 +71,71 @@ const OT_TIER_2_INCREMENT = 0.5;
  *  correctly too. */
 const NIGHT_SHIFT_MIN_HOURS = 2;
 
-/** Weekly reconciliation: total NON-weekend regular hours (after the daily
- *  split above) beyond 42/week are reclassified into the +25pp bucket --
- *  catches a guard stacking many short days that never individually
- *  trigger daily OT. Weekend hours are a separate accounting entirely (see
- *  weekendWindow()) and are not part of this reconciliation. */
+/** Weekly reconciliation: total NON-rest-day regular hours (after the
+ *  daily split above) beyond 42/week are reclassified into the +25pp
+ *  bucket -- catches a guard stacking many short days that never
+ *  individually trigger daily OT. Rest-day hours are a separate
+ *  accounting entirely (see restDayOverlapHours()) and are not part of
+ *  this reconciliation. */
 const WEEKLY_REGULAR_HOURS = 42;
 
 const MS_PER_HOUR = 3_600_000;
 
-/** Friday 16:00 to the following Sunday 00:00, Asia/Jerusalem -- a fixed
- *  approximation of the weekly rest period (real Shabbat start/end follows
- *  sunset, which this repo has no data for). `targetDate` can be any day of
- *  the week; the window returned is always for THAT week's Friday/Saturday. */
-function weekendWindow(targetDate: DateKey): { start: Date; end: Date } {
-  const weekStart = addDays(targetDate, -dayIndex(targetDate));
-  const friday = addDays(weekStart, 5);
-  const followingSunday = addDays(weekStart, 7);
-  return { start: israelDateTime(friday, 16), end: israelDateTime(followingSunday, 0) };
+/** `erevCutoffHour` the evening BEFORE `restDate`, to midnight after
+ *  `restDate` itself -- the shared "a rest day starts the evening before,
+ *  and lasts until the day after it ends" shape used for both Shabbat
+ *  (restDate = Saturday, so this spans Friday 16:00 -> Sunday 00:00) and a
+ *  major holiday's own eve-to-end. */
+function erevWindow(restDate: DateKey, erevCutoffHour: number): { start: Date; end: Date } {
+  return {
+    start: israelDateTime(addDays(restDate, -1), erevCutoffHour),
+    end: israelDateTime(addDays(restDate, 1), 0),
+  };
+}
+
+/**
+ * Every rest-day window touching `date` -- the week's Friday/Saturday,
+ * PLUS one per major holiday whose own window could overlap an entry that
+ * starts on `date`: `date` itself being the holiday (window runs from
+ * the evening before), OR `date + 1` being the holiday (so `date`'s own
+ * evening, from 16:00, is that holiday's "erev"). An entry logged on
+ * `date` can run into the following calendar day but never further --
+ * the UI caps a single entry at 18h -- so no other date ever needs
+ * checking. Overlapping windows (e.g. a 2-day Rosh Hashanah landing
+ * against a Friday/Saturday, same as the owner's own example) are merged
+ * so a segment spanning more than one is never double-counted.
+ */
+function restDayWindows(date: DateKey): { start: number; end: number }[] {
+  const weekStart = addDays(date, -dayIndex(date));
+  const saturday = addDays(weekStart, 6);
+  const windows = [erevWindow(saturday, 16)];
+
+  for (const d of [date, addDays(date, 1)]) {
+    if (isMajorJewishHoliday(d)) windows.push(erevWindow(d, 16));
+  }
+
+  const sorted = windows.map((w) => ({ start: w.start.getTime(), end: w.end.getTime() })).sort((a, b) => a.start - b.start);
+  const merged: { start: number; end: number }[] = [];
+  for (const w of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && w.start <= last.end) last.end = Math.max(last.end, w.end);
+    else merged.push({ ...w });
+  }
+  return merged;
 }
 
 function overlapMs(aStart: number, aEnd: number, bStart: number, bEnd: number): number {
   return Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart));
+}
+
+/** Total overlap, in hours, between [segStartMs, segEndMs) and ANY of
+ *  date's rest-day windows (already merged, so no double counting). */
+function restDayOverlapHours(segStartMs: number, segEndMs: number, date: DateKey): number {
+  let total = 0;
+  for (const w of restDayWindows(date)) {
+    total += overlapMs(segStartMs, segEndMs, w.start, w.end) / MS_PER_HOUR;
+  }
+  return Math.min(total, (segEndMs - segStartMs) / MS_PER_HOUR);
 }
 
 /** 22:00 on `date` to 06:00 the following day, Asia/Jerusalem -- the
@@ -118,31 +168,29 @@ export function rateForDate(history: RateHistoryEntry[], date: DateKey): number 
 }
 
 /**
- * Six RAW, mutually-exclusive hour buckets per day: {regular, ot125, ot150}
- * for non-weekend hours (base rate 1.0, so their effective multiplier is
- * 1 / 1.25 / 1.5), and the same three OT tiers again for hours that fall in
- * the weekend window (base rate 1.5, so their effective multiplier is
- * 1.5 / 1.75 / 2.0 -- additive, per the comment on the tier constants
- * above). Every logged hour lands in exactly one of the six; weeklyRegular
- * only ever moves hours between the first two non-weekend buckets.
+ * Five RAW, mutually-exclusive percentage buckets per day -- h100/h125/
+ * h150 for a weekday (base 1.0), h150/h175/h200 for a rest day (base 1.5).
+ * The weekday's own second-OT-tier and a rest day's own zero-OT tier both
+ * land in h150 -- same pay, same bucket. Every logged hour lands in
+ * exactly one of the five; weeklyRegular only ever moves hours between
+ * h100 and h125 (both non-rest-day).
  */
 interface DayBuckets {
-  regular: number;
-  ot125: number;
-  ot150: number;
-  shabbatRegular: number;
-  shabbatOt125: number;
-  shabbatOt150: number;
+  h100: number;
+  h125: number;
+  h150: number;
+  h175: number;
+  h200: number;
 }
 
-const EMPTY_BUCKETS = (): DayBuckets => ({
-  regular: 0,
-  ot125: 0,
-  ot150: 0,
-  shabbatRegular: 0,
-  shabbatOt125: 0,
-  shabbatOt150: 0,
-});
+const EMPTY_BUCKETS = (): DayBuckets => ({ h100: 0, h125: 0, h150: 0, h175: 0, h200: 0 });
+
+/** Which bucket a given (restDay, tier) combination pays at -- tier 0/1/2
+ *  meaning "within the standard day" / "+25pp" / "+50pp". */
+function bucketFor(isRestDay: boolean, tier: 0 | 1 | 2): keyof DayBuckets {
+  if (!isRestDay) return (['h100', 'h125', 'h150'] as const)[tier];
+  return (['h150', 'h175', 'h200'] as const)[tier];
+}
 
 /**
  * Computes the estimated gross-pay breakdown for one set of work-log
@@ -170,9 +218,6 @@ export function computePayroll(
     const dayEntries = [...byDate.get(date)!].sort(
       (a, b) => new Date(a.actual_start).getTime() - new Date(b.actual_start).getTime(),
     );
-    const { start: weekendStart, end: weekendEnd } = weekendWindow(date);
-    const weekendStartMs = weekendStart.getTime();
-    const weekendEndMs = weekendEnd.getTime();
     const { start: nightStart, end: nightEnd } = nightWindow(date);
     const nightStartMs = nightStart.getTime();
     const nightEndMs = nightEnd.getTime();
@@ -193,20 +238,10 @@ export function computePayroll(
     const regularThreshold =
       nightOverlapHours >= NIGHT_SHIFT_MIN_HOURS ? NIGHT_SHIFT_REGULAR_HOURS : DAY_SHIFT_REGULAR_HOURS;
 
-    const tiers = [
-      { from: 0, to: regularThreshold, bucket: 'regular' as const, shabbatBucket: 'shabbatRegular' as const },
-      {
-        from: regularThreshold,
-        to: regularThreshold + OT_TIER_1_WIDTH_HOURS,
-        bucket: 'ot125' as const,
-        shabbatBucket: 'shabbatOt125' as const,
-      },
-      {
-        from: regularThreshold + OT_TIER_1_WIDTH_HOURS,
-        to: Infinity,
-        bucket: 'ot150' as const,
-        shabbatBucket: 'shabbatOt150' as const,
-      },
+    const tiers: { from: number; to: number; tier: 0 | 1 | 2 }[] = [
+      { from: 0, to: regularThreshold, tier: 0 },
+      { from: regularThreshold, to: regularThreshold + OT_TIER_1_WIDTH_HOURS, tier: 1 },
+      { from: regularThreshold + OT_TIER_1_WIDTH_HOURS, to: Infinity, tier: 2 },
     ];
 
     const buckets = EMPTY_BUCKETS();
@@ -222,16 +257,15 @@ export function computePayroll(
         const segHours = segToHour - segFromHour;
         if (segHours <= 0) continue;
 
-        // This cumulative-hour segment's real clock-time range, so it can be
-        // tested against the weekend window.
+        // This cumulative-hour segment's real clock-time range, so it can
+        // be tested against the rest-day windows.
         const segStartMs = startMs + (segFromHour - cumHoursToday) * MS_PER_HOUR;
         const segEndMs = startMs + (segToHour - cumHoursToday) * MS_PER_HOUR;
-        const overlapHours =
-          overlapMs(segStartMs, segEndMs, weekendStartMs, weekendEndMs) / MS_PER_HOUR;
-        const plainHours = segHours - overlapHours;
+        const restHours = restDayOverlapHours(segStartMs, segEndMs, date);
+        const plainHours = segHours - restHours;
 
-        buckets[tier.bucket] += plainHours;
-        buckets[tier.shabbatBucket] += overlapHours;
+        buckets[bucketFor(false, tier.tier)] += plainHours;
+        buckets[bucketFor(true, tier.tier)] += restHours;
       }
 
       cumHoursToday += durationHours;
@@ -241,10 +275,10 @@ export function computePayroll(
   }
 
   // Resets at each roster week's own Sunday boundary -- so a multi-week
-  // input (the monthly rollup) reconciles 42h independently per week rather
-  // than treating the whole month as one continuous accumulation. Only the
-  // non-weekend buckets participate -- weekend hours are already at their
-  // own 150%+ base and are not folded into this weekday-hours cap.
+  // input (the monthly rollup) reconciles 42h independently per week
+  // rather than treating the whole month as one continuous accumulation.
+  // Only h100 participates -- rest-day hours are already at their own
+  // 150%+ base and are not folded into this weekday-hours cap.
   let cumulativeRegular = 0;
   let currentWeekStart: DateKey | null = null;
   for (const date of sortedDates) {
@@ -255,42 +289,44 @@ export function computePayroll(
     }
     const buckets = perDay.get(date)!;
     const before = cumulativeRegular;
-    cumulativeRegular += buckets.regular;
+    cumulativeRegular += buckets.h100;
     const excess =
       Math.max(0, cumulativeRegular - WEEKLY_REGULAR_HOURS) - Math.max(0, before - WEEKLY_REGULAR_HOURS);
-    buckets.regular -= excess;
-    buckets.ot125 += excess;
+    buckets.h100 -= excess;
+    buckets.h125 += excess;
   }
 
   // Gross is accumulated PER DAY, each at whatever rate was effective on
   // that specific date -- a day earlier than any recorded rate contributes
-  // its hours to the totals below but nothing to grossEstimate. Weekend
-  // buckets add their OT increment on top of the 1.5 base (additive, per
-  // the tier-constants comment), never multiplied onto it.
-  let regularHours = 0;
-  let ot125Hours = 0;
-  let ot150Hours = 0;
-  let shabbatHours = 0;
+  // its hours to the totals below but nothing to grossEstimate.
+  let hours100 = 0;
+  let hours125 = 0;
+  let hours150 = 0;
+  let hours175 = 0;
+  let hours200 = 0;
   let grossEstimate = 0;
   for (const date of sortedDates) {
     const b = perDay.get(date)!;
-    regularHours += b.regular;
-    ot125Hours += b.ot125;
-    ot150Hours += b.ot150;
-    shabbatHours += b.shabbatRegular + b.shabbatOt125 + b.shabbatOt150;
+    hours100 += b.h100;
+    hours125 += b.h125;
+    hours150 += b.h150;
+    hours175 += b.h175;
+    hours200 += b.h200;
 
     const rate = rateForDate(rateHistory, date);
     if (rate != null) {
       grossEstimate +=
         rate *
-        (b.regular +
-          (1 + OT_TIER_1_INCREMENT) * b.ot125 +
-          (1 + OT_TIER_2_INCREMENT) * b.ot150 +
-          1.5 * b.shabbatRegular +
-          (1.5 + OT_TIER_1_INCREMENT) * b.shabbatOt125 +
-          (1.5 + OT_TIER_2_INCREMENT) * b.shabbatOt150);
+        (b.h100 +
+          (1 + OT_TIER_1_INCREMENT) * b.h125 +
+          (1 + OT_TIER_2_INCREMENT) * b.h150 +
+          (REST_DAY_BASE + OT_TIER_1_INCREMENT) * b.h175 +
+          (REST_DAY_BASE + OT_TIER_2_INCREMENT) * b.h200);
+      // b.h150 covers BOTH a weekday's own 2nd OT tier (1+0.5) and a rest
+      // day's zero-OT hours (REST_DAY_BASE=1.5) -- same numeric value by
+      // design, see bucketFor()'s own comment.
     }
   }
 
-  return { regularHours, ot125Hours, ot150Hours, shabbatHours, grossEstimate };
+  return { hours100, hours125, hours150, hours175, hours200, grossEstimate };
 }
