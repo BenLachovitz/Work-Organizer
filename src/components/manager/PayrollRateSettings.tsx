@@ -1,17 +1,26 @@
 import { useState } from 'react';
 import { Alert, Button, Collapsible, Spinner, cn } from '@/components/ui';
-import { usePayrollSettings, useUpdatePayrollSettings, type PayrollSettings } from '@/hooks/useWorkLog';
+import { useAddRate, useDeleteRate, useRateHistory, type PayrollRate } from '@/hooks/useWorkLog';
+import { todayInIsrael, type DateKey } from '@/lib/dates';
+
+const ROLE_LABEL: Record<PayrollRate['role'], string> = { guard: 'מאבטחים', manager: 'מנהל' };
 
 /**
  * Standing, global rates for the estimated-salary feature (/worklog) --
- * one flat hourly wage for every guard, a separate one for the manager.
- * Not per-individual: everyone on the team is paid the same except the
- * manager, so there is nothing here to set per-guard (see TeamManagement
- * for actual per-guard settings like default כמות, which this is NOT one
- * of). Same standing-settings home as the scheduler defaults above it.
+ * one flat hourly wage for every guard, a separate one for the manager, as
+ * an APPEND-ONLY HISTORY rather than a single current value: changing a
+ * rate records a new entry effective from a chosen date, and every
+ * already-passed month keeps resolving to whatever rate was actually in
+ * effect back then. Nothing here is per-individual (see TeamManagement for
+ * actual per-guard settings like default כמות, which this is NOT one of).
  */
 export function PayrollRateSettings({ defaultExpanded = false }: { defaultExpanded?: boolean }) {
-  const { data, isLoading, error } = usePayrollSettings();
+  const { data, isLoading, error } = useRateHistory();
+
+  const currentFor = (role: PayrollRate['role']) => {
+    const rows = (data ?? []).filter((r) => r.role === role);
+    return rows.length ? rows[rows.length - 1]!.hourly_rate : null;
+  };
 
   return (
     <Collapsible
@@ -20,7 +29,7 @@ export function PayrollRateSettings({ defaultExpanded = false }: { defaultExpand
         isLoading
           ? 'טוען…'
           : data
-            ? `מאבטחים ₪${data.guard_hourly_rate ?? '—'} · מנהל ₪${data.manager_hourly_rate ?? '—'}`
+            ? `מאבטחים ₪${currentFor('guard') ?? '—'} · מנהל ₪${currentFor('manager') ?? '—'}`
             : 'שגיאה בטעינה'
       }
       defaultExpanded={defaultExpanded}
@@ -32,98 +41,127 @@ export function PayrollRateSettings({ defaultExpanded = false }: { defaultExpand
           <Spinner className="size-5 text-brand-600" />
         </div>
       ) : (
-        <RatesForm current={data} />
+        <div className="space-y-5">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            משפיע רק על הערכת השכר ב"יומן עבודה" - אינו מחובר למערכת שכר אמיתית ואינו נוגע לסידור
+            המשמרות עצמו. שינוי שכר חל מהתאריך שתבחר ואילך בלבד - חודשים שעברו ממשיכים להיחשב
+            לפי השכר שהיה בתוקף אז.
+          </p>
+          <RoleSection role="guard" history={data.filter((r) => r.role === 'guard')} />
+          <RoleSection role="manager" history={data.filter((r) => r.role === 'manager')} />
+        </div>
       )}
     </Collapsible>
   );
 }
 
-function RatesForm({ current }: { current: PayrollSettings }) {
-  const update = useUpdatePayrollSettings();
-  const [savedAt, setSavedAt] = useState<Date | null>(null);
-  const [guardRate, setGuardRate] = useState(current.guard_hourly_rate?.toString() ?? '');
-  const [managerRate, setManagerRate] = useState(current.manager_hourly_rate?.toString() ?? '');
+function RoleSection({
+  role,
+  history,
+}: {
+  role: PayrollRate['role'];
+  history: PayrollRate[];
+}) {
+  const add = useAddRate();
+  const del = useDeleteRate();
+  const [adding, setAdding] = useState(false);
+  const [rate, setRate] = useState('');
+  const [effectiveFrom, setEffectiveFrom] = useState<DateKey>(todayInIsrael());
 
-  const parse = (v: string) => (v.trim() === '' ? null : Number(v));
-  const guardParsed = parse(guardRate);
-  const managerParsed = parse(managerRate);
-  const guardValid = guardParsed === null || (Number.isFinite(guardParsed) && guardParsed > 0);
-  const managerValid = managerParsed === null || (Number.isFinite(managerParsed) && managerParsed > 0);
-  const dirty = guardParsed !== current.guard_hourly_rate || managerParsed !== current.manager_hourly_rate;
+  const sorted = [...history].sort((a, b) => b.effective_from.localeCompare(a.effective_from));
+  const parsed = rate.trim() === '' ? null : Number(rate);
+  const valid = parsed !== null && Number.isFinite(parsed) && parsed > 0;
 
   const save = () => {
-    if (!guardValid || !managerValid) return;
-    update.mutate(
-      { guard_hourly_rate: guardParsed, manager_hourly_rate: managerParsed },
-      { onSuccess: () => setSavedAt(new Date()) },
+    if (!valid) return;
+    add.mutate(
+      { role, hourlyRate: parsed, effectiveFrom },
+      {
+        onSuccess: () => {
+          setAdding(false);
+          setRate('');
+        },
+      },
     );
   };
 
   return (
-    <div className="space-y-4">
-      <p className="text-xs text-slate-500 dark:text-slate-400">
-        משפיע רק על הערכת השכר ב"יומן עבודה" - אינו מחובר למערכת שכר אמיתית ואינו נוגע לסידור
-        המשמרות עצמו.
-      </p>
+    <div className="space-y-2">
+      <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{ROLE_LABEL[role]}</p>
 
-      <Field label="שכר לשעה - מאבטחים (₪)" value={guardRate} onChange={setGuardRate} invalid={!guardValid} />
-      <Field
-        label="שכר לשעה - מנהל (₪)"
-        value={managerRate}
-        onChange={setManagerRate}
-        invalid={!managerValid}
-      />
-
-      {update.isError && (
-        <Alert tone="error">
-          {update.error instanceof Error ? update.error.message : 'השמירה נכשלה.'}
-        </Alert>
+      {sorted.length === 0 ? (
+        <p className="text-xs text-slate-400 dark:text-slate-500">לא הוגדר שכר עדיין.</p>
+      ) : (
+        <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 dark:divide-slate-800 dark:border-slate-700">
+          {sorted.map((r, i) => (
+            <div key={r.id} className="flex items-center justify-between gap-2 px-3 py-2">
+              <div>
+                <span className="num text-sm font-bold text-slate-800 dark:text-slate-100">
+                  ₪{r.hourly_rate}
+                </span>
+                <span className="ms-2 text-xs text-slate-500 dark:text-slate-400">
+                  {i === 0 ? 'נוכחי' : 'היה'} · מ-{r.effective_from}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => del.mutate(r.id)}
+                disabled={del.isPending}
+                className="text-xs text-rose-600 hover:underline disabled:opacity-50 dark:text-rose-400"
+              >
+                הסרה
+              </button>
+            </div>
+          ))}
+        </div>
       )}
-      {savedAt && !dirty && <Alert tone="success">נשמר בהצלחה.</Alert>}
 
-      <Button
-        fullWidth
-        size="sm"
-        disabled={!dirty || !guardValid || !managerValid}
-        loading={update.isPending}
-        onClick={save}
-      >
-        שמירה
-      </Button>
+      {adding ? (
+        <div className="flex flex-wrap items-end gap-2 rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800">
+          <label className="flex-1 min-w-[100px]">
+            <span className="mb-1 block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+              שכר חדש (₪)
+            </span>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              autoFocus
+              value={rate}
+              onChange={(e) => setRate(e.target.value)}
+              placeholder="לדוגמה 40"
+              className={cn(
+                'w-full rounded-lg border-2 border-slate-200 p-1.5 text-sm text-slate-800',
+                'dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
+                'focus:border-brand-400 focus:outline-none',
+                rate && !valid && 'border-rose-400',
+              )}
+            />
+          </label>
+          <label className="flex-1 min-w-[120px]">
+            <span className="mb-1 block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+              בתוקף מתאריך
+            </span>
+            <input
+              type="date"
+              value={effectiveFrom}
+              onChange={(e) => setEffectiveFrom(e.target.value)}
+              className="w-full rounded-lg border-2 border-slate-200 p-1.5 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-400 focus:outline-none"
+            />
+          </label>
+          <Button size="sm" disabled={!valid} loading={add.isPending} onClick={save}>
+            שמירה
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>
+            ביטול
+          </Button>
+          {add.isError && <Alert tone="error">{(add.error as Error).message}</Alert>}
+        </div>
+      ) : (
+        <Button size="sm" variant="ghost" onClick={() => setAdding(true)}>
+          + שכר חדש
+        </Button>
+      )}
     </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  invalid,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  invalid: boolean;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300">
-        {label}
-      </span>
-      <input
-        type="number"
-        min={0}
-        step="0.01"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="לדוגמה 35"
-        className={cn(
-          'w-full rounded-xl border-2 border-slate-200 p-2.5 text-sm text-slate-800',
-          'dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100',
-          'focus:border-brand-400 focus:outline-none',
-          invalid && 'border-rose-400',
-        )}
-      />
-    </label>
   );
 }

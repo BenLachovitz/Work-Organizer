@@ -4,7 +4,7 @@ import { Alert, Button, Card, EmptyState, Modal, Spinner, cn } from '@/component
 import {
   useDeleteWorkLogEntry,
   useMonthlySalarySummary,
-  useMyHourlyRate,
+  useMyRateHistory,
   useUpsertWorkLogEntry,
   useWorkLogWeek,
 } from '@/hooks/useWorkLog';
@@ -21,7 +21,7 @@ import {
   type DateKey,
 } from '@/lib/dates';
 import { SHIFTS, SHIFT_TYPES, type ShiftType } from '@/lib/shifts';
-import { computePayroll } from '@/lib/payroll';
+import { computePayroll, type RateHistoryEntry } from '@/lib/payroll';
 import type { WorkLogEntry } from '@/types/database';
 
 const SOURCE_BADGE: Record<WorkLogEntry['source'], { label: string; tone: string }> = {
@@ -76,7 +76,7 @@ export function WorkLog() {
   const [weekStart, setWeekStart] = useState<DateKey>(weekStartOf(todayInIsrael()));
   const [monthKey, setMonthKey] = useState<string>(monthKeyOf(todayInIsrael()));
   const [editing, setEditing] = useState<WorkLogEntry | 'new' | null>(null);
-  const { data: hourlyRate = null } = useMyHourlyRate();
+  const { data: rateHistory = [] } = useMyRateHistory();
 
   const today = todayInIsrael();
 
@@ -105,13 +105,13 @@ export function WorkLog() {
         </div>
 
         {view === 'month' ? (
-          <MonthlySummary monthKey={monthKey} setMonthKey={setMonthKey} hourlyRate={hourlyRate} />
+          <MonthlySummary monthKey={monthKey} setMonthKey={setMonthKey} rateHistory={rateHistory} today={today} />
         ) : (
           <WeeklyView
             weekStart={weekStart}
             setWeekStart={setWeekStart}
             today={today}
-            hourlyRate={hourlyRate}
+            rateHistory={rateHistory}
             editing={editing}
             setEditing={setEditing}
           />
@@ -125,24 +125,21 @@ function WeeklyView({
   weekStart,
   setWeekStart,
   today,
-  hourlyRate,
+  rateHistory,
   editing,
   setEditing,
 }: {
   weekStart: DateKey;
   setWeekStart: (fn: (w: DateKey) => DateKey) => void;
   today: DateKey;
-  hourlyRate: number | null;
+  rateHistory: RateHistoryEntry[];
   editing: WorkLogEntry | 'new' | null;
   setEditing: (v: WorkLogEntry | 'new' | null) => void;
 }) {
   const { data: entries, isLoading } = useWorkLogWeek(weekStart);
   const rows = entries ?? [];
   const totalHours = rows.reduce((sum, e) => sum + durationHours(e), 0);
-  const breakdown = useMemo(
-    () => (hourlyRate ? computePayroll(rows, hourlyRate) : null),
-    [rows, hourlyRate],
-  );
+  const breakdown = useMemo(() => computePayroll(rows, rateHistory), [rows, rateHistory]);
 
   return (
     <>
@@ -158,7 +155,7 @@ function WeeklyView({
         </Button>
       </div>
 
-      <PayrollCard totalHours={totalHours} hourlyRate={hourlyRate} breakdown={breakdown} />
+      <PayrollCard totalHours={totalHours} hasRate={rateHistory.length > 0} breakdown={breakdown} />
 
       <div className="space-y-4">
         {isLoading ? (
@@ -177,48 +174,9 @@ function WeeklyView({
           </Card>
         ) : (
           <Card className="space-y-0 divide-y divide-slate-100 p-0 dark:divide-slate-800">
-            {rows.map((entry) => {
-              const badge = SOURCE_BADGE[entry.source];
-              const def = entry.shift ? SHIFTS[entry.shift] : null;
-              const isToday = entry.target_date === today;
-              return (
-                <button
-                  key={entry.id}
-                  type="button"
-                  onClick={() => setEditing(entry)}
-                  className={cn(
-                    'flex w-full items-center gap-3 px-4 py-3 text-start transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60',
-                    isToday && 'bg-brand-50/70 dark:bg-brand-950/40',
-                  )}
-                >
-                  <span
-                    className="w-1.5 self-stretch rounded-full"
-                    style={{ backgroundColor: def?.colorVar ?? 'var(--color-shift-afternoon)' }}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                        יום {HEBREW_DAYS[dayIndex(entry.target_date)]}
-                      </p>
-                      <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-bold', badge.tone)}>
-                        {badge.label}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      {formatDayMonth(entry.target_date)} · {def?.he ?? 'ללא משמרת קבועה'}
-                    </p>
-                  </div>
-                  <div className="text-end">
-                    <p className="num text-xs font-bold text-slate-700 dark:text-slate-300">
-                      {israelTimeString(entry.actual_start)}-{israelTimeString(entry.actual_end)}
-                    </p>
-                    <p className="num text-[10px] text-slate-400 dark:text-slate-500">
-                      {durationHours(entry).toFixed(1)} ש׳
-                    </p>
-                  </div>
-                </button>
-              );
-            })}
+            {rows.map((entry) => (
+              <EntryRow key={entry.id} entry={entry} today={today} onClick={() => setEditing(entry)} />
+            ))}
           </Card>
         )}
 
@@ -239,14 +197,71 @@ function WeeklyView({
   );
 }
 
+/** Shared row rendering for a single work-log entry -- interactive (opens
+ *  the edit modal) in the weekly view, read-only in the monthly summary. */
+function EntryRow({
+  entry,
+  today,
+  onClick,
+}: {
+  entry: WorkLogEntry;
+  today: DateKey;
+  onClick?: () => void;
+}) {
+  const badge = SOURCE_BADGE[entry.source];
+  const def = entry.shift ? SHIFTS[entry.shift] : null;
+  const isToday = entry.target_date === today;
+  const className = cn(
+    'flex w-full items-center gap-3 px-4 py-3 text-start transition-colors',
+    onClick && 'hover:bg-slate-50 dark:hover:bg-slate-800/60',
+    isToday && 'bg-brand-50/70 dark:bg-brand-950/40',
+  );
+  const content = (
+    <>
+      <span
+        className="w-1.5 self-stretch rounded-full"
+        style={{ backgroundColor: def?.colorVar ?? 'var(--color-shift-afternoon)' }}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
+            יום {HEBREW_DAYS[dayIndex(entry.target_date)]}
+          </p>
+          <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-bold', badge.tone)}>
+            {badge.label}
+          </span>
+        </div>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          {formatDayMonth(entry.target_date)} · {def?.he ?? 'ללא משמרת קבועה'}
+        </p>
+      </div>
+      <div className="text-end">
+        <p className="num text-xs font-bold text-slate-700 dark:text-slate-300">
+          {israelTimeString(entry.actual_start)}-{israelTimeString(entry.actual_end)}
+        </p>
+        <p className="num text-[10px] text-slate-400 dark:text-slate-500">
+          {durationHours(entry).toFixed(1)} ש׳
+        </p>
+      </div>
+    </>
+  );
+  return onClick ? (
+    <button type="button" onClick={onClick} className={className}>
+      {content}
+    </button>
+  ) : (
+    <div className={className}>{content}</div>
+  );
+}
+
 function PayrollCard({
   totalHours,
-  hourlyRate,
+  hasRate,
   breakdown,
 }: {
   totalHours: number;
-  hourlyRate: number | null;
-  breakdown: ReturnType<typeof computePayroll> | null;
+  hasRate: boolean;
+  breakdown: ReturnType<typeof computePayroll>;
 }) {
   return (
     <Card className="space-y-1">
@@ -256,11 +271,11 @@ function PayrollCard({
           {totalHours.toFixed(1)}
         </p>
       </div>
-      {hourlyRate == null ? (
+      {!hasRate ? (
         <p className="text-xs text-slate-400 dark:text-slate-500">
           המנהל עדיין לא הגדיר שכר לשעה - לא ניתן להציג הערכת שכר.
         </p>
-      ) : breakdown ? (
+      ) : (
         <>
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
             <span>
@@ -276,7 +291,7 @@ function PayrollCard({
             </p>
           </div>
         </>
-      ) : null}
+      )}
       <p className="pt-1 text-[11px] text-slate-400 dark:text-slate-500">
         הערכה בלבד, לפני מס - אינה מחוברת למערכת שכר אמיתית.
       </p>
@@ -287,19 +302,19 @@ function PayrollCard({
 function MonthlySummary({
   monthKey,
   setMonthKey,
-  hourlyRate,
+  rateHistory,
+  today,
 }: {
   monthKey: string;
   setMonthKey: (fn: (k: string) => string) => void;
-  hourlyRate: number | null;
+  rateHistory: RateHistoryEntry[];
+  today: DateKey;
 }) {
   const { data: entries, isLoading } = useMonthlySalarySummary(monthKey);
   const rows = entries ?? [];
   const totalHours = rows.reduce((sum, e) => sum + durationHours(e), 0);
-  const breakdown = useMemo(
-    () => (hourlyRate ? computePayroll(rows, hourlyRate) : null),
-    [rows, hourlyRate],
-  );
+  const breakdown = useMemo(() => computePayroll(rows, rateHistory), [rows, rateHistory]);
+  const sortedRows = [...rows].sort((a, b) => a.target_date.localeCompare(b.target_date));
 
   return (
     <>
@@ -326,7 +341,33 @@ function MonthlySummary({
           </div>
         </Card>
       ) : (
-        <PayrollCard totalHours={totalHours} hourlyRate={hourlyRate} breakdown={breakdown} />
+        <>
+          <PayrollCard totalHours={totalHours} hasRate={rateHistory.length > 0} breakdown={breakdown} />
+
+          {sortedRows.length === 0 ? (
+            <Card className="p-0">
+              <EmptyState
+                icon="🕒"
+                title="אין רישומים לחודש זה"
+                description="רק שבועות שנפתחו ביומן השבועי מצטרפים לסיכום החודשי."
+              />
+            </Card>
+          ) : (
+            <Card className="space-y-0 divide-y divide-slate-100 p-0 dark:divide-slate-800">
+              <div className="px-4 py-2.5">
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                  כל המשמרות החודש
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {sortedRows.length} רישומים · לעריכה, עבור/י לתצוגה השבועית
+                </p>
+              </div>
+              {sortedRows.map((entry) => (
+                <EntryRow key={entry.id} entry={entry} today={today} />
+              ))}
+            </Card>
+          )}
+        </>
       )}
 
       <p className="px-1 text-xs text-slate-400 dark:text-slate-500">

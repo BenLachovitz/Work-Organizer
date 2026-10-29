@@ -59,6 +59,9 @@ function entry(date, startHour, endHour) {
 }
 
 const RATE = 40;
+// A flat history (one rate, effective from well before any fixture date) --
+// enough for every check except the rate-history-specific one below.
+const FLAT_HISTORY = [{ effective_from: '2000-01-01', hourly_rate: RATE }];
 let failures = 0;
 
 function check(name, actual, expected, tolerance = 0.01) {
@@ -81,14 +84,14 @@ function check(name, actual, expected, tolerance = 0.01) {
 // 1. Plain 8h weekday: all regular, no OT, no weekend.
 check(
   'plain 8h weekday',
-  computePayroll([entry(MONDAY, 6.75, 14.75)], RATE),
+  computePayroll([entry(MONDAY, 6.75, 14.75)], FLAT_HISTORY),
   { regularHours: 8, ot125Hours: 0, ot150Hours: 0, shabbatHours: 0, grossEstimate: 8 * RATE },
 );
 
 // 2. 12h weekday (day12-shaped): 8 regular + 2 @125% + 2 @150%.
 check(
   '12h weekday (day12 split)',
-  computePayroll([entry(MONDAY, 6.75, 18.75)], RATE),
+  computePayroll([entry(MONDAY, 6.75, 18.75)], FLAT_HISTORY),
   {
     regularHours: 8,
     ot125Hours: 2,
@@ -103,7 +106,7 @@ check(
 //    regular, no weekend premium even though it crosses midnight.
 check(
   'overnight weekday shift (Thu night -> Fri morning)',
-  computePayroll([entry(THURSDAY, 22.75, 30.75)], RATE),
+  computePayroll([entry(THURSDAY, 22.75, 30.75)], FLAT_HISTORY),
   { regularHours: 8, ot125Hours: 0, ot150Hours: 0, shabbatHours: 0, grossEstimate: 8 * RATE },
 );
 
@@ -111,7 +114,7 @@ check(
 //    weekend window, so all 8h move to shabbatHours at the flat 150%.
 check(
   'Friday night into Saturday (full Shabbat shift)',
-  computePayroll([entry(FRIDAY, 22.75, 30.75)], RATE),
+  computePayroll([entry(FRIDAY, 22.75, 30.75)], FLAT_HISTORY),
   { regularHours: 0, ot125Hours: 0, ot150Hours: 0, shabbatHours: 8, grossEstimate: 1.5 * 8 * RATE },
 );
 
@@ -121,7 +124,7 @@ check(
 //    shabbatHours), and the gross reflects the stacked 1.5x/1.875x rates.
 check(
   '10h Saturday shift (OT stacks with Shabbat premium)',
-  computePayroll([entry(SATURDAY, 6.75, 16.75)], RATE),
+  computePayroll([entry(SATURDAY, 6.75, 16.75)], FLAT_HISTORY),
   {
     regularHours: 0,
     ot125Hours: 0,
@@ -130,6 +133,25 @@ check(
     grossEstimate: 1.5 * 10.5 * RATE, // = (1.5*8 + 1.875*2) * RATE = 15.75 * RATE
   },
 );
+
+// 6. Rate history: a raise effective THURSDAY must not change what MONDAY
+//    (earlier in the same multi-week input) is worth -- the whole point of
+//    an append-only history instead of a single current-rate setting.
+{
+  const RAISE_HISTORY = [
+    { effective_from: '2000-01-01', hourly_rate: 40 },
+    { effective_from: THURSDAY, hourly_rate: 50 },
+  ];
+  const result = computePayroll(
+    [entry(MONDAY, 6.75, 14.75), entry(THURSDAY, 6.75, 14.75)],
+    RAISE_HISTORY,
+  );
+  check(
+    'rate change takes effect only from its date forward',
+    result,
+    { regularHours: 16, ot125Hours: 0, ot150Hours: 0, shabbatHours: 0, grossEstimate: 8 * 40 + 8 * 50 },
+  );
+}
 
 if (failures > 0) {
   console.error(`\n${failures} fixture(s) failed.\n`);

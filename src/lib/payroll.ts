@@ -56,17 +56,42 @@ function overlapMs(aStart: number, aEnd: number, bStart: number, bEnd: number): 
   return Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart));
 }
 
-/**
- * Computes the estimated gross-pay breakdown for one set of work-log entries
- * (meant to be exactly one roster week's worth -- the weekly reconciliation
- * above assumes that scope) at a flat hourly rate.
- */
-export function computePayroll(entries: WorkLogEntry[], hourlyRate: number): PayrollBreakdown {
-  let regularHours = 0;
-  let ot125Hours = 0;
-  let ot150Hours = 0;
-  let shabbatHours = 0;
+/** One entry in an append-only rate history: "from this date onward, the
+ *  rate was X" -- never edited or deleted when a new rate is added, which
+ *  is what keeps a later raise from recalculating already-passed months.
+ *  See PayrollRateSettings.tsx / migration 62. */
+export interface RateHistoryEntry {
+  effective_from: DateKey;
+  hourly_rate: number;
+}
 
+/** The rate in effect ON `date` -- the latest history entry whose
+ *  `effective_from` is on or before it. NULL if `date` is earlier than any
+ *  recorded rate (nothing to charge against yet). */
+export function rateForDate(history: RateHistoryEntry[], date: DateKey): number | null {
+  let best: RateHistoryEntry | null = null;
+  for (const entry of history) {
+    if (entry.effective_from <= date && (!best || entry.effective_from > best.effective_from)) {
+      best = entry;
+    }
+  }
+  return best?.hourly_rate ?? null;
+}
+
+type DayBuckets = { regular: number; ot125: number; ot150: number; shabbat: number };
+
+/**
+ * Computes the estimated gross-pay breakdown for one set of work-log
+ * entries (a roster week, or several for the monthly rollup -- the weekly
+ * reconciliation below resets at each week's own boundary either way), at
+ * whatever rate was actually in effect on EACH day -- never the rate that
+ * happens to be current now, so a later rate change never recalculates a
+ * month that has already passed.
+ */
+export function computePayroll(
+  entries: WorkLogEntry[],
+  rateHistory: RateHistoryEntry[],
+): PayrollBreakdown {
   const byDate = new Map<DateKey, WorkLogEntry[]>();
   for (const entry of entries) {
     const list = byDate.get(entry.target_date);
@@ -74,7 +99,7 @@ export function computePayroll(entries: WorkLogEntry[], hourlyRate: number): Pay
     else byDate.set(entry.target_date, [entry]);
   }
 
-  const dailyRegularByDate = new Map<DateKey, number>();
+  const perDay = new Map<DateKey, DayBuckets>();
   const sortedDates = [...byDate.keys()].sort();
 
   for (const date of sortedDates) {
@@ -91,8 +116,8 @@ export function computePayroll(entries: WorkLogEntry[], hourlyRate: number): Pay
       { from: DAILY_REGULAR_HOURS + DAILY_OT125_HOURS, to: Infinity, weight: 1.5 },
     ] as const;
 
+    const buckets: DayBuckets = { regular: 0, ot125: 0, ot150: 0, shabbat: 0 };
     let cumHoursToday = 0;
-    let dayRegular = 0;
 
     for (const entry of dayEntries) {
       const startMs = new Date(entry.actual_start).getTime();
@@ -112,17 +137,17 @@ export function computePayroll(entries: WorkLogEntry[], hourlyRate: number): Pay
           overlapMs(segStartMs, segEndMs, weekendStartMs, weekendEndMs) / MS_PER_HOUR;
         const plainHours = segHours - overlapHours;
 
-        if (tier.weight === 1) dayRegular += plainHours;
-        else if (tier.weight === 1.25) ot125Hours += plainHours;
-        else ot150Hours += plainHours;
+        if (tier.weight === 1) buckets.regular += plainHours;
+        else if (tier.weight === 1.25) buckets.ot125 += plainHours;
+        else buckets.ot150 += plainHours;
 
-        shabbatHours += overlapHours * tier.weight;
+        buckets.shabbat += overlapHours * tier.weight;
       }
 
       cumHoursToday += durationHours;
     }
 
-    dailyRegularByDate.set(date, dayRegular);
+    perDay.set(date, buckets);
   }
 
   // Resets at each roster week's own Sunday boundary -- so a multi-week
@@ -136,17 +161,34 @@ export function computePayroll(entries: WorkLogEntry[], hourlyRate: number): Pay
       currentWeekStart = weekStart;
       cumulativeRegular = 0;
     }
-    const dayRegular = dailyRegularByDate.get(date)!;
+    const buckets = perDay.get(date)!;
     const before = cumulativeRegular;
-    cumulativeRegular += dayRegular;
+    cumulativeRegular += buckets.regular;
     const excess =
       Math.max(0, cumulativeRegular - WEEKLY_REGULAR_HOURS) - Math.max(0, before - WEEKLY_REGULAR_HOURS);
-    regularHours += dayRegular - excess;
-    ot125Hours += excess;
+    buckets.regular -= excess;
+    buckets.ot125 += excess;
   }
 
-  const grossEstimate =
-    hourlyRate * (regularHours + 1.25 * ot125Hours + 1.5 * ot150Hours + 1.5 * shabbatHours);
+  // Gross is accumulated PER DAY, each at whatever rate was effective on
+  // that specific date -- a day earlier than any recorded rate contributes
+  // its hours to the totals below but nothing to grossEstimate.
+  let regularHours = 0;
+  let ot125Hours = 0;
+  let ot150Hours = 0;
+  let shabbatHours = 0;
+  let grossEstimate = 0;
+  for (const date of sortedDates) {
+    const b = perDay.get(date)!;
+    regularHours += b.regular;
+    ot125Hours += b.ot125;
+    ot150Hours += b.ot150;
+    shabbatHours += b.shabbat;
+    const rate = rateForDate(rateHistory, date);
+    if (rate != null) {
+      grossEstimate += rate * (b.regular + 1.25 * b.ot125 + 1.5 * b.ot150 + 1.5 * b.shabbat);
+    }
+  }
 
   return { regularHours, ot125Hours, ot150Hours, shabbatHours, grossEstimate };
 }

@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import type { ScheduleAssignment, WorkLogEntry, WorkLogSource } from '@/types/database';
 import { addDays, israelDateTime, type DateKey } from '@/lib/dates';
 import { SHIFTS, type ShiftType } from '@/lib/shifts';
+import type { RateHistoryEntry } from '@/lib/payroll';
 
 export const workLogKeys = {
   week: (guardId: string, weekStart: DateKey) => ['workLogWeek', guardId, weekStart] as const,
@@ -186,62 +187,99 @@ export function useDeleteWorkLogEntry(weekStart: DateKey) {
   });
 }
 
+const myRateHistoryKey = ['myRateHistory'] as const;
+
 /**
- * The CALLER's own flat hourly rate -- one rate for every guard, a separate
- * one for the manager (set once in Manager Settings, not per person). Goes
- * through the my_hourly_rate() RPC rather than a table read: a guard has no
- * read policy on payroll_settings at all, so the manager's own rate is
- * never exposed to anyone else. NULL = not set yet.
+ * The CALLER's own full rate history -- every 'manager' row for a manager/
+ * admin, every 'guard' row otherwise, oldest first. Goes through the
+ * my_hourly_rate_history() RPC rather than a table read: a guard has no
+ * read policy on payroll_rates at all, so the manager's own rate is never
+ * exposed to anyone else. Feed this straight into src/lib/payroll.ts's
+ * rateForDate()/computePayroll() -- resolving "the rate on date X" is a
+ * client-side lookup, not a second round trip.
  */
-export function useMyHourlyRate() {
+export function useMyRateHistory() {
   return useQuery({
-    queryKey: ['myHourlyRate'],
-    queryFn: async (): Promise<number | null> => {
-      const { data, error } = await requireSupabase().rpc('my_hourly_rate');
+    queryKey: myRateHistoryKey,
+    queryFn: async (): Promise<RateHistoryEntry[]> => {
+      const { data, error } = await requireSupabase().rpc('my_hourly_rate_history');
       if (error) throw new Error(error.message);
-      return (data as number | null) ?? null;
+      return (data as RateHistoryEntry[]) ?? [];
     },
   });
 }
 
-export interface PayrollSettings {
-  guard_hourly_rate: number | null;
-  manager_hourly_rate: number | null;
+export interface PayrollRate {
+  id: string;
+  role: 'guard' | 'manager';
+  hourly_rate: number;
+  effective_from: DateKey;
 }
 
-const payrollSettingsKey = ['payrollSettings'] as const;
+const rateHistoryKey = ['payrollRateHistory'] as const;
 
-/** Manager-only: both flat rates, for the Manager Settings editor. A guard
- *  querying this gets zero rows (no read policy) -- see useMyHourlyRate for
- *  what a guard is meant to use instead. */
-export function usePayrollSettings() {
+/** Manager-only: BOTH roles' full history, for the Manager Settings editor.
+ *  A guard querying this gets zero rows (no read policy) -- see
+ *  useMyRateHistory for what a guard is meant to use instead. */
+export function useRateHistory() {
   return useQuery({
-    queryKey: payrollSettingsKey,
-    queryFn: async (): Promise<PayrollSettings> => {
+    queryKey: rateHistoryKey,
+    queryFn: async (): Promise<PayrollRate[]> => {
       const { data, error } = await requireSupabase()
-        .from('payroll_settings')
-        .select('guard_hourly_rate, manager_hourly_rate')
-        .eq('id', true)
-        .single();
+        .from('payroll_rates')
+        .select('id, role, hourly_rate, effective_from')
+        .order('role')
+        .order('effective_from');
       if (error) throw new Error(error.message);
-      return data as PayrollSettings;
+      return (data as PayrollRate[]) ?? [];
     },
   });
 }
 
-export function useUpdatePayrollSettings() {
+/**
+ * Records a new rate, effective from a given date -- never an update of an
+ * existing row. That's what keeps a raise from recalculating a month that
+ * already passed: the OLD row stays exactly as it was, governing every date
+ * before the new one's effective_from.
+ */
+export function useAddRate() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: Partial<PayrollSettings>) => {
-      const { error } = await requireSupabase()
-        .from('payroll_settings')
-        .update(input)
-        .eq('id', true);
+    mutationFn: async (input: {
+      role: 'guard' | 'manager';
+      hourlyRate: number;
+      effectiveFrom: DateKey;
+    }) => {
+      const { error } = await requireSupabase().from('payroll_rates').insert({
+        role: input.role,
+        hourly_rate: input.hourlyRate,
+        effective_from: input.effectiveFrom,
+      });
+      if (error) {
+        if (error.code === '23505') throw new Error('כבר קיים שינוי שכר לתאריך הזה ולתפקיד הזה.');
+        throw new Error(error.message);
+      }
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: rateHistoryKey });
+      void qc.invalidateQueries({ queryKey: myRateHistoryKey });
+    },
+  });
+}
+
+/** Removes a mis-entered history row. History is append-only in intent --
+ *  this is for fixing a mistake, not for "ending" a rate period (an old row
+ *  simply stops being the latest once a newer one exists). */
+export function useDeleteRate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await requireSupabase().from('payroll_rates').delete().eq('id', id);
       if (error) throw new Error(error.message);
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: payrollSettingsKey });
-      void qc.invalidateQueries({ queryKey: ['myHourlyRate'] });
+      void qc.invalidateQueries({ queryKey: rateHistoryKey });
+      void qc.invalidateQueries({ queryKey: myRateHistoryKey });
     },
   });
 }
