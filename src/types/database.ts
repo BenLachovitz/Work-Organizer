@@ -21,6 +21,9 @@ export interface Profile {
   /** True for a seeded mock guard used to sanity-test the scheduler. Source
    *  of truth for the admin real/test view-mode toggle (src/lib/viewMode.ts). */
   is_demo: boolean;
+  /** Flat gross hourly wage, manager-set. NULL until set. Used only by the
+   *  personal work-log/estimated-salary feature (src/lib/payroll.ts). */
+  hourly_rate: number | null;
 }
 
 export interface RosterWeek {
@@ -116,4 +119,25 @@ export interface ScheduleAssignment {
   /** Placeholder-only: TRUE counts this guard-less row toward coverage like a real assignment. Always FALSE when guard_id is set. */
   occupies_slot: boolean;
   created_at: string;
+}
+
+export type WorkLogSource = 'roster' | 'edited' | 'manual';
+
+/** A guard's personal log of hours actually worked -- the estimated-salary
+ *  feature. Independent of ScheduleAssignment; source_assignment_id is only
+ *  used to avoid re-seeding a row the guard already has. */
+export interface WorkLogEntry {
+  id: string;
+  guard_id: string;
+  target_date: string;
+  shift: ShiftType | null;
+  source: WorkLogSource;
+  source_assignment_id: string | null;
+  scheduled_start: string | null;
+  scheduled_end: string | null;
+  actual_start: string;
+  actual_end: string;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
 }

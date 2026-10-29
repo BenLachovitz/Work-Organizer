@@ -148,6 +148,28 @@ export function guardVisibleWeekFloor(now: Date = new Date()): DateKey {
 }
 
 /**
+ * Converts a date key plus an hour-of-day offset (fractional hours from that
+ * date's own midnight, Asia/Jerusalem -- may exceed 24, the same convention
+ * SHIFTS[...].startH/endH already use for overnight shifts) into the real
+ * instant it denotes, DST-safe. Same technique as submissionDeadline()/
+ * guardVisibleWeekFloor() above; factored out here because the work-log
+ * feature (useWorkLog.ts, payroll.ts) needs it in more than one place.
+ */
+export function israelDateTime(key: DateKey, hour: number): Date {
+  const dayOffset = Math.floor(hour / 24);
+  const hourOfDay = hour - dayOffset * 24;
+  const dateKey = dayOffset === 0 ? key : addDays(key, dayOffset);
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const h = Math.floor(hourOfDay);
+  const min = Math.round((hourOfDay - h) * 60);
+  const naiveUtc = Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1, h, min, 0);
+  const probe = new Date(naiveUtc);
+  const local = new Date(probe.toLocaleString('en-US', { timeZone: ISRAEL_TZ }));
+  const utc = new Date(probe.toLocaleString('en-US', { timeZone: 'UTC' }));
+  return new Date(naiveUtc - (local.getTime() - utc.getTime()));
+}
+
+/**
  * Converts between "day of week" (how a manager thinks about the submission
  * window, spec §12.4/migration 22) and "days before week_start" (how the
  * database stores it -- the same `week_start - N days` arithmetic
