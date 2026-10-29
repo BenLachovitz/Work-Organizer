@@ -268,42 +268,57 @@ check(
   }
 }
 
-// 11. averageDailyBaseWage: an 8h day and a 10h day should average to the
-//     mean of hours x rate per day (8*40=320, 10*40=400 -> 360) -- plain
-//     hours, no overtime tiering at all.
+// 11. averageDailyBaseWage: a plain 8h day and a 10h day both cap at the
+//     8h standard day, so both contribute 8*40=320 -- the 10h day's extra
+//     2h never counts, even at the plain (non-OT) rate.
 {
   const avg = averageDailyBaseWage(
     [entry(MONDAY, 6.75, 14.75), entry(THURSDAY, 6.75, 16.75)],
     FLAT_HISTORY,
   );
-  const expected = (8 * RATE + 10 * RATE) / 2; // 360
+  const expected = 8 * RATE; // 320 -- both days capped to 8h
   if (Math.abs(avg - expected) <= 0.01) {
-    console.log('  \x1b[32mok\x1b[0m   averageDailyBaseWage averages hours x rate per day');
+    console.log('  \x1b[32mok\x1b[0m   averageDailyBaseWage caps each day at its standard length');
   } else {
     failures++;
     console.log(`  \x1b[31mFAIL\x1b[0m averageDailyBaseWage: expected ${expected}, got ${avg}`);
   }
 }
 
-// 12. The actual bug this fixes: a 12h shift on a Saturday would be worth
-//     FAR more than 12 x rate once computePayroll's overtime/Shabbat
-//     premiums are applied (150%/175% stacking) -- but averageDailyBaseWage
-//     must still count it as plain hours x rate, never the premium-
-//     inflated gross. Reported by the owner: a guard who regularly works
-//     long/weekend shifts saw a ~570 vacation-day estimate instead of the
-//     ~320 a plain 8h day (and real Israeli law) says it should be.
+// 12. The actual bug this fixes (two layers, both reported by the owner
+//     against their real payslip): a 12h shift on a Saturday would be
+//     worth far more than 8h x rate once (a) computePayroll's overtime/
+//     Shabbat premiums are applied, and (b) even without those, its full
+//     12 raw hours are counted instead of a standard 8h day. A guard who
+//     regularly works long/weekend shifts saw a ~570, then a ~411,
+//     vacation-day estimate before this -- their real payslip said ~294
+//     (8h x their ~40/h rate).
 {
-  const avg = averageDailyBaseWage([entry(SATURDAY, 6.75, 18.75)], FLAT_HISTORY); // 12h
-  const expected = 12 * RATE; // 480, NOT computePayroll's much higher Shabbat/OT gross
+  const avg = averageDailyBaseWage([entry(SATURDAY, 6.75, 18.75)], FLAT_HISTORY); // 12h, daytime
+  const expected = 8 * RATE; // 320 -- capped to a standard 8h day, not 12h and not Shabbat-weighted
   if (Math.abs(avg - expected) <= 0.01) {
-    console.log('  \x1b[32mok\x1b[0m   averageDailyBaseWage excludes overtime/Shabbat premium entirely');
+    console.log('  \x1b[32mok\x1b[0m   averageDailyBaseWage caps a long Saturday shift at a plain 8h day');
   } else {
     failures++;
-    console.log(`  \x1b[31mFAIL\x1b[0m averageDailyBaseWage: expected ${expected} (plain hours), got ${avg}`);
+    console.log(`  \x1b[31mFAIL\x1b[0m averageDailyBaseWage: expected ${expected} (capped 8h), got ${avg}`);
   }
 }
 
-// 13. averageDailyBaseWage with no entries at all returns 0 (nothing to
+// 13. A NIGHT shift caps at 7h, not 8 -- same classification the overtime
+//     engine itself uses (>=2h inside 22:00-06:00). A 12h night shift
+//     (night12-shaped) should contribute 7*rate, not 8*rate or 12*rate.
+{
+  const avg = averageDailyBaseWage([entry(MONDAY, 18.75, 30.75)], FLAT_HISTORY); // 12h night
+  const expected = 7 * RATE; // 280
+  if (Math.abs(avg - expected) <= 0.01) {
+    console.log('  \x1b[32mok\x1b[0m   averageDailyBaseWage caps a night shift at 7h, not 8h');
+  } else {
+    failures++;
+    console.log(`  \x1b[31mFAIL\x1b[0m averageDailyBaseWage: expected ${expected} (capped 7h), got ${avg}`);
+  }
+}
+
+// 14. averageDailyBaseWage with no entries at all returns 0 (nothing to
 //     value an absence against yet), rather than NaN or throwing.
 {
   const avg = averageDailyBaseWage([], FLAT_HISTORY);

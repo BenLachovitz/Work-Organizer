@@ -342,16 +342,23 @@ export function computePayroll(
 
 /**
  * A guard's average REGULAR wage per worked day -- average(hours worked
- * that day) x the rate in effect on that day, deliberately EXCLUDING any
- * overtime or rest-day premium. This matches Israeli law directly:
- * vacation/sick pay is based on the regular wage a day would normally earn,
- * not on whatever premium a guard happened to earn on days they actually
- * worked. An earlier version of this function ran every historical day
- * through the full overtime engine (computePayroll) and averaged THAT --
- * which skewed heavily toward whatever a guard who often works 12h/
- * weekend shifts actually earns, nowhere near a plain 8h day's value (a
- * guard who mostly works 12h shifts saw a ~570 estimate for a vacation day
- * they expected to be ~300-330, i.e. roughly an 8h day's regular wage).
+ * that day, CAPPED at that day's own standard length) x the rate in effect
+ * on that day. Deliberately excludes overtime twice over: not just the
+ * premium rate (125%/150%), but the extra HOURS themselves -- a 12h or 16h
+ * shift only contributes its first 8 standard hours (7 for a night shift,
+ * same NIGHT_SHIFT_MIN_HOURS/*_REGULAR_HOURS classification the overtime
+ * engine above already uses) to the average, never the full duration.
+ *
+ * This matches Israeli law directly: vacation/sick pay is based on the
+ * regular wage a day would normally earn, not on whatever a guard who
+ * often works long/weekend shifts actually earns including their overtime.
+ * Two real-world corrections landed here, both reported by the owner
+ * against their own payslip: (1) averaging the full OVERTIME-INCLUSIVE
+ * gross (via computePayroll) instead of the regular wage at all -- fixed
+ * first; (2) even after that, still averaging the full RAW HOURS of long
+ * shifts instead of capping them at a standard day -- this fix. A guard
+ * who mostly works 12h shifts had seen a ~570, then ~411, estimate for a
+ * vacation day whose real payslip value was ~294 (8h x their ~40/h rate).
  *
  * Callers are expected to pass only entries dated ON OR BEFORE the absence
  * being valued -- see rateForDate's own "never recalculate the past"
@@ -359,18 +366,35 @@ export function computePayroll(
  * logged hours and a known rate to average from yet.
  */
 export function averageDailyBaseWage(entries: WorkLogEntry[], rateHistory: RateHistoryEntry[]): number {
-  const hoursByDate = new Map<DateKey, number>();
+  const byDate = new Map<DateKey, WorkLogEntry[]>();
   for (const entry of entries) {
-    const hours = (new Date(entry.actual_end).getTime() - new Date(entry.actual_start).getTime()) / MS_PER_HOUR;
-    hoursByDate.set(entry.target_date, (hoursByDate.get(entry.target_date) ?? 0) + hours);
+    const list = byDate.get(entry.target_date);
+    if (list) list.push(entry);
+    else byDate.set(entry.target_date, [entry]);
   }
 
   let total = 0;
   let countedDays = 0;
-  for (const [date, hours] of hoursByDate) {
+  for (const [date, dayEntries] of byDate) {
     const rate = rateForDate(rateHistory, date);
     if (rate == null) continue; // no known rate that far back -- exclude, don't count as 0
-    total += hours * rate;
+
+    const { start: nightStart, end: nightEnd } = nightWindow(date);
+    const nightStartMs = nightStart.getTime();
+    const nightEndMs = nightEnd.getTime();
+
+    let rawHours = 0;
+    let nightOverlapHours = 0;
+    for (const entry of dayEntries) {
+      const startMs = new Date(entry.actual_start).getTime();
+      const endMs = new Date(entry.actual_end).getTime();
+      rawHours += (endMs - startMs) / MS_PER_HOUR;
+      nightOverlapHours += overlapMs(startMs, endMs, nightStartMs, nightEndMs) / MS_PER_HOUR;
+    }
+    const standardDayHours =
+      nightOverlapHours >= NIGHT_SHIFT_MIN_HOURS ? NIGHT_SHIFT_REGULAR_HOURS : DAY_SHIFT_REGULAR_HOURS;
+
+    total += Math.min(rawHours, standardDayHours) * rate;
     countedDays++;
   }
   return countedDays === 0 ? 0 : total / countedDays;
