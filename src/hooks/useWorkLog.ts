@@ -147,14 +147,32 @@ export interface UpsertWorkLogEntryInput {
   source_assignment_id?: string | null;
 }
 
-/** Matches every work-log week/month query regardless of which guard or
- *  which week/month -- broader than strictly necessary, but a single edit
- *  can affect a weekly view AND a monthly rollup at once (editing from
- *  MonthlySummary, see WorkLog.tsx), and these queries are cheap enough
- *  that precision here buys nothing worth the bookkeeping. */
+const WORK_LOG_QUERY_PREFIXES = new Set([
+  'workLogWeek',
+  'workLogMonth',
+  'workLogAbsenceWeek',
+  'workLogAbsenceMonth',
+  'absencePayoutContext',
+]);
+
+/**
+ * Matches every work-log-related query regardless of which guard, week, or
+ * month -- broader than strictly necessary, but a single edit can affect
+ * several views at once in ways that are easy to miss one of: editing a
+ * SHIFT changes the entry lists (workLogWeek/workLogMonth) AND the
+ * absence-payout average it feeds into (absencePayoutContext), since
+ * monthlyLeaveDayValue is computed from the guard's own work_log_entries
+ * for that absence's calendar month. A bug here (shift edits only
+ * invalidating the entry lists, not absencePayoutContext) is exactly what
+ * made the owner's vacation-day estimate look frozen after adding missing
+ * shifts -- the cached average never refetched. One shared predicate for
+ * every mutation below avoids that class of bug recurring for a new query
+ * added later. These queries are cheap enough that over-invalidating costs
+ * nothing worth optimizing for.
+ */
 const invalidateAllWorkLogViews = (qc: ReturnType<typeof useQueryClient>) =>
   void qc.invalidateQueries({
-    predicate: (query) => query.queryKey[0] === 'workLogWeek' || query.queryKey[0] === 'workLogMonth',
+    predicate: (query) => WORK_LOG_QUERY_PREFIXES.has(query.queryKey[0] as string),
   });
 
 /**
@@ -393,14 +411,6 @@ export function useMonthlyAbsences(monthKey: string) {
   });
 }
 
-const invalidateAllAbsenceViews = (qc: ReturnType<typeof useQueryClient>) =>
-  void qc.invalidateQueries({
-    predicate: (query) =>
-      query.queryKey[0] === 'workLogAbsenceWeek' ||
-      query.queryKey[0] === 'workLogAbsenceMonth' ||
-      query.queryKey[0] === 'absencePayoutContext',
-  });
-
 export interface UpsertAbsenceInput {
   id?: string;
   target_date: DateKey;
@@ -433,7 +443,7 @@ export function useUpsertAbsence() {
         throw new Error(error.message);
       }
     },
-    onSuccess: () => invalidateAllAbsenceViews(qc),
+    onSuccess: () => invalidateAllWorkLogViews(qc),
   });
 }
 
@@ -444,7 +454,7 @@ export function useDeleteAbsence() {
       const { error } = await requireSupabase().from('work_log_absences').delete().eq('id', id);
       if (error) throw new Error(error.message);
     },
-    onSuccess: () => invalidateAllAbsenceViews(qc),
+    onSuccess: () => invalidateAllWorkLogViews(qc),
   });
 }
 
