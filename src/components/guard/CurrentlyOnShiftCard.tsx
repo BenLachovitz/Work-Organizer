@@ -89,7 +89,6 @@ export function CurrentlyOnShiftCard({
         </>
       ) : (
         <>
-          <p className="mt-1 text-2xl font-extrabold">{onShift.length} באתר כרגע</p>
           <div className="mt-3 space-y-2">
             {onShift.map((entry) => (
               <div
