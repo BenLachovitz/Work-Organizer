@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Card } from '@/components/ui';
+import { Card, cn } from '@/components/ui';
 import type { WeekRoster } from '@/hooks/useGuardPortal';
 import { addDays, todayInIsrael } from '@/lib/dates';
 import { SHIFTS, isShiftActiveAt } from '@/lib/shifts';
@@ -13,12 +13,17 @@ const REFRESH_MS = 60_000;
 interface OnShiftEntry {
   guardId: string;
   name: string;
+  he: string;
   label: string;
+  colorVar: string;
 }
 
 /**
  * "Who's physically on site right now" -- a quick-glance answer to "can I
  * come use the gym" without reading the roster grid's current cell by hand.
+ * Styled after GuardHome's own "my shifts" week cards (gradient Card, white
+ * text, per-row bg-white/10 pills) so this reads as the same family of card
+ * rather than a bolted-on widget.
  *
  * Takes the same `weeks`/`guards` useVisibleRosters() already returns to its
  * caller (GuardHome) -- no separate query. Only today's and yesterday's
@@ -55,31 +60,58 @@ export function CurrentlyOnShiftCard({
         if (!isShiftActiveAt(a.target_date, a.shift, now)) continue;
         const name = names.get(a.guard_id);
         if (!name) continue;
-        entries.push({ guardId: a.guard_id, name, label: SHIFTS[a.shift].label });
+        const def = SHIFTS[a.shift];
+        entries.push({ guardId: a.guard_id, name, he: def.he, label: def.label, colorVar: def.colorVar });
       }
     }
     return entries;
   }, [weeks, guards, now]);
 
   return (
-    <Card>
-      <p className="mb-2 text-sm font-bold text-slate-500 dark:text-slate-400">כרגע במשמרת</p>
+    <Card className="bg-gradient-to-bl from-brand-600 to-brand-800 text-white ring-0">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          {/* A small pulse, not a static dot -- the one visual cue on the
+              page that says "this number is live," matching the 60s
+              self-refresh rather than looking like a frozen snapshot. */}
+          <span className="relative flex size-2.5 shrink-0">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-emerald-400" />
+          </span>
+          <p className="text-sm font-bold opacity-80">כרגע במשמרת</p>
+        </div>
+      </div>
+
       {onShift.length === 0 ? (
-        <p className="text-sm text-slate-500 dark:text-slate-400">אין מידע על מי נמצא כרגע באתר.</p>
+        <>
+          <p className="mt-1 text-2xl font-extrabold">אין כרגע אף אחד במשמרת</p>
+          <p className="mt-2 text-sm opacity-80">אין מידע על מי נמצא כרגע באתר.</p>
+        </>
       ) : (
-        <ul className="space-y-1.5">
-          {onShift.map((entry) => (
-            <li
-              key={entry.guardId}
-              className="flex items-center justify-between gap-2 text-[15px] font-semibold text-slate-800 dark:text-slate-100"
-            >
-              <span>{entry.name}</span>
-              <span className="num text-sm font-normal text-slate-500 dark:text-slate-400">
-                {entry.label}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <>
+          <p className="mt-1 text-2xl font-extrabold">{onShift.length} באתר כרגע</p>
+          <div className="mt-3 space-y-2">
+            {onShift.map((entry) => (
+              <div
+                key={entry.guardId}
+                className="flex items-center justify-between gap-2 rounded-xl bg-white/10 px-3 py-2"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className={cn('size-2.5 shrink-0 rounded-full ring-1 ring-white/40')}
+                    style={{ backgroundColor: entry.colorVar }}
+                    aria-hidden="true"
+                  />
+                  <p className="truncate text-sm font-bold">{entry.name}</p>
+                </div>
+                <div className="shrink-0 text-end">
+                  <p className="text-xs font-bold opacity-90">{entry.he}</p>
+                  <p className="num text-xs opacity-70">{entry.label}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </Card>
   );
