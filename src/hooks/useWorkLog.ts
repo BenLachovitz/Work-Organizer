@@ -532,7 +532,7 @@ export function useAbsencePayouts(
     return absences.map((absence) => {
       const { start, end } = leaveReferencePeriod(absence.target_date);
       const relevant = entries.filter((e) => e.target_date >= start && e.target_date <= end);
-      const dayValue = leaveDayValue(relevant, rateHistory);
+      const dayValue = leaveDayValue(relevant, rateHistory, absence.target_date);
       const percent =
         absence.type === 'vacation'
           ? 1

@@ -277,43 +277,73 @@ function checkValue(name, actual, expected, tolerance = 0.01) {
   }
 }
 
-// 11. leaveDayValue: a single plain 8h day's gross (320) divided by the
-//     FIXED 66 (3 x 22), not by the 1 day actually worked.
+// A generic "absence date" well after every fixture entry below, for cases
+// that aren't specifically testing the rate-change behavior (fixture 17) --
+// FLAT_HISTORY has only one rate ever, so which exact date is used doesn't
+// matter there.
+const VALUATION_DATE = addDays(SATURDAY, 30);
+
+// 11. leaveDayValue: a single plain 8h day's hours (320 gross) divided by
+//     the FIXED 66 (3 x 22), not by the 1 day actually worked.
 checkValue(
   'leaveDayValue divides by the FIXED 66 (3 months x 22), not by days worked',
-  leaveDayValue([entry(MONDAY, 6.75, 14.75)], FLAT_HISTORY),
+  leaveDayValue([entry(MONDAY, 6.75, 14.75)], FLAT_HISTORY, VALUATION_DATE),
   (8 * RATE) / 66,
 );
 
-// 12. Multiple days SUM their gross first -- a 12h weekday (8h@100% +
+// 12. Multiple days SUM their hours first -- a 12h weekday (8h@100% +
 //     2h@125% + 2h@150% = 540) plus a plain 8h day (320) = 860 total,
 //     divided by the fixed 66, not averaged over the 2 days worked.
 checkValue(
   'leaveDayValue sums every day in the reference period before dividing',
-  leaveDayValue([entry(MONDAY, 6.75, 18.75), entry(THURSDAY, 6.75, 14.75)], FLAT_HISTORY),
+  leaveDayValue([entry(MONDAY, 6.75, 18.75), entry(THURSDAY, 6.75, 14.75)], FLAT_HISTORY, VALUATION_DATE),
   (40 * (8 + 1.25 * 2 + 1.5 * 2) + 8 * RATE) / 66, // (540 + 320) / 66
 );
 
 // 13. Overtime and Shabbat/holiday premiums ARE included in the total --
 //     this is meant to match a real payslip's gross line, which includes
-//     them. A 12h Saturday shift's full premium gross (780, from the
+//     them. A 12h Saturday shift's full premium hours (780 gross, from the
 //     already-tested overtime engine) counts, not a flat/capped figure.
 checkValue(
   'leaveDayValue includes real overtime/Shabbat premiums in the total',
-  leaveDayValue([entry(SATURDAY, 6.75, 18.75)], FLAT_HISTORY),
+  leaveDayValue([entry(SATURDAY, 6.75, 18.75)], FLAT_HISTORY, VALUATION_DATE),
   (40 * (8 * 1.5 + 2 * 1.75 + 2 * 2.0)) / 66, // 780 / 66
 );
 
 // 14. leaveDayValue with no entries at all returns 0 (nothing to value an
 //     absence against yet), rather than NaN or throwing.
 {
-  const value = leaveDayValue([], FLAT_HISTORY);
+  const value = leaveDayValue([], FLAT_HISTORY, VALUATION_DATE);
   if (value === 0) {
     console.log('  \x1b[32mok\x1b[0m   leaveDayValue([]) is 0, not NaN');
   } else {
     failures++;
     console.log(`  \x1b[31mFAIL\x1b[0m leaveDayValue([]) expected 0, got ${value}`);
   }
+}
+
+// 17. The hours are priced at valuationDate's rate, NOT at each historical
+//     day's own rate -- the reference period is, by construction, always
+//     in the past (leaveReferencePeriod), so pricing hours at their own
+//     historical rate would value an absence taken right after a raise
+//     almost entirely at the OLD rate. Two plain 8h days both logged
+//     BEFORE a raise (40 -> 50, effective the day after both of them) must
+//     still be valued at the NEW rate of 50, since that's the rate in
+//     effect on the absence itself.
+{
+  const RAISE_HISTORY = [
+    { effective_from: '2000-01-01', hourly_rate: 40 },
+    { effective_from: addDays(THURSDAY, 1), hourly_rate: 50 },
+  ];
+  checkValue(
+    'leaveDayValue prices hours at valuationDate\'s rate, not each day\'s own historical rate',
+    leaveDayValue(
+      [entry(MONDAY, 6.75, 14.75), entry(THURSDAY, 6.75, 14.75)],
+      RAISE_HISTORY,
+      addDays(THURSDAY, 1),
+    ),
+    (16 * 50) / 66, // both days' 16h total, priced at the NEW rate (50), not the old one (40)
+  );
 }
 
 // 15. leaveReferencePeriod: for a November absence, the reference period

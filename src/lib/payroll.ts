@@ -361,11 +361,23 @@ export const LEAVE_REFERENCE_MONTHS = 3;
 const LEAVE_REFERENCE_DIVISOR = MONTHLY_LEAVE_DIVISOR * LEAVE_REFERENCE_MONTHS; // 66
 
 /**
- * A guard's day value for vacation/sick pay: TOTAL gross earnings
- * (overtime and Shabbat/holiday premiums INCLUDED -- meant to match the
- * "gross" line on a real payslip) over the reference period, divided by
- * the fixed divisor above -- never by how many days the guard actually
- * worked. Callers are expected to pass entries scoped to the
+ * A guard's day value for vacation/sick pay: the RAW hours (overtime and
+ * Shabbat/holiday premiums included, via computePayroll's own buckets)
+ * over the reference period, divided by the fixed divisor above -- never
+ * by how many days the guard actually worked -- then priced at the rate
+ * in effect ON `valuationDate` (the absence's own date), never at
+ * whatever rate happened to apply on each individual day the hours were
+ * actually worked. That distinction only matters around a rate change,
+ * but it matters a lot there: the reference period is, BY CONSTRUCTION,
+ * always 3 months in the PAST (see leaveReferencePeriod), so pricing each
+ * day at its own historical rate means an absence taken right after a
+ * raise gets valued almost entirely at the OLD, lower rate -- exactly
+ * backwards from "what would this guard earn for a day off today."
+ * Buckets are summed via a SINGLE computePayroll call over the whole
+ * window (not one call per day) so its weekly-42h reconciliation can
+ * actually see more than one day at a time, same as every other caller.
+ *
+ * Callers are expected to pass entries scoped to the
  * LEAVE_REFERENCE_MONTHS full calendar months immediately BEFORE the
  * absence's own month -- NEVER the absence's own month itself, even if
  * that absence falls early in the month. That exclusion is deliberate,
@@ -378,7 +390,7 @@ const LEAVE_REFERENCE_DIVISOR = MONTHLY_LEAVE_DIVISOR * LEAVE_REFERENCE_MONTHS; 
  * vacation" framing, which an earlier version of this function had
  * actually dropped by scoping to the absence's own month instead.
  *
- * This is the fifth formula this function has gone through, each
+ * This is the sixth formula this function has gone through, each
  * iteration surfaced by the owner checking real payslip numbers against
  * it: (1) full overtime-inclusive gross averaged over actual worked days
  * -- too high; (2) hours capped at a standard 8h/7h day, averaged over
@@ -389,23 +401,30 @@ const LEAVE_REFERENCE_DIVISOR = MONTHLY_LEAVE_DIVISOR * LEAVE_REFERENCE_MONTHS; 
  * high even with ~2.5 real months of backfilled history, which ruled out
  * "not enough data" and pointed at a fixed-divisor, standard-month
  * convention instead; (5) that fixed-divisor idea, but WRONGLY scoped to
- * the absence's own calendar month instead of the 3 months before it --
- * this version restores the "3 months before" window while keeping the
- * monthly-divisor insight from (4)'s replacement.
+ * the absence's own calendar month instead of the 3 months before it;
+ * (6) the "3 months before" window restored, but still pricing each
+ * historical day at ITS OWN rate -- surfaced as too low again once the
+ * owner tested a vacation day placed right after a real rate increase,
+ * since almost the entire reference period predated the raise. This
+ * version prices the summed hours at valuationDate's rate instead.
  */
-export function leaveDayValue(entries: WorkLogEntry[], rateHistory: RateHistoryEntry[]): number {
-  const byDate = new Map<DateKey, WorkLogEntry[]>();
-  for (const entry of entries) {
-    const list = byDate.get(entry.target_date);
-    if (list) list.push(entry);
-    else byDate.set(entry.target_date, [entry]);
-  }
-
-  let total = 0;
-  for (const dayEntries of byDate.values()) {
-    total += computePayroll(dayEntries, rateHistory).grossEstimate;
-  }
-  return total / LEAVE_REFERENCE_DIVISOR;
+export function leaveDayValue(
+  entries: WorkLogEntry[],
+  rateHistory: RateHistoryEntry[],
+  valuationDate: DateKey,
+): number {
+  const b = computePayroll(entries, rateHistory);
+  const rate = rateForDate(rateHistory, valuationDate);
+  if (rate == null) return 0;
+  return (
+    (rate *
+      (b.hours100 +
+        (1 + OT_TIER_1_INCREMENT) * b.hours125 +
+        (1 + OT_TIER_2_INCREMENT) * b.hours150 +
+        (REST_DAY_BASE + OT_TIER_1_INCREMENT) * b.hours175 +
+        (REST_DAY_BASE + OT_TIER_2_INCREMENT) * b.hours200)) /
+    LEAVE_REFERENCE_DIVISOR
+  );
 }
 
 /**
