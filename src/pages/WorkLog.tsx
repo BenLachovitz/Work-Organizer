@@ -279,7 +279,7 @@ function EntryRow({
           {israelTimeString(entry.actual_start)}-{israelTimeString(entry.actual_end)}
         </p>
         <p className="num text-[10px] text-slate-400 dark:text-slate-500">
-          {durationHours(entry).toFixed(1)} ש׳
+          {durationHours(entry).toFixed(2)} ש׳
         </p>
       </div>
     </>
@@ -341,7 +341,7 @@ function AbsenceRow({
         </p>
       </div>
       <div className="text-end">
-        <p className="num text-xs font-bold text-slate-700 dark:text-slate-300">₪{value.toFixed(0)}</p>
+        <p className="num text-xs font-bold text-slate-700 dark:text-slate-300">₪{value.toFixed(2)}</p>
         {absence.type === 'sick' && (
           <p className="num text-[10px] text-slate-400 dark:text-slate-500">{Math.round(percent * 100)}%</p>
         )}
@@ -378,7 +378,7 @@ function PayrollCard({
       <div className="flex items-center justify-between">
         <p className="text-sm font-bold text-slate-800 dark:text-slate-100">סך שעות</p>
         <p className="num text-sm font-bold text-slate-800 dark:text-slate-100">
-          {totalHours.toFixed(1)}
+          {totalHours.toFixed(2)}
         </p>
       </div>
       {!hasRate ? (
@@ -401,26 +401,26 @@ function PayrollCard({
               .map(([label, hours], i) => (
                 <span key={label}>
                   {i > 0 && '· '}
-                  {label} {hours.toFixed(1)} ש׳
+                  {label} {hours.toFixed(2)} ש׳
                 </span>
               ))}
           </div>
           {vacation.length > 0 && (
             <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
               <span>חופשה · {vacation.length} ימים</span>
-              <span className="num">₪{vacationTotal.toFixed(0)}</span>
+              <span className="num">₪{vacationTotal.toFixed(2)}</span>
             </div>
           )}
           {sick.length > 0 && (
             <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
               <span>מחלה · {sick.length} ימים</span>
-              <span className="num">₪{sickTotal.toFixed(0)}</span>
+              <span className="num">₪{sickTotal.toFixed(2)}</span>
             </div>
           )}
           <div className="flex items-center justify-between border-t border-slate-100 pt-1.5 dark:border-slate-800">
             <p className="text-sm font-bold text-brand-700 dark:text-brand-400">הערכת שכר ברוטו</p>
             <p className="num text-base font-bold text-brand-700 dark:text-brand-400">
-              ₪{grandTotal.toFixed(0)}
+              ₪{grandTotal.toFixed(2)}
             </p>
           </div>
         </>
