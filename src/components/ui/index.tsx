@@ -410,18 +410,36 @@ export function EmptyState({
 // ---------------------------------------------------------------------------
 
 /**
+ * Shared shape for DateField/TimeField: a real native input, kept so the
+ * OS/browser's own picker UI still opens on tap (the one piece of UX not
+ * worth losing) and so keyboard/segment editing still works exactly as it
+ * natively does -- just visually replaced with our own locale-independent
+ * text. opacity-[0.01] rather than opacity-0: some mobile WebKit builds
+ * skip opening a native date/time picker on tap for a truly 0-opacity
+ * input, treating it as "not really there" for touch purposes; a hair
+ * above zero is still visually nothing but keeps the input a real tap
+ * target everywhere. The caller must wrap this in a `<label>` (not a
+ * plain `<div>`) wherever a sibling label exists -- that gives native
+ * label-click-forwarding, a much larger and more forgiving tap target
+ * than the overlay's own exact bounds alone, which matters a lot on a
+ * small phone screen.
+ */
+const OVERLAY_INPUT_CLASS = 'peer absolute inset-0 h-full w-full cursor-pointer opacity-[0.01]';
+const OVERLAY_DISPLAY_CLASS = cn(
+  'num pointer-events-none flex items-center justify-between rounded-xl border-2 border-slate-200 p-2.5 text-sm text-slate-800',
+  'dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100',
+  'peer-focus:border-brand-400',
+);
+
+/**
  * A date input that always DISPLAYS as DD/MM/YYYY, regardless of the
  * device/browser's own locale. A native `<input type="date">`'s displayed
  * text format is controlled by the browser/OS locale, NOT by the page's
  * `lang` attribute (confirmed directly: setting lang="he-IL" on the input
  * itself has no effect on an en-US-locale browser) -- so an Israeli guard
  * on an English-locale phone sees MM/DD/YYYY no matter what this app's own
- * HTML says. The underlying native input is kept, invisible, covering the
- * whole field (so tapping/clicking still opens the OS/browser's own native
- * calendar picker -- the one piece of UX not worth losing); a non-
- * interactive sibling on top shows our own DD/MM/YYYY-formatted text,
- * styled to look like a normal input, with clicks passing through
- * (pointer-events: none) to the real input beneath it.
+ * HTML says. See OVERLAY_INPUT_CLASS's own comment for the overlay
+ * mechanics and why the caller needs a `<label>` wrapper.
  */
 export function DateField({
   value,
@@ -440,20 +458,53 @@ export function DateField({
         type="date"
         value={value}
         onChange={(e) => onChange(e.target.value as DateKey)}
-        className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        className={OVERLAY_INPUT_CLASS}
         aria-label="תאריך, יום/חודש/שנה"
       />
-      <div
-        className={cn(
-          'num pointer-events-none flex items-center justify-between rounded-xl border-2 border-slate-200 p-2.5 text-sm text-slate-800',
-          'dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100',
-          'peer-focus:border-brand-400',
-        )}
-      >
+      <div className={OVERLAY_DISPLAY_CLASS}>
         <span>{display}</span>
         <svg className="size-4 shrink-0 text-slate-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
           <path d="M6 2a1 1 0 0 1 1 1v1h6V3a1 1 0 1 1 2 0v1h.5A2.5 2.5 0 0 1 18 6.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 2 15.5v-9A2.5 2.5 0 0 1 4.5 4H5V3a1 1 0 0 1 1-1Zm10 7H4v6.5a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5V9ZM4.5 6a.5.5 0 0 0-.5.5V7h12v-.5a.5.5 0 0 0-.5-.5h-11Z" />
         </svg>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A time input that always DISPLAYS 24-hour "HH:MM", regardless of the
+ * device/browser's own locale -- same overlay technique as DateField (see
+ * OVERLAY_INPUT_CLASS's own comment), and the caller needs a `<label>`
+ * wrapper for the same reason. Unlike the date case there is no reformatting
+ * to do: a native `<input type="time">`'s VALUE is always 24-hour "HH:MM"
+ * internally no matter what it visually displays while being edited, so the
+ * overlay just shows `value` as-is. Keeping the real native input (rather
+ * than a masked text field) matters here specifically: it gives separate,
+ * natively click/tap-able hour and minute segments with their own native
+ * up/down and typing behavior -- a hand-rolled masked text input loses that
+ * precision-editing affordance and fights the cursor on every keystroke.
+ */
+export function TimeField({
+  value,
+  onChange,
+  className,
+}: {
+  /** 24-hour "HH:MM". */
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  return (
+    <div className={cn('relative', className)}>
+      <input
+        type="time"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={OVERLAY_INPUT_CLASS}
+        aria-label="שעה, 24 שעות"
+      />
+      <div className={cn(OVERLAY_DISPLAY_CLASS, 'num justify-center')}>
+        <span>{value || '--:--'}</span>
       </div>
     </div>
   );

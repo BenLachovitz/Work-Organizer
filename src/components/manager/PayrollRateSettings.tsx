@@ -138,12 +138,12 @@ function RoleSection({
               )}
             />
           </label>
-          <div className="flex-1 min-w-[120px]">
+          <label className="flex-1 min-w-[120px]">
             <span className="mb-1 block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
               בתוקף מתאריך
             </span>
             <DateField value={effectiveFrom} onChange={setEffectiveFrom} />
-          </div>
+          </label>
           <Button size="sm" disabled={!valid} loading={add.isPending} onClick={save}>
             שמירה
           </Button>

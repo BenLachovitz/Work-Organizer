@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
-import { Alert, Button, Card, DateField, EmptyState, Modal, Spinner, cn } from '@/components/ui';
+import { Alert, Button, Card, DateField, EmptyState, Modal, Spinner, TimeField, cn } from '@/components/ui';
 import {
   useAbsencePayouts,
   useAbsencesWeek,
@@ -48,25 +48,6 @@ function israelTimeString(iso: string): string {
 function timeStringToHour(t: string): number {
   const [h, m] = t.split(':').map(Number);
   return (h ?? 0) + (m ?? 0) / 60;
-}
-
-/**
- * Masks free-typed digits into a 24-hour "HH:MM" time as the guard types --
- * used in place of a native `<input type="time">`, whose displayed format
- * (12h AM/PM vs 24h) follows the device/browser locale, not this app's own
- * Hebrew/RTL design (same issue as DateField, see its own comment). Strips
- * everything but digits, caps at 4 of them, and once there are more than 2
- * inserts the colon and clamps each half to a valid hour (0-23) / minute
- * (0-59) -- so "1445" becomes "14:45" without the guard ever typing a colon,
- * and an out-of-range "2599" still lands on a valid "23:59" rather than
- * something nonsensical.
- */
-function formatTimeInput(raw: string): string {
-  const digits = raw.replace(/\D/g, '').slice(0, 4);
-  if (digits.length <= 2) return digits;
-  const h = Math.min(23, Number(digits.slice(0, 2)));
-  const m = Math.min(59, Number(digits.slice(2)));
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 function durationHours(entry: WorkLogEntry): number {
@@ -665,25 +646,11 @@ function WorkLogEntryEditor({
         )}
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="שעת התחלה (24 שעות)">
-            <input
-              type="text"
-              inputMode="numeric"
-              placeholder="HH:MM"
-              value={start}
-              onChange={(e) => setStart(formatTimeInput(e.target.value))}
-              className={cn(inputClass, 'num text-center')}
-            />
+          <Field label="שעת התחלה">
+            <TimeField value={start} onChange={setStart} />
           </Field>
-          <Field label="שעת סיום (24 שעות)">
-            <input
-              type="text"
-              inputMode="numeric"
-              placeholder="HH:MM"
-              value={end}
-              onChange={(e) => setEnd(formatTimeInput(e.target.value))}
-              className={cn(inputClass, 'num text-center')}
-            />
+          <Field label="שעת סיום">
+            <TimeField value={end} onChange={setEnd} />
           </Field>
         </div>
         {!durationOk && (
