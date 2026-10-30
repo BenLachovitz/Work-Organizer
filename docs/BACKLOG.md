@@ -1013,27 +1013,22 @@ reset/delete) has no reason to exclude acting on yourself.
 Full TypeScript typecheck clean, migration applied to the live database (confirmed `profiles`/
 `roster_codes` still fully RLS-protected afterward, no new gap opened). Manually confirmed the new
 icons render correctly (with and without a phone number on file) at desktop and mobile widths via a
-throwaway preview route, removed before committing. **Still needs the owner's own login** to confirm
-the `TeamManagement.tsx` phone-edit panel end-to-end and to tap the icons on a real phone to confirm
-the dialer and WhatsApp both open with the right number — same "no demo account" situation as every
-other guard-facing check in this project. `package.json`/`GitVersion.yml` bumped to 2.29.0.
+throwaway preview route, removed before committing. **Real-device confirmation done the same day**:
+Ben added phone numbers for the team through `TeamManagement.tsx`'s new panel and confirmed the
+"currently on shift" card's call/WhatsApp icons work end to end. One employee deliberately has no
+number on file (Ben's call — expected to leave the team soon, not worth collecting), which the card
+already handles correctly (no icons, no broken links). `package.json`/`GitVersion.yml` bumped to
+2.29.0. Nothing left open on this one.
 
 ---
 
 ## What is left
 
 Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
-deliberately deferred design choice, not a build gap. Nine things still open, not build gaps
+deliberately deferred design choice, not a build gap. Eight things still open, not build gaps
 (self-service forgot-PIN, formerly listed here, was fully reverted — see Step AB, fully reverted,
 above — and is not an open item, it's removed):
 
-- **"Who's on shift right now" card, and its tap-to-call/WhatsApp icons, confirmed against real
-  data** (Steps AI/AJ, spec §1.32/§1.33) — the app builds and serves with no console/server errors,
-  typecheck + the new `isShiftActiveAt()`/phone.ts unit fixtures are clean, and the icons render
-  correctly against mock data, but there's no demo/test account to sign in as, so checking the
-  card's actual output against a real published roster (including a real guard's phone number, and
-  tapping the icons on a real phone to confirm the dialer/WhatsApp both open correctly) needs Ben's
-  own login.
 - **Passkey real-device registration + unlock confirmation** (Step X, spec §8) — now on the rebuilt
   app-scoped WebAuthn mechanism (own `webauthn` Edge Function, not Supabase's native Passkey API; see
   Step X's same-day revision above). Registering from Preferences on a real iPhone/Android, confirming
