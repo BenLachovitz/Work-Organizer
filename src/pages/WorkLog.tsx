@@ -90,10 +90,7 @@ export function WorkLog() {
   const today = todayInIsrael();
 
   return (
-    <AppShell
-      title="יומן עבודה"
-      subtitle={view === 'week' ? formatWeekRange(weekStart) : formatMonthKey(monthKey)}
-    >
+    <AppShell title="יומן עבודה">
       <div className="space-y-4">
         <div className="flex gap-2 rounded-xl bg-slate-200/70 p-1 dark:bg-slate-800">
           {(['month', 'week'] as const).map((v) => (
@@ -166,8 +163,13 @@ function WeeklyView({
         <Button size="sm" variant="ghost" onClick={() => setWeekStart((w) => addDays(w, -7))}>
           → שבוע קודם
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => setWeekStart(() => weekStartOf(today))}>
-          השבוע
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setWeekStart(() => weekStartOf(today))}
+          className="font-bold"
+        >
+          {formatWeekRange(weekStart)}
         </Button>
         <Button size="sm" variant="ghost" onClick={() => setWeekStart((w) => addDays(w, 7))}>
           שבוע הבא ←
@@ -465,8 +467,9 @@ function MonthlySummary({
           size="sm"
           variant="ghost"
           onClick={() => setMonthKey(() => monthKeyOf(todayInIsrael()))}
+          className="font-bold"
         >
-          החודש
+          {formatMonthKey(monthKey)}
         </Button>
         <Button size="sm" variant="ghost" onClick={() => setMonthKey((k) => shiftMonthKey(k, 1))}>
           חודש הבא ←
@@ -645,7 +648,7 @@ function WorkLogEntryEditor({
           </Field>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="flex items-start gap-8">
           <Field label="שעת התחלה">
             <TimeField value={start} onChange={setStart} />
           </Field>

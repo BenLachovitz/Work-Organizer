@@ -475,7 +475,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
 const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
 
 const TIME_SELECT_CLASS = cn(
-  'num w-full rounded-xl border-2 border-slate-200 bg-white p-2.5 text-center text-sm text-slate-800',
+  'num w-14 shrink-0 rounded-xl border-2 border-slate-200 bg-white p-2 text-center text-sm text-slate-800',
   'dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100',
   'focus:border-brand-400 focus:outline-none',
 );
@@ -519,7 +519,12 @@ export function TimeField({
   const minute = MINUTES.includes(m ?? '') ? m! : '00';
 
   return (
-    <div className={cn('flex items-center gap-1.5', className)}>
+    // num: forces LTR left-to-right order (hour, then minute), same
+    // convention used for every other time display in this app (e.g. a
+    // shift row's "06:45-14:45") -- RTL flex would otherwise put the hour
+    // select on the right and the minute select on the left, backwards
+    // from how a time normally reads.
+    <div className={cn('num flex w-fit items-center gap-1', className)}>
       <select
         value={hour}
         onChange={(e) => onChange(`${e.target.value}:${minute}`)}
