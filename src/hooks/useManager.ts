@@ -254,6 +254,9 @@ export interface RosterCodeStatus {
   /** Same real/demo flag as Profile.is_demo, from whichever of roster_codes
    *  / profiles currently holds the truth for this row. */
   is_demo: boolean;
+  /** E.164, optional -- same column as Profile.phone_number, from whichever
+   *  of roster_codes / profiles currently holds the truth for this row. */
+  phone_number: string | null;
 }
 
 /** Registration status per badge code, for chasing guards who never signed up

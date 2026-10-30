@@ -21,6 +21,9 @@ export interface Profile {
   /** True for a seeded mock guard used to sanity-test the scheduler. Source
    *  of truth for the admin real/test view-mode toggle (src/lib/viewMode.ts). */
   is_demo: boolean;
+  /** E.164, optional. Powers the "currently on shift" card's tap-to-call/
+   *  tap-to-WhatsApp links -- NULL means no icons show for this guard. */
+  phone_number: string | null;
 }
 
 export interface RosterWeek {

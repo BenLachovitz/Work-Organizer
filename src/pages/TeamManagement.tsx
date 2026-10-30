@@ -3,6 +3,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { CodeInput } from '@/components/auth/CodeInput';
 import { Alert, Badge, Button, ButtonLink, Card, Spinner, Stepper, cn } from '@/components/ui';
 import { EMPLOYEE_CODE_LENGTH, PIN_MIN_LENGTH, isValidEmployeeCode } from '@/lib/supabase';
+import { formatPhoneForDisplay, isValidIsraeliPhone, normalizeIsraeliPhone } from '@/lib/phone';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRosterCodeStatus, type RosterCodeStatus } from '@/hooks/useManager';
 import {
@@ -10,6 +11,7 @@ import {
   useDeleteEmployee,
   useResetGuardPin,
   useUpdateDefaultKamut,
+  useUpdateEmployeePhone,
 } from '@/hooks/useTeam';
 import { useViewMode } from '@/contexts/ViewModeContext';
 import { visibleToViewMode } from '@/lib/viewMode';
@@ -98,20 +100,32 @@ function AddEmployeeCard({ existingCodes }: { existingCodes: string[] }) {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [defaultKamut, setDefaultKamut] = useState(0);
+  const [phone, setPhone] = useState('');
   const add = useAddEmployee();
 
   const codeTaken = existingCodes.includes(code);
-  const canSubmit = name.trim().length > 0 && isValidEmployeeCode(code) && !codeTaken;
+  // Phone is optional -- empty is fine, but a non-empty value must be a real
+  // Israeli mobile number (the "currently on shift" card's tap-to-call/
+  // WhatsApp links are the only thing that reads it).
+  const phoneValid = phone.trim().length === 0 || isValidIsraeliPhone(phone);
+  const canSubmit =
+    name.trim().length > 0 && isValidEmployeeCode(code) && !codeTaken && phoneValid;
 
   const submit = () => {
     if (!canSubmit) return;
     add.mutate(
-      { employeeCode: code, displayName: name.trim(), defaultKamut },
+      {
+        employeeCode: code,
+        displayName: name.trim(),
+        defaultKamut,
+        phoneNumber: phone.trim() ? normalizeIsraeliPhone(phone) : null,
+      },
       {
         onSuccess: () => {
           setName('');
           setCode('');
           setDefaultKamut(0);
+          setPhone('');
         },
       },
     );
@@ -145,6 +159,32 @@ function AddEmployeeCard({ existingCodes }: { existingCodes: string[] }) {
             'placeholder:text-slate-400 focus:border-brand-400 focus:outline-none dark:placeholder:text-slate-500',
           )}
         />
+      </div>
+
+      <div>
+        <label
+          className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300"
+          htmlFor="new-emp-phone"
+        >
+          טלפון <span className="font-normal text-slate-400 dark:text-slate-500">(לא חובה)</span>
+        </label>
+        <input
+          id="new-emp-phone"
+          type="tel"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="050-1234567"
+          className={cn(
+            'num w-full rounded-xl border-2 p-3 text-sm text-slate-800 dark:text-slate-100',
+            phone.trim().length > 0 && !phoneValid
+              ? 'border-rose-300 dark:border-rose-700'
+              : 'border-slate-200 dark:border-slate-700',
+            'dark:bg-slate-800 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none dark:placeholder:text-slate-500',
+          )}
+        />
+        {phone.trim().length > 0 && !phoneValid && (
+          <p className="mt-1.5 text-xs font-semibold text-rose-600">מספר נייד ישראלי לא תקין</p>
+        )}
       </div>
 
       <div>
@@ -232,13 +272,19 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
   const updateDefault = useUpdateDefaultKamut();
   const deleteEmployee = useDeleteEmployee();
   const resetPin = useResetGuardPin();
+  const updatePhone = useUpdateEmployeePhone();
   const [confirming, setConfirming] = useState(false);
   const [resettingPin, setResettingPin] = useState(false);
   const [newPin, setNewPin] = useState('');
   const [pinResetDone, setPinResetDone] = useState(false);
+  const [editingPhone, setEditingPhone] = useState(false);
+  const [phoneDraft, setPhoneDraft] = useState('');
 
   const saving = updateDefault.isPending || deleteEmployee.isPending;
   const isSelf = row.profile_id !== null && row.profile_id === profile?.id;
+  // Empty is a valid draft too -- submitting it clears a previously-saved
+  // number, same optional-everywhere rule as AddEmployeeCard.
+  const phoneDraftValid = phoneDraft.trim().length === 0 || isValidIsraeliPhone(phoneDraft);
 
   const submitPinReset = () => {
     if (!row.profile_id || newPin.length !== PIN_MIN_LENGTH) return;
@@ -251,6 +297,18 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
           setPinResetDone(true);
         },
       },
+    );
+  };
+
+  const submitPhone = () => {
+    if (!phoneDraftValid) return;
+    updatePhone.mutate(
+      {
+        employeeCode: row.employee_code,
+        profileId: row.profile_id,
+        value: phoneDraft.trim() ? normalizeIsraeliPhone(phoneDraft) : null,
+      },
+      { onSuccess: () => setEditingPhone(false) },
     );
   };
 
@@ -267,6 +325,7 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
           </div>
           <p className="num mt-0.5 text-xs text-slate-500 dark:text-slate-400">
             {row.employee_code}
+            {row.phone_number && ` · ${formatPhoneForDisplay(row.phone_number)}`}
           </p>
         </div>
 
@@ -288,44 +347,62 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
         </div>
       </div>
 
-      {isSelf ? (
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {/* Phone editing has no "not yourself" restriction the way PIN
+            reset/delete do below -- a manager can set their own number too,
+            the same as any other guard's. */}
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            setEditingPhone((v) => !v);
+            setPhoneDraft(row.phone_number ? formatPhoneForDisplay(row.phone_number) : '');
+          }}
+        >
+          {editingPhone ? 'ביטול' : row.phone_number ? 'עריכת טלפון' : 'הוספת טלפון'}
+        </Button>
+
+        {!isSelf && (
+          <>
+            {row.is_claimed && row.profile_id && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setResettingPin((v) => !v);
+                  setPinResetDone(false);
+                }}
+              >
+                {resettingPin ? 'ביטול איפוס' : 'שכח/ה PIN - איפוס'}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant={confirming ? 'danger' : 'ghost'}
+              loading={deleteEmployee.isPending}
+              onClick={() =>
+                confirming
+                  ? deleteEmployee.mutate(row.employee_code, {
+                      onSuccess: () => setConfirming(false),
+                    })
+                  : setConfirming(true)
+              }
+            >
+              {confirming ? 'לחץ שוב למחיקה סופית' : 'מחיקה'}
+            </Button>
+            {confirming && (
+              <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+                ביטול
+              </Button>
+            )}
+          </>
+        )}
+      </div>
+
+      {isSelf && (
         <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
           זהו החשבון שלך - לא ניתן למחוק אותו כאן.
         </p>
-      ) : (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          {row.is_claimed && row.profile_id && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setResettingPin((v) => !v);
-                setPinResetDone(false);
-              }}
-            >
-              {resettingPin ? 'ביטול איפוס' : 'שכח/ה PIN - איפוס'}
-            </Button>
-          )}
-          <Button
-            size="sm"
-            variant={confirming ? 'danger' : 'ghost'}
-            loading={deleteEmployee.isPending}
-            onClick={() =>
-              confirming
-                ? deleteEmployee.mutate(row.employee_code, {
-                    onSuccess: () => setConfirming(false),
-                  })
-                : setConfirming(true)
-            }
-          >
-            {confirming ? 'לחץ שוב למחיקה סופית' : 'מחיקה'}
-          </Button>
-          {confirming && (
-            <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
-              ביטול
-            </Button>
-          )}
-        </div>
       )}
 
       {confirming && row.is_claimed && (
@@ -363,9 +440,40 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
         <Alert tone="success">הסיסמה אופסה. מסור ל{row.display_name} את הקוד החדש שבחרת.</Alert>
       )}
 
-      {(updateDefault.isError || deleteEmployee.isError || resetPin.isError) && (
+      {editingPhone && (
+        <div className="mt-2 space-y-2 rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800">
+          <input
+            type="tel"
+            value={phoneDraft}
+            onChange={(e) => setPhoneDraft(e.target.value)}
+            placeholder="050-1234567"
+            aria-label={`טלפון עבור ${row.display_name}`}
+            className={cn(
+              'num w-full rounded-xl border-2 p-2.5 text-sm text-slate-800 dark:text-slate-100',
+              phoneDraft.trim().length > 0 && !phoneDraftValid
+                ? 'border-rose-300 dark:border-rose-700'
+                : 'border-slate-200 dark:border-slate-700',
+              'dark:bg-slate-900 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none dark:placeholder:text-slate-500',
+            )}
+          />
+          {phoneDraft.trim().length > 0 && !phoneDraftValid && (
+            <p className="text-xs font-semibold text-rose-600">מספר נייד ישראלי לא תקין</p>
+          )}
+          <Button
+            size="sm"
+            fullWidth
+            disabled={!phoneDraftValid}
+            loading={updatePhone.isPending}
+            onClick={submitPhone}
+          >
+            שמירת טלפון
+          </Button>
+        </div>
+      )}
+
+      {(updateDefault.isError || deleteEmployee.isError || resetPin.isError || updatePhone.isError) && (
         <p className="mt-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800 dark:bg-rose-950/50 dark:text-rose-400">
-          {[updateDefault.error, deleteEmployee.error, resetPin.error]
+          {[updateDefault.error, deleteEmployee.error, resetPin.error, updatePhone.error]
             .filter((e): e is Error => e instanceof Error)
             .map((e) => e.message)
             .join(' · ') || 'הפעולה נכשלה.'}

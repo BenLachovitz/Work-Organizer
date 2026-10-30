@@ -48,6 +48,8 @@ export interface AddEmployeeInput {
   employeeCode: string;
   displayName: string;
   defaultKamut: number;
+  /** E.164, already normalized -- optional, unlike every other field here. */
+  phoneNumber?: string | null;
 }
 
 /**
@@ -64,6 +66,7 @@ export function useAddEmployee() {
         display_name: input.displayName,
         initial_role: 'guard',
         default_kamut: input.defaultKamut,
+        phone_number: input.phoneNumber ?? null,
       });
       if (error) {
         if (error.code === '23505') throw new Error('קוד עובד זה כבר קיים במערכת.');
@@ -150,6 +153,33 @@ export function useUpdateDefaultKamut() {
         : await db
             .from('roster_codes')
             .update({ default_kamut: input.value })
+            .eq('employee_code', input.employeeCode);
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => void invalidateCodes(qc),
+  });
+}
+
+/**
+ * Sets or clears a guard's phone number -- same dual-table shape as
+ * useUpdateDefaultKamut(): profiles once claimed, roster_codes before. The
+ * caller passes an already-normalized E.164 string (see src/lib/phone.ts),
+ * or null to clear a number back out.
+ */
+export function useUpdateEmployeePhone() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      employeeCode: string;
+      profileId: string | null;
+      value: string | null;
+    }) => {
+      const db = requireSupabase();
+      const { error } = input.profileId
+        ? await db.from('profiles').update({ phone_number: input.value }).eq('id', input.profileId)
+        : await db
+            .from('roster_codes')
+            .update({ phone_number: input.value })
             .eq('employee_code', input.employeeCode);
       if (error) throw new Error(error.message);
     },
