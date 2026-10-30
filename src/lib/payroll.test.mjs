@@ -31,7 +31,7 @@ register(
   import.meta.url,
 );
 
-const { computePayroll, leaveDayValue, leaveReferencePeriod, consecutiveSickDayCount, sickPayPercent } =
+const { computePayroll, leaveDayValue, consecutiveSickDayCount, sickPayPercent } =
   await import('./payroll.ts');
 const { addDays, israelDateTime } = await import('./dates.ts');
 
@@ -277,100 +277,49 @@ function checkValue(name, actual, expected, tolerance = 0.01) {
   }
 }
 
-// A generic "absence date" well after every fixture entry below, for cases
-// that aren't specifically testing the rate-change behavior (fixture 17) --
-// FLAT_HISTORY has only one rate ever, so which exact date is used doesn't
-// matter there.
-const VALUATION_DATE = addDays(SATURDAY, 30);
-
-// 11. leaveDayValue: a single plain 8h day's hours (320 gross) divided by
-//     the FIXED 66 (3 x 22), not by the 1 day actually worked.
+// 11. leaveDayValue: a standard day is 7h (42 weekly regular hours / 6
+//     workdays) at the rate in effect on valuationDate -- independent of
+//     any actual worked hours, overtime, or Shabbat premiums. Calibrated
+//     directly against the owner's real August 2026 payslip: a documented
+//     vacation day of 589.04/2 = 294.52 at a real contract rate of 42.30,
+//     and this app's own tracked rate (42) at the time x 7 = 294.00 --
+//     within 0.18% of the real figure.
 checkValue(
-  'leaveDayValue divides by the FIXED 66 (3 months x 22), not by days worked',
-  leaveDayValue([entry(MONDAY, 6.75, 14.75)], FLAT_HISTORY, VALUATION_DATE),
-  (8 * RATE) / 66,
+  'leaveDayValue is a standard 7h day at valuationDate\'s rate',
+  leaveDayValue(FLAT_HISTORY, addDays(SATURDAY, 30)),
+  7 * RATE,
 );
 
-// 12. Multiple days SUM their hours first -- a 12h weekday (8h@100% +
-//     2h@125% + 2h@150% = 540) plus a plain 8h day (320) = 860 total,
-//     divided by the fixed 66, not averaged over the 2 days worked.
-checkValue(
-  'leaveDayValue sums every day in the reference period before dividing',
-  leaveDayValue([entry(MONDAY, 6.75, 18.75), entry(THURSDAY, 6.75, 14.75)], FLAT_HISTORY, VALUATION_DATE),
-  (40 * (8 + 1.25 * 2 + 1.5 * 2) + 8 * RATE) / 66, // (540 + 320) / 66
-);
-
-// 13. Overtime and Shabbat/holiday premiums ARE included in the total --
-//     this is meant to match a real payslip's gross line, which includes
-//     them. A 12h Saturday shift's full premium hours (780 gross, from the
-//     already-tested overtime engine) counts, not a flat/capped figure.
-checkValue(
-  'leaveDayValue includes real overtime/Shabbat premiums in the total',
-  leaveDayValue([entry(SATURDAY, 6.75, 18.75)], FLAT_HISTORY, VALUATION_DATE),
-  (40 * (8 * 1.5 + 2 * 1.75 + 2 * 2.0)) / 66, // 780 / 66
-);
-
-// 14. leaveDayValue with no entries at all returns 0 (nothing to value an
-//     absence against yet), rather than NaN or throwing.
-{
-  const value = leaveDayValue([], FLAT_HISTORY, VALUATION_DATE);
-  if (value === 0) {
-    console.log('  \x1b[32mok\x1b[0m   leaveDayValue([]) is 0, not NaN');
-  } else {
-    failures++;
-    console.log(`  \x1b[31mFAIL\x1b[0m leaveDayValue([]) expected 0, got ${value}`);
-  }
-}
-
-// 17. The hours are priced at valuationDate's rate, NOT at each historical
-//     day's own rate -- the reference period is, by construction, always
-//     in the past (leaveReferencePeriod), so pricing hours at their own
-//     historical rate would value an absence taken right after a raise
-//     almost entirely at the OLD rate. Two plain 8h days both logged
-//     BEFORE a raise (40 -> 50, effective the day after both of them) must
-//     still be valued at the NEW rate of 50, since that's the rate in
-//     effect on the absence itself.
+// 12. The rate used is the one in effect ON valuationDate specifically --
+//     an append-only history, picking the latest entry whose
+//     effective_from is on or before valuationDate, same as rateForDate
+//     everywhere else in this module.
 {
   const RAISE_HISTORY = [
-    { effective_from: '2000-01-01', hourly_rate: 40 },
-    { effective_from: addDays(THURSDAY, 1), hourly_rate: 50 },
+    { effective_from: '2000-01-01', hourly_rate: 42 },
+    { effective_from: '2026-11-01', hourly_rate: 51 },
   ];
   checkValue(
-    'leaveDayValue prices hours at valuationDate\'s rate, not each day\'s own historical rate',
-    leaveDayValue(
-      [entry(MONDAY, 6.75, 14.75), entry(THURSDAY, 6.75, 14.75)],
-      RAISE_HISTORY,
-      addDays(THURSDAY, 1),
-    ),
-    (16 * 50) / 66, // both days' 16h total, priced at the NEW rate (50), not the old one (40)
+    'leaveDayValue uses the OLD rate for a date before the raise',
+    leaveDayValue(RAISE_HISTORY, '2026-10-31'),
+    7 * 42,
+  );
+  checkValue(
+    'leaveDayValue uses the NEW rate for a date on/after the raise',
+    leaveDayValue(RAISE_HISTORY, '2026-11-01'),
+    7 * 51,
   );
 }
 
-// 15. leaveReferencePeriod: for a November absence, the reference period
-//     is August 1 - October 31 -- the 3 FULL months before November, never
-//     including November itself. This is the fix for the owner's own
-//     scenario: a vacation taken in week 1 of a month must never be valued
-//     against that same still-in-progress month's thin data.
+// 13. leaveDayValue with no rate recorded before valuationDate returns 0
+//     (nothing to value an absence against yet), rather than NaN.
 {
-  const { start, end } = leaveReferencePeriod('2026-11-15');
-  if (start === '2026-08-01' && end === '2026-10-31') {
-    console.log('  \x1b[32mok\x1b[0m   leaveReferencePeriod(Nov) -> Aug 1 - Oct 31, excluding November');
+  const value = leaveDayValue(FLAT_HISTORY, '1999-01-01');
+  if (value === 0) {
+    console.log('  \x1b[32mok\x1b[0m   leaveDayValue is 0 when no rate is recorded yet for that date');
   } else {
     failures++;
-    console.log(`  \x1b[31mFAIL\x1b[0m leaveReferencePeriod('2026-11-15') = {start: ${start}, end: ${end}}, expected Aug 1 - Oct 31`);
-  }
-}
-
-// 16. Same check across a Hebrew-calendar-irrelevant but Gregorian-tricky
-//     year boundary: a February absence's reference period is November-
-//     January of the PRIOR year for November, not an out-of-range month.
-{
-  const { start, end } = leaveReferencePeriod('2027-02-10');
-  if (start === '2026-11-01' && end === '2027-01-31') {
-    console.log('  \x1b[32mok\x1b[0m   leaveReferencePeriod(Feb) correctly crosses the year boundary');
-  } else {
-    failures++;
-    console.log(`  \x1b[31mFAIL\x1b[0m leaveReferencePeriod('2027-02-10') = {start: ${start}, end: ${end}}, expected Nov 1 2026 - Jan 31 2027`);
+    console.log(`  \x1b[31mFAIL\x1b[0m leaveDayValue expected 0, got ${value}`);
   }
 }
 

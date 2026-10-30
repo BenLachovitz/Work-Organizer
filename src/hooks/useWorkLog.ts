@@ -8,7 +8,6 @@ import { SHIFTS, type ShiftType } from '@/lib/shifts';
 import {
   consecutiveSickDayCount,
   leaveDayValue,
-  leaveReferencePeriod,
   sickPayPercent,
   type RateHistoryEntry,
 } from '@/lib/payroll';
@@ -159,17 +158,19 @@ const WORK_LOG_QUERY_PREFIXES = new Set([
 /**
  * Matches every work-log-related query regardless of which guard, week, or
  * month -- broader than strictly necessary, but a single edit can affect
- * several views at once in ways that are easy to miss one of: editing a
- * SHIFT changes the entry lists (workLogWeek/workLogMonth) AND the
- * absence-payout average it feeds into (absencePayoutContext), since
- * leaveDayValue is computed from the guard's own work_log_entries over
- * the 3 months before that absence's month. A bug here (shift edits only
- * invalidating the entry lists, not absencePayoutContext) is exactly what
- * made the owner's vacation-day estimate look frozen after adding missing
- * shifts -- the cached average never refetched. One shared predicate for
- * every mutation below avoids that class of bug recurring for a new query
- * added later. These queries are cheap enough that over-invalidating costs
- * nothing worth optimizing for.
+ * several views at once in ways that are easy to miss one of: editing or
+ * deleting an ABSENCE changes the entry lists it's shown alongside
+ * (workLogAbsenceWeek/Month) AND, for a sick day, every OTHER nearby
+ * absence's consecutive-day streak (absencePayoutContext) -- adding or
+ * removing a sick day can shift which tier (0/50/100%) a neighboring sick
+ * day falls into. leaveDayValue itself no longer reads work_log_entries
+ * at all (it's a standard day's hours at the current rate, not an average
+ * over worked history -- see payroll.ts), so a plain SHIFT edit no longer
+ * affects absencePayoutContext; it stays in this shared set anyway since
+ * these queries are cheap enough that over-invalidating costs nothing
+ * worth optimizing for, and it keeps one predicate covering every mutation
+ * below instead of each one needing to reason about exactly which views
+ * it can affect.
  */
 const invalidateAllWorkLogViews = (qc: ReturnType<typeof useQueryClient>) =>
   void qc.invalidateQueries({
@@ -460,24 +461,19 @@ export interface AbsencePayout {
   /** 1 for vacation; 0/0.5/1 for sick, by which day of a consecutive run
    *  this one is (Israeli Sick Pay Law). */
   percent: number;
-  /** leaveDayValue(...) over the LEAVE_REFERENCE_MONTHS full calendar
-   *  months before this absence's own month, times `percent`. 0 if there
-   *  is no logged work history yet in that reference period. */
+  /** leaveDayValue(...) at the rate in effect on this absence's own date,
+   *  times `percent`. 0 if there is no rate recorded yet for that date. */
   value: number;
 }
 
 /**
- * Values a set of absences (one roster week's or one month's worth) against
- * the guard's own work history. Each absence is valued from the
- * LEAVE_REFERENCE_MONTHS full calendar months BEFORE its own month
- * (leaveReferencePeriod/leaveDayValue in payroll.ts) -- never the absence's
- * own month, however early in it the absence falls (see leaveDayValue's own
- * comment for why: it keeps a vacation taken in week 1 of a month from
- * being valued against that same month's own, still-thin data). One
- * combined fetch covers every absence passed in (spanning every reference
- * period touched by any of them) rather than one round trip per absence;
- * each absence's own period is then a client-side slice of that shared
- * fetch.
+ * Values a set of absences (one roster week's or one month's worth)
+ * against the guard's rate history -- a standard day (STANDARD_DAY_HOURS
+ * in payroll.ts) at whatever rate applies on each absence's own date, per
+ * leaveDayValue. Deliberately independent of actual logged work hours
+ * (see leaveDayValue's own comment for why -- this is NOT an average over
+ * worked history). The only remaining DB dependency is each absence's own
+ * sick/vacation streak, via work_log_absences -- never work_log_entries.
  */
 export function useAbsencePayouts(
   absences: WorkLogAbsence[],
@@ -489,36 +485,24 @@ export function useAbsencePayouts(
   const dates = absences.map((a) => a.target_date).sort();
   const minDate = dates[0];
   const maxDate = dates[dates.length - 1];
-  const fetchStart = minDate ? leaveReferencePeriod(minDate).start : undefined;
-  const fetchEnd = maxDate ? leaveReferencePeriod(maxDate).end : undefined;
 
   const query = useQuery({
-    queryKey: ['absencePayoutContext', guardId, fetchStart, fetchEnd],
-    enabled: Boolean(guardId && fetchStart && fetchEnd),
-    queryFn: async (): Promise<{ entries: WorkLogEntry[]; sickDates: Set<DateKey> }> => {
+    queryKey: ['absencePayoutContext', guardId, minDate, maxDate],
+    enabled: Boolean(guardId && minDate && maxDate),
+    queryFn: async (): Promise<{ sickDates: Set<DateKey> }> => {
       const db = requireSupabase();
       const sickFrom = addDays(minDate!, -SICK_STREAK_LOOKBACK_DAYS);
 
-      const [entriesRes, sickRes] = await Promise.all([
-        db
-          .from('work_log_entries')
-          .select('*')
-          .eq('guard_id', guardId)
-          .gte('target_date', fetchStart!)
-          .lte('target_date', fetchEnd!),
-        db
-          .from('work_log_absences')
-          .select('target_date')
-          .eq('guard_id', guardId)
-          .eq('type', 'sick')
-          .gte('target_date', sickFrom)
-          .lte('target_date', maxDate!),
-      ]);
-      if (entriesRes.error) throw new Error(entriesRes.error.message);
+      const sickRes = await db
+        .from('work_log_absences')
+        .select('target_date')
+        .eq('guard_id', guardId)
+        .eq('type', 'sick')
+        .gte('target_date', sickFrom)
+        .lte('target_date', maxDate!);
       if (sickRes.error) throw new Error(sickRes.error.message);
 
       return {
-        entries: (entriesRes.data as WorkLogEntry[]) ?? [],
         sickDates: new Set(
           ((sickRes.data as { target_date: DateKey }[]) ?? []).map((r) => r.target_date),
         ),
@@ -528,11 +512,9 @@ export function useAbsencePayouts(
 
   const payouts = useMemo((): AbsencePayout[] => {
     if (!query.data) return [];
-    const { entries, sickDates } = query.data;
+    const { sickDates } = query.data;
     return absences.map((absence) => {
-      const { start, end } = leaveReferencePeriod(absence.target_date);
-      const relevant = entries.filter((e) => e.target_date >= start && e.target_date <= end);
-      const dayValue = leaveDayValue(relevant, rateHistory, absence.target_date);
+      const dayValue = leaveDayValue(rateHistory, absence.target_date);
       const percent =
         absence.type === 'vacation'
           ? 1

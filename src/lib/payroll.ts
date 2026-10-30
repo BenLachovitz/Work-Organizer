@@ -343,106 +343,60 @@ export function computePayroll(
 // ---------------------------------------------------------------------------
 
 /**
- * Fixed monthly divisor the owner's own company appears to use for
- * valuing a vacation/sick day: a STANDARD month's workdays (~21-22 for a
- * 5-day-week-style convention), regardless of how many days the guard
- * actually worked that month. 22 chosen as the round middle of the
- * 21-21.67 range various sources give; try 21 if 22 doesn't match once
- * calibrated against a real payslip figure.
+ * Standard workweek the owner's own real payslip documents for this role
+ * ("...up to 42 regular weekly hours", Saturday as the sole weekly rest
+ * day, Sunday-Friday as the workweek) -- Sunday through Friday, 6 days.
  */
-const MONTHLY_LEAVE_DIVISOR = 22;
-
-/** How many full calendar months, immediately BEFORE the absence's own
- *  month, the reference period spans -- see LEAVE_REFERENCE_DIVISOR. */
-export const LEAVE_REFERENCE_MONTHS = 3;
-
-/** Total divisor for the 3-month reference period: 3 x the monthly
- *  divisor, not a separately-calibrated number. */
-const LEAVE_REFERENCE_DIVISOR = MONTHLY_LEAVE_DIVISOR * LEAVE_REFERENCE_MONTHS; // 66
+const STANDARD_WORKDAYS_PER_WEEK = 6;
 
 /**
- * A guard's day value for vacation/sick pay: the RAW hours (overtime and
- * Shabbat/holiday premiums included, via computePayroll's own buckets)
- * over the reference period, divided by the fixed divisor above -- never
- * by how many days the guard actually worked -- then priced at the rate
- * in effect ON `valuationDate` (the absence's own date), never at
- * whatever rate happened to apply on each individual day the hours were
- * actually worked. That distinction only matters around a rate change,
- * but it matters a lot there: the reference period is, BY CONSTRUCTION,
- * always 3 months in the PAST (see leaveReferencePeriod), so pricing each
- * day at its own historical rate means an absence taken right after a
- * raise gets valued almost entirely at the OLD, lower rate -- exactly
- * backwards from "what would this guard earn for a day off today."
- * Buckets are summed via a SINGLE computePayroll call over the whole
- * window (not one call per day) so its weekly-42h reconciliation can
- * actually see more than one day at a time, same as every other caller.
+ * A single standard day's length: the weekly regular-hours ceiling
+ * (WEEKLY_REGULAR_HOURS, already used by the overtime engine above)
+ * spread evenly across the 6-day workweek -- 42 / 6 = 7 hours. This is
+ * NOT the same 7h as NIGHT_SHIFT_REGULAR_HOURS above (that one's specific
+ * to classifying a night shift's own daily OT threshold); it's a
+ * coincidence of this specific 42h/6-day arrangement, not a shared
+ * constant, so it's computed separately.
+ */
+const STANDARD_DAY_HOURS = WEEKLY_REGULAR_HOURS / STANDARD_WORKDAYS_PER_WEEK; // 7
+
+/**
+ * A guard's day value for vacation/sick pay: a single standard day
+ * (STANDARD_DAY_HOURS) at the rate in effect ON `valuationDate` (the
+ * absence's own date) -- the Israeli Annual Leave Law formula for a
+ * worker with a DEFINED regular-weekly-hours arrangement (as this role
+ * has, per the owner's own real payslip: "employed...up to 42 regular
+ * weekly hours"), as opposed to the law's separate 3-month-lookback
+ * formula for a worker with NO fixed/regular weekly pattern at all.
+ * Deliberately independent of actual worked hours, overtime, or
+ * Shabbat/holiday premiums entirely -- a day of leave is worth a
+ * standard day's regular pay, not an average of whatever happened to be
+ * worked around it.
  *
- * Callers are expected to pass entries scoped to the
- * LEAVE_REFERENCE_MONTHS full calendar months immediately BEFORE the
- * absence's own month -- NEVER the absence's own month itself, even if
- * that absence falls early in the month. That exclusion is deliberate,
- * surfaced by the owner: if the reference period could include the
- * guard's current, still-in-progress month, a vacation day taken in that
- * same month's first week would be valued against almost no data (maybe
- * one shift logged so far), making it absurdly low until the month fills
- * up -- using only already-COMPLETE prior months avoids that entirely,
- * and also matches the original legal source's own "3 months before the
- * vacation" framing, which an earlier version of this function had
- * actually dropped by scoping to the absence's own month instead.
- *
- * This is the sixth formula this function has gone through, each
+ * This is the seventh formula this function has gone through, each
  * iteration surfaced by the owner checking real payslip numbers against
  * it: (1) full overtime-inclusive gross averaged over actual worked days
  * -- too high; (2) hours capped at a standard 8h/7h day, averaged over
  * actual worked days -- still too high; (3) full gross summed over a
  * trailing ~90 days and divided by a FIXED 75 (a 6-day-week, 3-month
  * convention) -- far too low; (4) the textbook "regular wage / actual
- * days worked" formula (a clearer worked-example source) -- STILL too
- * high even with ~2.5 real months of backfilled history, which ruled out
- * "not enough data" and pointed at a fixed-divisor, standard-month
- * convention instead; (5) that fixed-divisor idea, but WRONGLY scoped to
- * the absence's own calendar month instead of the 3 months before it;
- * (6) the "3 months before" window restored, but still pricing each
- * historical day at ITS OWN rate -- surfaced as too low again once the
- * owner tested a vacation day placed right after a real rate increase,
- * since almost the entire reference period predated the raise. This
- * version prices the summed hours at valuationDate's rate instead.
+ * days worked" formula -- STILL too high even with ~2.5 real months of
+ * backfilled history; (5)/(6) a fixed monthly divisor (22, then a
+ * 3-months-before-the-absence window divided by 66) -- closer, but stuck
+ * roughly 20-30% low regardless of which divisor or rate was tried,
+ * because the whole "average over worked history" premise was wrong for
+ * this worker; (7) the owner sent a real payslip (August 2026): a
+ * documented vacation-day value of exactly 589.04/2 = 294.52, against a
+ * stated hourly rate of 42.30 and an explicit "42 regular weekly hours"
+ * contract on a Sun-Fri (6-day) week. 42 (this app's own guard/manager
+ * rate at the time) x (42/6 = 7) = 294.00 -- within 0.18% of the real
+ * figure, and the only formula tried that matches without needing any
+ * work-log history at all.
  */
-export function leaveDayValue(
-  entries: WorkLogEntry[],
-  rateHistory: RateHistoryEntry[],
-  valuationDate: DateKey,
-): number {
-  const b = computePayroll(entries, rateHistory);
+export function leaveDayValue(rateHistory: RateHistoryEntry[], valuationDate: DateKey): number {
   const rate = rateForDate(rateHistory, valuationDate);
   if (rate == null) return 0;
-  return (
-    (rate *
-      (b.hours100 +
-        (1 + OT_TIER_1_INCREMENT) * b.hours125 +
-        (1 + OT_TIER_2_INCREMENT) * b.hours150 +
-        (REST_DAY_BASE + OT_TIER_1_INCREMENT) * b.hours175 +
-        (REST_DAY_BASE + OT_TIER_2_INCREMENT) * b.hours200)) /
-    LEAVE_REFERENCE_DIVISOR
-  );
-}
-
-/**
- * The LEAVE_REFERENCE_MONTHS full calendar months immediately before
- * `date`'s own month -- e.g. for a November absence: August 1 through
- * October 31. Never includes `date`'s own month, however early in it
- * `date` falls -- see leaveDayValue's own comment for why.
- */
-export function leaveReferencePeriod(date: DateKey): { start: DateKey; end: DateKey } {
-  const [y, m] = date.slice(0, 7).split('-').map(Number);
-  const yy = y ?? 1970;
-  const mm = m ?? 1;
-  // mm is 1-based; Date.UTC's month is 0-based, so (mm - 1) is "this
-  // month" at index 0 -- day 0 of that gives the LAST day of the
-  // previous month, exactly the end of the reference period.
-  const end = new Date(Date.UTC(yy, mm - 1, 0));
-  const start = new Date(Date.UTC(yy, mm - 1 - LEAVE_REFERENCE_MONTHS, 1));
-  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
+  return rate * STANDARD_DAY_HOURS;
 }
 
 /**
