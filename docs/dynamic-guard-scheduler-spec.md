@@ -3242,4 +3242,92 @@ password — both appear in the development transcript.
 
 ---
 
-_Specification v2.26.2 — revised 24 October 2026._
+## 15. PERSONAL WORK LOG & ESTIMATED GROSS SALARY (feature branch, not yet merged)
+
+**Status:** built on `feature/work-log-salary`, not merged to `main` and not deployed to production
+as of this writing — everything in §1–§14 above describes what's actually live. The feature's own
+planning document is `docs/work-log-salary-plan.md`, kept current with a "shipped since this plan
+was written" status trailer as the build evolved; read that for the full history and rationale. This
+section records the shape it settled into, for anyone extending the scheduler proper around it.
+**One deliberate exception to this feature's own "main stays exactly as production until merge" rule
+(`docs/work-log-salary-plan.md`, "Branching & rollout"):** the new tables and functions below (migrations
+58–65) are already applied to the live Supabase project, ahead of the frontend merge, so the feature
+could be built and calibrated against the owner's own real roster and payslip data rather than a
+disposable fixture. The guard-facing UI itself only goes live once this branch merges to `main`.
+
+### 15.1 Purpose
+A self-service way for each guard — and the manager, who is also an active guard — to see their own
+worked hours and estimate their gross (pre-tax) monthly salary under Israeli overtime/Shabbat/holiday
+law. Kept fully decoupled from `schedule_assignments`/the solver's own domain (cross-referenced only
+for seeding provenance via a nullable FK), so pay data can never affect scheduling or solver
+integrity. Not connected to any real payroll system — there is no manager-approval gate, the same
+trust model as every other self-service surface in this app.
+
+### 15.2 Data model
+- **`work_log_entries`** — one row per worked shift (`target_date`, `actual_start`/`actual_end`,
+  `source: roster | edited | manual`). Lazily seeded from a guard's own published roster on first read
+  of a week; a guard's own edited/manual rows are never touched by reseeding. Editable, addable, and
+  deletable by the guard from both the weekly and monthly views.
+- **`work_log_absences`** — a separate sick/vacation flow, not worked time; deliberately no
+  leave-balance ledger (the app never checks whether a guard actually has days left).
+- **`payroll_rates` / `travel_rates`** — append-only rate history for the hourly wage and the flat
+  per-worked-day travel allowance (נסיעות, ₪16/day as of this writing) respectively. A rate change
+  takes effect only from its own `effective_from` date forward, never recalculating a month that
+  already passed — the same pattern both tables share. Both are manager-editable from a
+  `PayrollRateSettings` section on the Manager Settings page; every guard can read their own resolved
+  history for either.
+
+### 15.3 Calculation engine (`src/lib/payroll.ts`)
+A pure module with zero Supabase imports, unit-tested in `src/lib/payroll.test.mjs` (21 fixtures).
+- Per-day hours split into five RAW percentage buckets — `hours100/125/150/175/200` — since a rest
+  day's base rate and a weekday's second overtime tier are both 150%, with no reason to track them
+  separately.
+- The standard day is **7 hours**, not 8, whenever a shift either overlaps an actual night window
+  (≥2h inside 22:00–06:00) **or** touches a weekly rest day (Shabbat) or a major Jewish holiday
+  (`isMajorJewishHoliday()`, `src/lib/holidays.ts`) at all. The second condition was added after a
+  real discrepancy against a third-party payroll app the owner independently cross-checks his own pay
+  against — see §15.5.
+- Overtime stacks **additively** on the applicable base rate (150→175→200%), never multiplicatively.
+- `leaveDayValue()` values a sick/vacation day at `hourly_rate × 7` (42 weekly regular hours ÷ a
+  6-day workweek, per the Annual Leave Law's weekly-regular-hours formula), further tiered 0/50/100%
+  for sick days by the Israeli Sick Pay Law's consecutive-day rule.
+- `travelPay()` sums the travel rate in effect once per distinct worked `target_date`, never per
+  entry and never for an absence day.
+
+### 15.4 UI
+A guard-facing route with a monthly view (primary) and a weekly view (secondary) — the monthly view
+is the only one with "+ add shift"/"+ add absence" buttons. Every hour/money figure renders at full
+decimal precision, never rounded. Date fields always display DD/MM/YYYY and time fields are always
+24-hour (two plain native `<select>`s, hour and minute), regardless of the device/browser's own
+locale — native `<input type="date">`/`<input type="time">` display format follows OS locale, not the
+page's `lang`/`dir`, so this needed deliberate UI work rather than relying on the input type alone.
+Two earlier attempts at the time field (a masked text input, then an invisible-native-input overlay)
+were abandoned after real-device testing showed cursor-jumping and a visible AM/PM ghost on the dark
+theme; the two-`<select>` version is what shipped.
+
+### 15.5 A real cross-check bug, found and fixed
+The owner independently tracks his own pay in a third-party app and noticed its October
+150%/175%/200% hour split didn't match this system's (39h/8h/8h here vs. 38h/8h/9h there, with 175%
+agreeing). Traced to one Saturday day shift (12h, zero night overlap) getting an 8h standard day here
+instead of 7h. Researched before any code change, per the owner's explicit request: the general Hours
+of Work and Rest Law shortens the standard day only for an actual night shift or the day *before* the
+rest day — not for work *on* the rest day itself — but the security sector's own practice (confirmed
+by this real disagreement, not a definitive legal citation) applies the shorter 7h day to *any*
+Shabbat/holiday work, day or night alike. Fixed per the owner's explicit choice to match the
+sector-practice/third-party-app reading — the same discipline this project's scheduler engine holds
+toward its own referees (never trust an engine's output on its word alone) applied here to a formula
+instead: re-derive it from a real external disagreement, rather than patch it to make the symptom go
+away. Recalculating the same October data now matches exactly — 38h/8h/9h.
+
+### 15.6 Testing
+`src/lib/payroll.test.mjs` — pure, hand-computed fixtures, no Supabase dependency, run via `node
+--experimental-strip-types src/lib/payroll.test.mjs`. Deliberately no cloud test writes a real
+`work_log_entries`/`work_log_absences` row — the same "no separate test database" caution this
+project already holds for its scheduler cloud tests (§14.2's Gate D note) applies here too, so
+calibration during development read the owner's own real production data directly rather than
+writing to it.
+
+---
+
+_Specification v2.26.2 — revised 24 October 2026. §15 (personal work log / estimated gross salary)
+describes a separate, unmerged feature branch and is not part of the versioned build above._

@@ -6,7 +6,7 @@ build status and roadmap, §1.17–§1.30 is the changelog for everything since 
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
-*Last updated: 24 October 2026*
+*Last updated: 30 October 2026*
 
 ---
 
@@ -910,6 +910,45 @@ production, because there is no separate test database here. Generate test crede
 
 ---
 
+## In progress, on a branch — personal work log + estimated gross salary
+
+Not part of the version history above (that's the scheduler app proper, currently at **v2.26.2**,
+live on `main`). This is a separate, self-service feature built on `feature/work-log-salary`,
+**never merged to `main` and not deployed** — full plan and build history in
+[docs/work-log-salary-plan.md](work-log-salary-plan.md); the technical shape it settled into is now
+also documented in spec §15. One thing worth flagging on its own: **migrations 58–65 are already
+applied to the live Supabase project**, ahead of the frontend merge — schema work went in early so
+the feature could be built and calibrated against the owner's own real roster and payslip data, not
+a disposable fixture. The guard-facing UI doesn't reach production until this branch merges.
+
+What it is: each guard (Ben included, as both manager and an active guard) gets a self-service
+weekly/monthly work log — auto-seeded from their own published roster, editable for a late stay or an
+ad-hoc shift — and an estimated gross (pre-tax) salary computed under Israeli overtime/Shabbat/
+holiday law. Fully decoupled from `schedule_assignments`/the solver's own domain; no manager-approval
+gate, same trust model as every other self-service surface in this app.
+
+What shipped, in brief (spec §15 has the technical detail): an append-only rate history for the
+hourly wage and for a flat per-worked-day travel allowance (נסיעות, ₪16/day), both manager-editable
+and never retroactive; a five-bucket percentage breakdown (`hours100/125/150/175/200`) with the
+7h-vs-8h standard-day rule now applying to *any* shift touching a rest day or major holiday, not just
+an actual night shift (a real bug, found via the owner's own third-party payroll-app cross-check and
+fixed after law research — October now matches that app exactly, 38h/8h/9h); sick/vacation absence
+payouts valued at `hourly_rate × 7` (the Annual Leave Law's weekly-hours formula) and tiered 0/50/100%
+for sick days; full decimal precision everywhere; a monthly-primary/weekly-secondary view; and
+DD/MM/YYYY date fields plus always-24-hour time fields (two native `<select>`s, after two abandoned
+UI attempts — a masked text input, then a hidden-input overlay — both broke on real-device testing).
+21 unit fixtures in `src/lib/payroll.test.mjs`, typecheck and build clean. Every fix along the way was
+individually committed and pushed to the feature branch, verified against the owner's own real
+production data (read-only queries) rather than a disposable fixture, per this project's standing
+"no separate test database" caution (§14.2's Gate D note, same risk class).
+
+Not yet done: merge to `main` and point Vercel's production deployment at it — the owner's own call,
+same as every other feature on this project (§11.2/this file's "Live at" section). No real-device-only
+check is outstanding the way the PWA/push/passkey items below are — this is a plain web UI feature,
+confirmed in the browser during development.
+
+---
+
 ## What is left
 
 Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
@@ -1045,7 +1084,8 @@ rejected the push — often a stale subscription that's already been pruned by t
   plain `UPDATE`, not committed anywhere. (The abandoned WhatsApp design's three `WHATSAPP_*`
   secrets were never set and are moot now; `request-pin-reset`'s reuse of this cron-secret pair for
   the `pin_reset_otp` type is moot too — that function is deleted as of the v2.22.1 revert.)
-- 57 migrations applied, tracked in a `schema_migrations` ledger
+- 65 migrations applied, tracked in a `schema_migrations` ledger — the last 8 (58–65) belong to the
+  unmerged work-log-salary feature branch above; this app's own code is still at 57
 
 ### Current database contents (24 October 2026)
 
