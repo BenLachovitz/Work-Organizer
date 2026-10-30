@@ -471,18 +471,38 @@ export function DateField({
   );
 }
 
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+
+const TIME_SELECT_CLASS = cn(
+  'num w-full rounded-xl border-2 border-slate-200 bg-white p-2.5 text-center text-sm text-slate-800',
+  'dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100',
+  'focus:border-brand-400 focus:outline-none',
+);
+
 /**
- * A time input that always DISPLAYS 24-hour "HH:MM", regardless of the
- * device/browser's own locale -- same overlay technique as DateField (see
- * OVERLAY_INPUT_CLASS's own comment), and the caller needs a `<label>`
- * wrapper for the same reason. Unlike the date case there is no reformatting
- * to do: a native `<input type="time">`'s VALUE is always 24-hour "HH:MM"
- * internally no matter what it visually displays while being edited, so the
- * overlay just shows `value` as-is. Keeping the real native input (rather
- * than a masked text field) matters here specifically: it gives separate,
- * natively click/tap-able hour and minute segments with their own native
- * up/down and typing behavior -- a hand-rolled masked text input loses that
- * precision-editing affordance and fights the cursor on every keystroke.
+ * A 24-hour "HH:MM" time picker built from two plain native `<select>`
+ * elements (hour 00-23, minute 00-59), not a single `<input type="time">`.
+ *
+ * The earlier version tried to hide a native time input's own 12h-AM/PM
+ * rendering behind a custom always-24h display overlay -- same trick
+ * DateField uses for dates. That fit dates well (a date input's calendar
+ * picker is a separate popup, independent of the collapsed text, so hiding
+ * the text costs nothing) but NOT times: on desktop, a time input has no
+ * separate popup at all -- the inline "HH:MM AM/PM" text IS the primary
+ * editing surface (click a segment, type or arrow-key it), so hiding it
+ * removes all visual feedback while still technically working via blind
+ * keyboard input. Worse, making that text merely near-invisible
+ * (opacity: 0.01, a defensive tweak for a different, unconfirmed mobile
+ * Safari quirk) still let it show through faintly as a "ghost" on this
+ * app's dark theme, which is a real, confirmed, owner-reported bug.
+ *
+ * Two plain selects sidestep the entire problem: we write every `<option>`
+ * label ourselves, so 24-hour formatting is guaranteed by construction
+ * rather than fought for -- no hidden input, no overlay, no opacity
+ * trickery, and it behaves identically and predictably on every platform
+ * (a native dropdown list on desktop, the OS's own wheel/scroll picker on
+ * mobile).
  */
 export function TimeField({
   value,
@@ -494,18 +514,37 @@ export function TimeField({
   onChange: (value: string) => void;
   className?: string;
 }) {
+  const [h, m] = value.split(':');
+  const hour = HOURS.includes(h ?? '') ? h! : '00';
+  const minute = MINUTES.includes(m ?? '') ? m! : '00';
+
   return (
-    <div className={cn('relative', className)}>
-      <input
-        type="time"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={OVERLAY_INPUT_CLASS}
-        aria-label="שעה, 24 שעות"
-      />
-      <div className={cn(OVERLAY_DISPLAY_CLASS, 'num justify-center')}>
-        <span>{value || '--:--'}</span>
-      </div>
+    <div className={cn('flex items-center gap-1.5', className)}>
+      <select
+        value={hour}
+        onChange={(e) => onChange(`${e.target.value}:${minute}`)}
+        className={TIME_SELECT_CLASS}
+        aria-label="שעה"
+      >
+        {HOURS.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
+      <span className="shrink-0 font-bold text-slate-400 dark:text-slate-500">:</span>
+      <select
+        value={minute}
+        onChange={(e) => onChange(`${hour}:${e.target.value}`)}
+        className={TIME_SELECT_CLASS}
+        aria-label="דקה"
+      >
+        {MINUTES.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
