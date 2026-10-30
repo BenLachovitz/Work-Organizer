@@ -67,8 +67,6 @@ export function GuardHome() {
           </Alert>
         )}
 
-        <CurrentlyOnShiftCard weeks={weeks} guards={rosters?.guards ?? []} />
-
         <NotificationPrompt guardId={profile?.id} />
         <PasskeyPrompt guardId={profile?.id} />
 
@@ -157,6 +155,8 @@ export function GuardHome() {
             );
           })
         )}
+
+        <CurrentlyOnShiftCard weeks={weeks} guards={rosters?.guards ?? []} />
 
         {/* ---------------- submissions: a different cycle ---------------- */}
         <Card>
