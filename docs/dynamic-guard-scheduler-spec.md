@@ -1,15 +1,15 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.27.0 (build steps A–Y complete plus the double-shift display setting, the
+**Version:** 2.28.0 (build steps A–Y complete plus the double-shift display setting, the
 draft-preview export change, manager PIN-reset, a stale-past-week guard-view fix, two roster-
 editor polish items — an optionally coverage-occupying placeholder and split afternoon-
-segment shifts — the Yom Kippur special-coverage feature, and now the personal work log +
-estimated gross salary feature (§15) merged to `main`; live and in daily use; deployed to
-production — the self-service forgot-PIN feature (§12.12) was fully reverted after a production
-session-persistence regression, see §14.1 Step AB and §14.3)
+segment shifts — the Yom Kippur special-coverage feature, the personal work log +
+estimated gross salary feature (§15), and now a homepage "who's on shift right now" card (§1.32);
+live and in daily use; deployed to production — the self-service forgot-PIN feature (§12.12) was
+fully reverted after a production session-persistence regression, see §14.1 Step AB and §14.3)
 **Roster Context:** Flexible team size, 6–12 registered guards, 9 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
-**Document Date:** 30 October 2026
+**Document Date:** 31 October 2026
 
 ---
 
@@ -337,6 +337,15 @@ Verified after the deletion: zero `100001`–`100007` codes, auth users or `is_d
 | --- | ------ | --------- |
 | 120 | **Personal work log + estimated gross salary** (§15), built on `feature/work-log-salary`, merged to `main` and deployed to production. Each guard gets a self-service weekly/monthly work log, auto-seeded from their own published roster, plus an estimated gross salary under Israeli overtime/Shabbat/holiday law. | Full detail, rationale, and build history are in §15 and `docs/work-log-salary-plan.md` — not repeated here; this row exists so this changelog's version sequence stays unbroken. |
 | 121 | **Database migrations 58–65 were already live before this merge.** Schema work (§15.2) went in ahead of the frontend so the feature could be calibrated against the owner's own real roster and payslip data. This merge ships only the frontend code against a schema that was already in place. | Noted explicitly because it breaks this project's usual rule that nothing lands on the live database until the branch carrying it is ready to merge (§15, "one deliberate exception"). |
+
+### 1.32 Changes in Version 2.28.0 — "who's on shift right now" homepage card (31 October 2026)
+
+| #   | Change | Rationale |
+| --- | ------ | --------- |
+| 122 | **Homepage "currently on shift" card** (`CurrentlyOnShiftCard.tsx`) — every logged-in user (guard or manager alike, both land on `GuardHome.tsx` at `/`) now sees, at a glance, which guard(s) are physically on shift right now: name + shift time range, self-refreshing every 60s, with a quiet empty-state message when nobody's currently on shift. | A guard occasionally wants to check who's on site (e.g. whether the gym is free) without reading the correct cell of the current week's roster grid by hand. |
+| 123 | New pure helper `isShiftActiveAt(targetDate, shift, now)` (`src/lib/shifts.ts`) — checks whether a real clock instant falls within a shift's actual start/end, via the same `israelDateTime()` conversion `useWorkLog.ts`'s `nominalWindow()` already established for turning `SHIFTS[shift].startH/endH` into real timestamps. | No existing code answered "is this shift happening right now" — every other shift-time helper in the codebase answers a static question (which segment does a shift cover, how much rest between two shifts), not a live one. |
+| 124 | **No new query, no schema/RLS change.** The card reuses `useVisibleRosters()`'s existing all-guards, all-weeks assignment data — already fetched by `GuardHome.tsx` and already permitted by the `assign_read` RLS policy, which has no `guard_id` condition at all (a guard already reads every other guard's assignment rows for a published, currently-visible week). | Confirmed by reading the policy before building anything — the data and the read permission already existed; the only genuinely new piece was the live-instant time check (item 123) and a small 60s self-refresh timer local to the one component (nothing else in the app ticks on a clock; "live" elsewhere means Supabase Realtime reacting to a data *change*). |
+| 125 | **Explicitly deferred**: tapping a listed guard's name to call/WhatsApp them. Needs a `phone_number` column — one existed briefly for the self-service forgot-PIN feature and was fully reverted (§1.22, item 82) — which would need to be deliberately re-added for this purpose specifically, a separate decision. | Flagged as a possible future follow-up, not built in this round, per the owner's own scoping of the request to "just show who's currently at the shift." |
 
 ---
 
@@ -3339,4 +3348,4 @@ writing to it.
 
 ---
 
-_Specification v2.27.0 — revised 30 October 2026._
+_Specification v2.28.0 — revised 31 October 2026._

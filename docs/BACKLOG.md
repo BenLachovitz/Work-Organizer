@@ -1,13 +1,13 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.27.0** — §14 there is the
-build status and roadmap, §1.17–§1.31 is the changelog for everything since v2.15, §15 is the
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.28.0** — §14 there is the
+build status and roadmap, §1.17–§1.32 is the changelog for everything since v2.15, §15 is the
 personal work log + estimated gross salary feature. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
-*Last updated: 30 October 2026*
+*Last updated: 31 October 2026*
 
 ---
 
@@ -950,13 +950,50 @@ plain web UI feature, confirmed in the browser during development.
 
 ---
 
+## Step AI (31 October 2026) — "who's on shift right now" homepage card
+
+Committed straight to `main` (spec §1.32, v2.28.0) — small enough, and low-risk enough (pure
+read/display, no schema or RLS change), that it didn't need its own feature branch the way the
+work-log-salary feature did.
+
+What it is: every logged-in user — guard or manager alike, since both land on the same shared
+homepage (`GuardHome.tsx` at `/`, confirmed via `App.tsx`'s routing before building anything) — now
+sees a small card listing who's physically on shift right now (name + shift time range), so a guard
+can check at a glance (e.g. "is the gym free") instead of reading the current cell of the roster
+grid by hand. Self-refreshes every 60 seconds; shows a quiet empty-state message rather than
+disappearing when nobody's currently on shift.
+
+Built entirely on data and permissions that already existed: `useVisibleRosters()` already fetches
+every guard's assignments for the current/next published week (no `guard_id` filter), and the
+`assign_read` RLS policy already permits any guard to read them — both confirmed by reading the
+code first, not assumed. The one new piece is a pure helper, `isShiftActiveAt()` (`src/lib/shifts.ts`),
+checking whether a real clock instant falls inside a shift's actual start/end window via the same
+`israelDateTime()` conversion `useWorkLog.ts`'s `nominalWindow()` already established. 9 new unit
+fixtures (`src/lib/shifts.test.mjs`, `npm run test:shifts`) cover plain and overnight shifts plus
+their boundary instants. Full TypeScript typecheck clean; manually confirmed the app builds and
+serves with no console/server errors, but the card's actual data against a real published roster
+still needs the owner's own login to verify — same "no demo account, no separate test database"
+situation as every other guard-facing check in this project.
+
+Deliberately out of scope for this round: tapping a guard's name to call or WhatsApp them — needs a
+`phone_number` column (added once for the reverted self-service forgot-PIN feature, then fully
+reverted — see Step AB, fully reverted, above) deliberately re-added for this specific purpose, a
+separate decision if the owner wants it later. `package.json`/`GitVersion.yml` bumped to 2.28.0.
+
+---
+
 ## What is left
 
 Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
-deliberately deferred design choice, not a build gap. Seven things still open, not build gaps
+deliberately deferred design choice, not a build gap. Eight things still open, not build gaps
 (self-service forgot-PIN, formerly listed here, was fully reverted — see Step AB, fully reverted,
 above — and is not an open item, it's removed):
 
+- **"Who's on shift right now" card confirmed against real data** (Step AI, spec §1.32) — the app
+  builds and serves with no console/server errors, and typecheck + the new `isShiftActiveAt()` unit
+  fixtures are clean, but there's no demo/test account to sign in as, so checking the card's actual
+  output against a real published roster (and watching it flip live across a shift boundary) needs
+  Ben's own login.
 - **Passkey real-device registration + unlock confirmation** (Step X, spec §8) — now on the rebuilt
   app-scoped WebAuthn mechanism (own `webauthn` Edge Function, not Supabase's native Passkey API; see
   Step X's same-day revision above). Registering from Preferences on a real iPhone/Android, confirming
@@ -1109,8 +1146,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.27.0**
-(personal work log + estimated gross salary, Step AH above), tagged `v2.27.0`.
+state that version describes), matching the spec's own version history. Currently at **2.28.0**
+("who's on shift right now" homepage card, Step AI above), tagged `v2.28.0`.
 
 ## Commands
 
