@@ -648,12 +648,18 @@ function WorkLogEntryEditor({
           </Field>
         )}
 
-        <div className="flex items-start gap-8">
-          <Field label="שעת התחלה">
-            <TimeField value={start} onChange={setStart} />
-          </Field>
+        {/* DOM order is [end, dash, start], not [start, dash, end]: under
+            RTL packing the FIRST child lands on the right and the LAST on
+            the left, so this reads physically left-to-right as
+            start -- dash -- end, like a "from - to" range, without forcing
+            an ltr override on the Hebrew labels inside each Field. */}
+        <div className="flex items-end justify-center gap-3">
           <Field label="שעת סיום">
             <TimeField value={end} onChange={setEnd} />
+          </Field>
+          <span className="mb-2.5 text-lg font-bold text-slate-400 dark:text-slate-500">–</span>
+          <Field label="שעת התחלה">
+            <TimeField value={start} onChange={setStart} />
           </Field>
         </div>
         {!durationOk && (
