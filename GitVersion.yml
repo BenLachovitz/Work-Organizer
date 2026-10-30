@@ -10,12 +10,13 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see docs/BACKLOG.md's Versioning section). Currently 2.26.2: repo
-# prepared for public visibility. The demo guards, whose PIN was readable in
-# the repo, were deleted from production; every cloud test now generates a
-# random PIN per run; README and screenshots added, docs moved into docs/.
-# See spec section 1.30.
-next-version: 2.26.2
+# version (see docs/BACKLOG.md's Versioning section). Currently 2.27.0:
+# personal work log + estimated gross salary (feature/work-log-salary,
+# merged to main). Each guard gets a self-service weekly/monthly work log,
+# auto-seeded from their own published roster, plus an estimated gross
+# salary under Israeli overtime/Shabbat/holiday law. See spec section 1.31
+# and section 15.
+next-version: 2.27.0
 mode: Mainline
 branches:
   main:

@@ -1,8 +1,9 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.26.2** — §14 there is the
-build status and roadmap, §1.17–§1.30 is the changelog for everything since v2.15. This file
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.27.0** — §14 there is the
+build status and roadmap, §1.17–§1.31 is the changelog for everything since v2.15, §15 is the
+personal work log + estimated gross salary feature. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
@@ -910,16 +911,16 @@ production, because there is no separate test database here. Generate test crede
 
 ---
 
-## In progress, on a branch — personal work log + estimated gross salary
+## Step AH (30 October 2026) — personal work log + estimated gross salary
 
-Not part of the version history above (that's the scheduler app proper, currently at **v2.26.2**,
-live on `main`). This is a separate, self-service feature built on `feature/work-log-salary`,
-**never merged to `main` and not deployed** — full plan and build history in
-[docs/work-log-salary-plan.md](work-log-salary-plan.md); the technical shape it settled into is now
-also documented in spec §15. One thing worth flagging on its own: **migrations 58–65 are already
-applied to the live Supabase project**, ahead of the frontend merge — schema work went in early so
-the feature could be built and calibrated against the owner's own real roster and payslip data, not
-a disposable fixture. The guard-facing UI doesn't reach production until this branch merges.
+Built on `feature/work-log-salary`, **merged to `main` and deployed to production** — full plan and
+build history in [docs/work-log-salary-plan.md](work-log-salary-plan.md); the technical shape it
+settled into is documented in spec §15 (changelog entry §1.31, `package.json`/`GitVersion.yml`
+bumped to 2.27.0, tagged `v2.27.0`). One thing worth flagging on its own: **migrations 58–65 were
+already applied to the live Supabase project several days before this merge** — schema work went in
+early so the feature could be built and calibrated against the owner's own real roster and payslip
+data, not a disposable fixture. By the time the frontend merged, the schema had already been live for
+a while.
 
 What it is: each guard (Ben included, as both manager and an active guard) gets a self-service
 weekly/monthly work log — auto-seeded from their own published roster, editable for a late stay or an
@@ -942,10 +943,10 @@ individually committed and pushed to the feature branch, verified against the ow
 production data (read-only queries) rather than a disposable fixture, per this project's standing
 "no separate test database" caution (§14.2's Gate D note, same risk class).
 
-Not yet done: merge to `main` and point Vercel's production deployment at it — the owner's own call,
-same as every other feature on this project (§11.2/this file's "Live at" section). No real-device-only
-check is outstanding the way the PWA/push/passkey items below are — this is a plain web UI feature,
-confirmed in the browser during development.
+Merged to `main` by the owner's own call (30 October 2026), same as every other feature on this
+project (§11.2/this file's "Live at" section) — GitHub's auto-deploy to Vercel picks it up from here.
+No real-device-only check is outstanding the way the PWA/push/passkey items below are — this is a
+plain web UI feature, confirmed in the browser during development.
 
 ---
 
@@ -1085,7 +1086,7 @@ rejected the push — often a stale subscription that's already been pruned by t
   secrets were never set and are moot now; `request-pin-reset`'s reuse of this cron-secret pair for
   the `pin_reset_otp` type is moot too — that function is deleted as of the v2.22.1 revert.)
 - 65 migrations applied, tracked in a `schema_migrations` ledger — the last 8 (58–65) belong to the
-  unmerged work-log-salary feature branch above; this app's own code is still at 57
+  work-log-salary feature (Step AH above)
 
 ### Current database contents (24 October 2026)
 
@@ -1108,9 +1109,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.26.2**
-(repo prepared for public visibility: demo guards removed, random test PINs, README), tagged
-`v2.26.2`.
+state that version describes), matching the spec's own version history. Currently at **2.27.0**
+(personal work log + estimated gross salary, Step AH above), tagged `v2.27.0`.
 
 ## Commands
 

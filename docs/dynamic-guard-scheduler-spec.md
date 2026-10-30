@@ -1,14 +1,15 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.26.2 (build steps A–Y complete plus the double-shift display setting, the
+**Version:** 2.27.0 (build steps A–Y complete plus the double-shift display setting, the
 draft-preview export change, manager PIN-reset, a stale-past-week guard-view fix, two roster-
 editor polish items — an optionally coverage-occupying placeholder and split afternoon-
-segment shifts — and the Yom Kippur special-coverage feature below; live and in daily use;
-deployed to production — the self-service forgot-PIN feature (§12.12) was fully reverted after
-a production session-persistence regression, see §14.1 Step AB and §14.3)
+segment shifts — the Yom Kippur special-coverage feature, and now the personal work log +
+estimated gross salary feature (§15) merged to `main`; live and in daily use; deployed to
+production — the self-service forgot-PIN feature (§12.12) was fully reverted after a production
+session-persistence regression, see §14.1 Step AB and §14.3)
 **Roster Context:** Flexible team size, 6–12 registered guards, 9 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
-**Document Date:** 24 October 2026
+**Document Date:** 30 October 2026
 
 ---
 
@@ -327,6 +328,15 @@ Verified by reproducing the original 422 against the live service with the unpat
 | 119 | **Repository cleanup for a public audience:** a README with screenshots (`docs/screenshots/`, demo names only); this spec and BACKLOG.md moved into `docs/`; the stale v2.0-era PDF of this spec deleted. | The repo is a portfolio piece. A full history audit found no committed secrets, so no history rewrite was needed; the manager chose to keep the history as-is. |
 
 Verified after the deletion: zero `100001`–`100007` codes, auth users or `is_demo` profiles remain; signing in as `100001`/`123456` returns 400; `claim-code` reports the code as nonexistent; the real team (9 profiles, 9 codes) is intact. The `is_demo` column and the real/test view toggle remain in the code with no profile flagged.
+
+---
+
+### 1.31 Changes in Version 2.27.0 — personal work log + estimated gross salary (30 October 2026)
+
+| #   | Change | Rationale |
+| --- | ------ | --------- |
+| 120 | **Personal work log + estimated gross salary** (§15), built on `feature/work-log-salary`, merged to `main` and deployed to production. Each guard gets a self-service weekly/monthly work log, auto-seeded from their own published roster, plus an estimated gross salary under Israeli overtime/Shabbat/holiday law. | Full detail, rationale, and build history are in §15 and `docs/work-log-salary-plan.md` — not repeated here; this row exists so this changelog's version sequence stays unbroken. |
+| 121 | **Database migrations 58–65 were already live before this merge.** Schema work (§15.2) went in ahead of the frontend so the feature could be calibrated against the owner's own real roster and payslip data. This merge ships only the frontend code against a schema that was already in place. | Noted explicitly because it breaks this project's usual rule that nothing lands on the live database until the branch carrying it is ready to merge (§15, "one deliberate exception"). |
 
 ---
 
@@ -3242,18 +3252,18 @@ password — both appear in the development transcript.
 
 ---
 
-## 15. PERSONAL WORK LOG & ESTIMATED GROSS SALARY (feature branch, not yet merged)
+## 15. PERSONAL WORK LOG & ESTIMATED GROSS SALARY
 
-**Status:** built on `feature/work-log-salary`, not merged to `main` and not deployed to production
-as of this writing — everything in §1–§14 above describes what's actually live. The feature's own
-planning document is `docs/work-log-salary-plan.md`, kept current with a "shipped since this plan
-was written" status trailer as the build evolved; read that for the full history and rationale. This
-section records the shape it settled into, for anyone extending the scheduler proper around it.
+**Status:** built on `feature/work-log-salary`, merged to `main` and deployed to production on 30
+October 2026 (v2.27.0, §1.31). The feature's own planning document is `docs/work-log-salary-plan.md`,
+kept current with a "shipped since this plan was written" status trailer as the build evolved; read
+that for the full history and rationale. This section records the shape it settled into, for anyone
+extending the scheduler proper around it.
 **One deliberate exception to this feature's own "main stays exactly as production until merge" rule
-(`docs/work-log-salary-plan.md`, "Branching & rollout"):** the new tables and functions below (migrations
-58–65) are already applied to the live Supabase project, ahead of the frontend merge, so the feature
-could be built and calibrated against the owner's own real roster and payslip data rather than a
-disposable fixture. The guard-facing UI itself only goes live once this branch merges to `main`.
+(`docs/work-log-salary-plan.md`, "Branching & rollout"):** the new tables and functions below
+(migrations 58–65) were applied to the live Supabase project several days ahead of this merge, so the
+feature could be built and calibrated against the owner's own real roster and payslip data rather than
+a disposable fixture — by the time the frontend merged, the schema had already been live for a while.
 
 ### 15.1 Purpose
 A self-service way for each guard — and the manager, who is also an active guard — to see their own
@@ -3329,5 +3339,4 @@ writing to it.
 
 ---
 
-_Specification v2.26.2 — revised 24 October 2026. §15 (personal work log / estimated gross salary)
-describes a separate, unmerged feature branch and is not part of the versioned build above._
+_Specification v2.27.0 — revised 30 October 2026._
