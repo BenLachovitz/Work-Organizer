@@ -148,17 +148,40 @@ check(
 );
 
 // 5. 10h Saturday shift (daytime, not a night shift -- no overlap with
-//    22:00-06:00): 8h @150% (rest-day base) + 2h @175% (150%+25pp).
+//    22:00-06:00): still gets the 7h standard day, because ANY shift
+//    touching a rest day does (not just an actual night shift) -- 7h
+//    @150% + 2h @175% (7-9) + 1h @200% (9-10).
 check(
-  '10h Saturday shift (day shift, OT stacks ADDITIVELY with Shabbat)',
+  '10h Saturday shift (day shift still gets the 7h rest-day standard day)',
   computePayroll([entry(SATURDAY, 6.75, 16.75)], FLAT_HISTORY),
   {
     hours100: 0,
     hours125: 0,
-    hours150: 8,
+    hours150: 7,
     hours175: 2,
-    hours200: 0,
-    grossEstimate: (1.5 * 8 + 1.75 * 2) * RATE,
+    hours200: 1,
+    grossEstimate: (1.5 * 7 + 1.75 * 2 + 2.0 * 1) * RATE,
+  },
+);
+
+// 5c. The real-world case this rule was calibrated against: a 12h Saturday
+//     DAY shift (06:45-18:45, zero night overlap) -- the owner's real
+//     cross-check app disagreed with an earlier version of this function
+//     here specifically (7/2/3 there vs 8/2/2 here), and checking the law
+//     confirmed the general Hours of Work and Rest Law only shortens the
+//     day BEFORE the rest day, not the rest day itself -- the 7h day for
+//     ANY Shabbat work (day or night alike) is the security sector's own
+//     practice, not the general law.
+check(
+  '12h Saturday DAY shift (no night overlap) still uses the 7h rest-day standard day',
+  computePayroll([entry(SATURDAY, 6.75, 18.75)], FLAT_HISTORY),
+  {
+    hours100: 0,
+    hours125: 0,
+    hours150: 7,
+    hours175: 2,
+    hours200: 3,
+    grossEstimate: (1.5 * 7 + 1.75 * 2 + 2.0 * 3) * RATE,
   },
 );
 
@@ -206,11 +229,12 @@ check(
 
 // 7. A major holiday (Rosh Hashanah day 2, an ordinary Wednesday) carries
 //    the same rest-day premium as Shabbat even though it is NOT a
-//    Friday/Saturday: a plain 8h day shift lands entirely at 150%.
+//    Friday/Saturday -- including the 7h standard day: a plain 8h day
+//    shift is 7h @150% + 1h @175%, not flat 8h @150%.
 check(
-  'major holiday (Rosh Hashanah day 2) gets the rest-day premium',
+  'major holiday (Rosh Hashanah day 2) gets the rest-day premium AND the 7h standard day',
   computePayroll([entry(RH_DAY_2, 6.75, 14.75)], FLAT_HISTORY),
-  { hours100: 0, hours125: 0, hours150: 8, hours175: 0, hours200: 0, grossEstimate: 1.5 * 8 * RATE },
+  { hours100: 0, hours125: 0, hours150: 7, hours175: 1, hours200: 0, grossEstimate: (1.5 * 7 + 1.75 * 1) * RATE },
 );
 
 // 8. The EVE of a major holiday, from 16:00, also carries the premium --

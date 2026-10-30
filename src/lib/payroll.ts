@@ -42,11 +42,18 @@ export interface PayrollBreakdown {
  * Daily overtime tiers (Israeli law): the first OT_TIER_1_WIDTH_HOURS
  * beyond the standard day are +25 percentage points over the base rate,
  * everything beyond that is +50pp more (so +75pp total over the weekday
- * base). The standard day itself is shorter for a NIGHT shift -- 7h
- * instead of 8 -- because Israeli law entitles a night-shift employee (at
- * least 2h of the shift inside the 22:00-06:00 window) to a shorter
- * standard day; overtime simply starts one hour earlier as a result. The
- * +25pp/+50pp SIZE is the same either way.
+ * base). The standard day itself is shorter -- 7h instead of 8 -- for
+ * EITHER of two independent reasons: (1) a NIGHT shift (at least 2h inside
+ * the 22:00-06:00 window), per the general Hours of Work and Rest Law, or
+ * (2) ANY shift touching a rest day (Shabbat or major holiday) at all,
+ * even a pure daytime one with zero night overlap -- NOT in the general
+ * law (which only shortens the day BEFORE the rest day, not the rest day
+ * itself), but the security sector's own practice, confirmed against the
+ * owner's real cross-check app disagreeing with an earlier version of this
+ * function on exactly a 12h Saturday 06:45-18:45 shift (no night overlap
+ * at all, still gets the 7h day). Overtime simply starts one hour earlier
+ * either way. The +25pp/+50pp SIZE is the same regardless of which reason
+ * applies.
  *
  * Critically, these increments are ADDED to the base rate, never
  * multiplied onto it: a weekday's base is 100%, so its tiers read as the
@@ -226,17 +233,25 @@ export function computePayroll(
     // night shift's 7h entitlement depends on actual hours worked inside
     // 22:00-06:00, not on which entry individually crosses that threshold.
     let nightOverlapHours = 0;
+    let dayRestOverlapHours = 0;
     for (const entry of dayEntries) {
-      nightOverlapHours +=
-        overlapMs(
-          new Date(entry.actual_start).getTime(),
-          new Date(entry.actual_end).getTime(),
-          nightStartMs,
-          nightEndMs,
-        ) / MS_PER_HOUR;
+      const entryStartMs = new Date(entry.actual_start).getTime();
+      const entryEndMs = new Date(entry.actual_end).getTime();
+      nightOverlapHours += overlapMs(entryStartMs, entryEndMs, nightStartMs, nightEndMs) / MS_PER_HOUR;
+      dayRestOverlapHours += restDayOverlapHours(entryStartMs, entryEndMs, date);
     }
+    // The shorter 7h standard day applies to an actual night shift (per the
+    // general Hours of Work and Rest Law) AND, separately, to ANY shift
+    // touching a rest day (Shabbat or major holiday) at all -- even a pure
+    // daytime one with zero night overlap. That second rule is NOT in the
+    // general law (which only shortens the day before the rest day, not the
+    // rest day itself); it's the security-sector's own practice, confirmed
+    // against the owner's real cross-check app: a 12h Saturday 06:45-18:45
+    // shift (no night overlap at all) still got the 7h day there, not 8h.
     const regularThreshold =
-      nightOverlapHours >= NIGHT_SHIFT_MIN_HOURS ? NIGHT_SHIFT_REGULAR_HOURS : DAY_SHIFT_REGULAR_HOURS;
+      nightOverlapHours >= NIGHT_SHIFT_MIN_HOURS || dayRestOverlapHours > 0
+        ? NIGHT_SHIFT_REGULAR_HOURS
+        : DAY_SHIFT_REGULAR_HOURS;
 
     const tiers: { from: number; to: number; tier: 0 | 1 | 2 }[] = [
       { from: 0, to: regularThreshold, tier: 0 },
