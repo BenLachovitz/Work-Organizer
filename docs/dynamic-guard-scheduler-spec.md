@@ -1,12 +1,13 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.28.0 (build steps A–Y complete plus the double-shift display setting, the
+**Version:** 2.29.0 (build steps A–Y complete plus the double-shift display setting, the
 draft-preview export change, manager PIN-reset, a stale-past-week guard-view fix, two roster-
 editor polish items — an optionally coverage-occupying placeholder and split afternoon-
 segment shifts — the Yom Kippur special-coverage feature, the personal work log +
-estimated gross salary feature (§15), and now a homepage "who's on shift right now" card (§1.32);
-live and in daily use; deployed to production — the self-service forgot-PIN feature (§12.12) was
-fully reverted after a production session-persistence regression, see §14.1 Step AB and §14.3)
+estimated gross salary feature (§15), a homepage "who's on shift right now" card (§1.32), and now
+tap-to-call/tap-to-WhatsApp icons on that card (§1.33); live and in daily use; deployed to
+production — the self-service forgot-PIN feature (§12.12) was fully reverted after a production
+session-persistence regression, see §14.1 Step AB and §14.3)
 **Roster Context:** Flexible team size, 6–12 registered guards, 9 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 31 October 2026
@@ -346,6 +347,14 @@ Verified after the deletion: zero `100001`–`100007` codes, auth users or `is_d
 | 123 | New pure helper `isShiftActiveAt(targetDate, shift, now)` (`src/lib/shifts.ts`) — checks whether a real clock instant falls within a shift's actual start/end, via the same `israelDateTime()` conversion `useWorkLog.ts`'s `nominalWindow()` already established for turning `SHIFTS[shift].startH/endH` into real timestamps. | No existing code answered "is this shift happening right now" — every other shift-time helper in the codebase answers a static question (which segment does a shift cover, how much rest between two shifts), not a live one. |
 | 124 | **No new query, no schema/RLS change.** The card reuses `useVisibleRosters()`'s existing all-guards, all-weeks assignment data — already fetched by `GuardHome.tsx` and already permitted by the `assign_read` RLS policy, which has no `guard_id` condition at all (a guard already reads every other guard's assignment rows for a published, currently-visible week). | Confirmed by reading the policy before building anything — the data and the read permission already existed; the only genuinely new piece was the live-instant time check (item 123) and a small 60s self-refresh timer local to the one component (nothing else in the app ticks on a clock; "live" elsewhere means Supabase Realtime reacting to a data *change*). |
 | 125 | **Explicitly deferred**: tapping a listed guard's name to call/WhatsApp them. Needs a `phone_number` column — one existed briefly for the self-service forgot-PIN feature and was fully reverted (§1.22, item 82) — which would need to be deliberately re-added for this purpose specifically, a separate decision. | Flagged as a possible future follow-up, not built in this round, per the owner's own scoping of the request to "just show who's currently at the shift." |
+
+### 1.33 Changes in Version 2.29.0 — tap-to-call / tap-to-WhatsApp on the shift card (31 October 2026)
+
+| #   | Change | Rationale |
+| --- | ------ | --------- |
+| 126 | **`phone_number` re-added** (migration 66) to `roster_codes`/`profiles`, identical shape to the one fully reverted in migration 50 (nullable, no uniqueness constraint, `copy_phone_number()`/`trg_profiles_phone_number` trigger, `roster_code_status` view extended) — the item 125 follow-up, now built. **Optional everywhere this time**, unlike the original: adding a new employee needs no phone number (owner's explicit call), unlike the old design where it was required to feed the now-abandoned WhatsApp-OTP call. No RLS change — `profiles_read` was already `USING (TRUE)` (migration 3), confirmed by reading the policy before building anything: any guard already reads every column of every other guard's profile row. | The old revert (migration 50) was for a reason specific to that feature (the Meta WhatsApp Business API path was abandoned) — not evidence against the column itself, which this feature needed for an unrelated purpose. |
+| 127 | **Tap-to-call / tap-to-WhatsApp icons** on `CurrentlyOnShiftCard.tsx` — a guard with a phone number on file gets two small icon tap-targets next to their name: a phone icon (`tel:<e164>`) and a chat-bubble icon (`https://wa.me/<digits>`, no leading `+`). A guard with none on file shows exactly what it showed before — no empty placeholders. First `<a href="tel:...">`/external-link precedent in the codebase. | `https://wa.me/<number>` needs no WhatsApp Business API, account, or backend integration at all — it's a plain URL, exactly as simple as a phone dialer link. Both options turned out to cost the same thing (a phone number existing), so both were built rather than picking one. |
+| 128 | `src/lib/phone.ts` restored verbatim from git history (Israeli-mobile-only `^05\d{8}$`, E.164 canonical storage, `050-1234567` display form) — `normalizeIsraeliPhone()`/`isValidIsraeliPhone()`/`formatPhoneForDisplay()`, plus 10 new unit fixtures (`src/lib/phone.test.mjs`, `npm run test:phone`). `TeamManagement.tsx` gained an optional phone field on `AddEmployeeCard` and a phone-edit toggle panel on `EmployeeRow`, shaped identically to the existing PIN-reset panel, including for the manager's own row (phone editing has no "not yourself" restriction, unlike PIN reset/delete). | Reused rather than reinvented — the old, reverted feature's validation/display logic and UI shape were already right for this purpose; only the required-on-add rule changed (item 126). |
 
 ---
 
@@ -3348,4 +3357,4 @@ writing to it.
 
 ---
 
-_Specification v2.28.0 — revised 31 October 2026._
+_Specification v2.29.0 — revised 31 October 2026._

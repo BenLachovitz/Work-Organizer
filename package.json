@@ -1,7 +1,7 @@
 {
   "name": "work-orgenizer",
   "private": true,
-  "version": "2.28.0",
+  "version": "2.29.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -22,6 +22,7 @@
     "test:fixtures": "node --experimental-strip-types solver/tests/run-fixtures.mjs",
     "test:payroll": "node --experimental-strip-types src/lib/payroll.test.mjs",
     "test:shifts": "node --experimental-strip-types src/lib/shifts.test.mjs",
+    "test:phone": "node --experimental-strip-types src/lib/phone.test.mjs",
     "test:compare": "node --experimental-strip-types solver/tests/compare-engines.mjs",
     "solver:dev": "uvicorn main:app --app-dir solver --reload --port 8099",
     "test:generate": "node --experimental-strip-types supabase/tests/generate.cloud.test.mjs",

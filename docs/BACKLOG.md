@@ -1,8 +1,8 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.28.0** — §14 there is the
-build status and roadmap, §1.17–§1.32 is the changelog for everything since v2.15, §15 is the
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.29.0** — §14 there is the
+build status and roadmap, §1.17–§1.33 is the changelog for everything since v2.15, §15 is the
 personal work log + estimated gross salary feature. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
@@ -982,18 +982,58 @@ separate decision if the owner wants it later. `package.json`/`GitVersion.yml` b
 
 ---
 
+## Step AJ (31 October 2026) — tap-to-call / tap-to-WhatsApp on the shift card
+
+Committed straight to `main` (spec §1.33, v2.29.0), the Step AI follow-up flagged above, now built
+on the owner's explicit go-ahead.
+
+What it is: a guard with a phone number on file now gets two small icon tap-targets next to their
+name on the "currently on shift" card — a phone icon (opens the device dialer) and a chat-bubble
+icon (opens a WhatsApp chat via `https://wa.me/<number>`, which needs no WhatsApp Business API,
+account, or backend integration — just a plain URL). A guard with none on file shows exactly what
+the card showed before. First `<a href="tel:">`/external-link of any kind in this codebase.
+
+`phone_number` (migration 66) is re-added to `roster_codes`/`profiles` — the exact same shape as the
+column fully reverted in migration 50 (nullable, no uniqueness, same copy-trigger,
+`roster_code_status` view extended), confirmed from migration 48's own file (still on disk, per this
+project's "migrations are discovered, never edited" discipline) before writing anything new. No RLS
+change: `profiles_read` was already `USING (TRUE)` (migration 3) — confirmed by reading the policy
+first, not assumed — so every guard already reads every other guard's profile row, phone number
+included once the column exists. **One deliberate difference from the original, reverted design**:
+the owner's explicit call this time — a phone number is optional everywhere, including when adding a
+new employee, since (unlike the old WhatsApp-OTP feature) nothing in the app depends on it existing.
+
+`src/lib/phone.ts` (Israeli-mobile validation/normalization to E.164, `050-1234567` display
+formatting) restored verbatim from git history, plus 10 new unit fixtures
+(`src/lib/phone.test.mjs`, `npm run test:phone`). `TeamManagement.tsx` gained an optional phone
+field on "add employee" and a phone-edit toggle panel on each existing row, shaped identically to
+the current PIN-reset panel — including for the manager's own row, since phone editing (unlike PIN
+reset/delete) has no reason to exclude acting on yourself.
+
+Full TypeScript typecheck clean, migration applied to the live database (confirmed `profiles`/
+`roster_codes` still fully RLS-protected afterward, no new gap opened). Manually confirmed the new
+icons render correctly (with and without a phone number on file) at desktop and mobile widths via a
+throwaway preview route, removed before committing. **Still needs the owner's own login** to confirm
+the `TeamManagement.tsx` phone-edit panel end-to-end and to tap the icons on a real phone to confirm
+the dialer and WhatsApp both open with the right number — same "no demo account" situation as every
+other guard-facing check in this project. `package.json`/`GitVersion.yml` bumped to 2.29.0.
+
+---
+
 ## What is left
 
 Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
-deliberately deferred design choice, not a build gap. Eight things still open, not build gaps
+deliberately deferred design choice, not a build gap. Nine things still open, not build gaps
 (self-service forgot-PIN, formerly listed here, was fully reverted — see Step AB, fully reverted,
 above — and is not an open item, it's removed):
 
-- **"Who's on shift right now" card confirmed against real data** (Step AI, spec §1.32) — the app
-  builds and serves with no console/server errors, and typecheck + the new `isShiftActiveAt()` unit
-  fixtures are clean, but there's no demo/test account to sign in as, so checking the card's actual
-  output against a real published roster (and watching it flip live across a shift boundary) needs
-  Ben's own login.
+- **"Who's on shift right now" card, and its tap-to-call/WhatsApp icons, confirmed against real
+  data** (Steps AI/AJ, spec §1.32/§1.33) — the app builds and serves with no console/server errors,
+  typecheck + the new `isShiftActiveAt()`/phone.ts unit fixtures are clean, and the icons render
+  correctly against mock data, but there's no demo/test account to sign in as, so checking the
+  card's actual output against a real published roster (including a real guard's phone number, and
+  tapping the icons on a real phone to confirm the dialer/WhatsApp both open correctly) needs Ben's
+  own login.
 - **Passkey real-device registration + unlock confirmation** (Step X, spec §8) — now on the rebuilt
   app-scoped WebAuthn mechanism (own `webauthn` Edge Function, not Supabase's native Passkey API; see
   Step X's same-day revision above). Registering from Preferences on a real iPhone/Android, confirming
@@ -1122,8 +1162,8 @@ rejected the push — often a stale subscription that's already been pruned by t
   plain `UPDATE`, not committed anywhere. (The abandoned WhatsApp design's three `WHATSAPP_*`
   secrets were never set and are moot now; `request-pin-reset`'s reuse of this cron-secret pair for
   the `pin_reset_otp` type is moot too — that function is deleted as of the v2.22.1 revert.)
-- 65 migrations applied, tracked in a `schema_migrations` ledger — the last 8 (58–65) belong to the
-  work-log-salary feature (Step AH above)
+- 66 migrations applied, tracked in a `schema_migrations` ledger — 58–65 belong to the work-log-
+  salary feature (Step AH above), 66 re-adds `phone_number` for Step AJ's tap-to-call/WhatsApp icons
 
 ### Current database contents (24 October 2026)
 
@@ -1146,8 +1186,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.28.0**
-("who's on shift right now" homepage card, Step AI above), tagged `v2.28.0`.
+state that version describes), matching the spec's own version history. Currently at **2.29.0**
+(tap-to-call/tap-to-WhatsApp icons on the shift card, Step AJ above), tagged `v2.29.0`.
 
 ## Commands
 
