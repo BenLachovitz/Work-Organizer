@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Button, Collapsible, Spinner, cn } from '@/components/ui';
+import { Alert, Button, Collapsible, DateField, Spinner, cn } from '@/components/ui';
 import { useAddRate, useDeleteRate, useRateHistory, type PayrollRate } from '@/hooks/useWorkLog';
 import { todayInIsrael, type DateKey } from '@/lib/dates';
 
@@ -138,17 +138,12 @@ function RoleSection({
               )}
             />
           </label>
-          <label className="flex-1 min-w-[120px]">
+          <div className="flex-1 min-w-[120px]">
             <span className="mb-1 block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
               בתוקף מתאריך
             </span>
-            <input
-              type="date"
-              value={effectiveFrom}
-              onChange={(e) => setEffectiveFrom(e.target.value)}
-              className="w-full rounded-lg border-2 border-slate-200 p-1.5 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-400 focus:outline-none"
-            />
-          </label>
+            <DateField value={effectiveFrom} onChange={setEffectiveFrom} />
+          </div>
           <Button size="sm" disabled={!valid} loading={add.isPending} onClick={save}>
             שמירה
           </Button>

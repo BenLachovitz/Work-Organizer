@@ -1,5 +1,6 @@
 import { useEffect, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import type { DateKey } from '@/lib/dates';
 
 export function cn(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(' ');
@@ -402,6 +403,58 @@ export function EmptyState({
         <p className="max-w-xs text-sm text-slate-500 dark:text-slate-400">{description}</p>
       )}
       {action}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * A date input that always DISPLAYS as DD/MM/YYYY, regardless of the
+ * device/browser's own locale. A native `<input type="date">`'s displayed
+ * text format is controlled by the browser/OS locale, NOT by the page's
+ * `lang` attribute (confirmed directly: setting lang="he-IL" on the input
+ * itself has no effect on an en-US-locale browser) -- so an Israeli guard
+ * on an English-locale phone sees MM/DD/YYYY no matter what this app's own
+ * HTML says. The underlying native input is kept, invisible, covering the
+ * whole field (so tapping/clicking still opens the OS/browser's own native
+ * calendar picker -- the one piece of UX not worth losing); a non-
+ * interactive sibling on top shows our own DD/MM/YYYY-formatted text,
+ * styled to look like a normal input, with clicks passing through
+ * (pointer-events: none) to the real input beneath it.
+ */
+export function DateField({
+  value,
+  onChange,
+  className,
+}: {
+  value: DateKey;
+  onChange: (value: DateKey) => void;
+  className?: string;
+}) {
+  const [y, m, d] = value.split('-');
+  const display = y && m && d ? `${d}/${m}/${y}` : value;
+  return (
+    <div className={cn('relative', className)}>
+      <input
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value as DateKey)}
+        className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        aria-label="תאריך, יום/חודש/שנה"
+      />
+      <div
+        className={cn(
+          'num pointer-events-none flex items-center justify-between rounded-xl border-2 border-slate-200 p-2.5 text-sm text-slate-800',
+          'dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100',
+          'peer-focus:border-brand-400',
+        )}
+      >
+        <span>{display}</span>
+        <svg className="size-4 shrink-0 text-slate-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+          <path d="M6 2a1 1 0 0 1 1 1v1h6V3a1 1 0 1 1 2 0v1h.5A2.5 2.5 0 0 1 18 6.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 2 15.5v-9A2.5 2.5 0 0 1 4.5 4H5V3a1 1 0 0 1 1-1Zm10 7H4v6.5a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5V9ZM4.5 6a.5.5 0 0 0-.5.5V7h12v-.5a.5.5 0 0 0-.5-.5h-11Z" />
+        </svg>
+      </div>
     </div>
   );
 }

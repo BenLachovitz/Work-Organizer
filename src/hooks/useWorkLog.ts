@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { requireSupabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { AbsenceType, ScheduleAssignment, WorkLogAbsence, WorkLogEntry, WorkLogSource } from '@/types/database';
-import { addDays, israelDateTime, type DateKey } from '@/lib/dates';
+import { addDays, israelDateTime, weekStartOf, type DateKey } from '@/lib/dates';
 import { SHIFTS, type ShiftType } from '@/lib/shifts';
 import {
   consecutiveSickDayCount,
@@ -28,8 +28,15 @@ function nominalWindow(targetDate: DateKey, shift: ShiftType) {
 }
 
 /**
- * This guard's own work-log entries for one roster week, lazily seeded from
- * their PUBLISHED roster assignments for that week.
+ * Ensures every one of this guard's PUBLISHED roster assignments for one
+ * week has a matching work_log_entries row, inserting whichever are
+ * missing. Self-contained -- fetches that week's own existing entries
+ * itself rather than trusting a caller to have already fetched exactly the
+ * right range, so it behaves identically whether called for a single week
+ * (useWorkLogWeek) or for every week touching a wider range
+ * (useMonthlySalarySummary, which needs this seeding to run for EVERY week
+ * overlapping the viewed month, not just one the guard happened to open in
+ * the weekly view).
  *
  * Seeding is plain INSERT, not upsert: work_log_one_per_assignment is a
  * PARTIAL unique index (WHERE source_assignment_id IS NOT NULL), which
@@ -37,13 +44,72 @@ function nominalWindow(targetDate: DateKey, shift: ShiftType) {
  * that same predicate -- supabase-js's upsert() cannot express that. Instead
  * we already have the guard's existing entries in hand, so we only insert
  * the assignments that are genuinely missing one, and swallow a 23505 (two
- * tabs racing to seed the same row) as "someone else already did this".
+ * tabs/weeks racing to seed the same row) as "someone else already did
+ * this" -- the caller re-fetches whatever range it actually needs
+ * afterward regardless, so a dropped insert here is never lost silently.
  *
  * A guard's 'edited'/'manual' rows are never touched here -- only assignments
  * with no matching entry get a new 'roster' row. See the feature plan for
  * why a re-published week's orphaned entries are left in place rather than
  * deleted.
  */
+async function seedWeekFromRoster(
+  db: ReturnType<typeof requireSupabase>,
+  guardId: string,
+  weekStart: DateKey,
+): Promise<void> {
+  const weekEnd = addDays(weekStart, 6);
+  const [entriesRes, runRes] = await Promise.all([
+    db
+      .from('work_log_entries')
+      .select('source_assignment_id')
+      .eq('guard_id', guardId)
+      .gte('target_date', weekStart)
+      .lte('target_date', weekEnd),
+    db.from('schedule_runs').select('id').eq('week_start', weekStart).eq('is_published', true).maybeSingle(),
+  ]);
+  if (entriesRes.error) throw new Error(entriesRes.error.message);
+  if (runRes.error) throw new Error(runRes.error.message);
+
+  const runId = (runRes.data as { id: string } | null)?.id;
+  if (!runId) return;
+
+  const assignRes = await db
+    .from('schedule_assignments')
+    .select('*')
+    .eq('run_id', runId)
+    .eq('guard_id', guardId);
+  if (assignRes.error) throw new Error(assignRes.error.message);
+
+  const seededIds = new Set(
+    ((entriesRes.data as { source_assignment_id: string | null }[]) ?? [])
+      .map((e) => e.source_assignment_id)
+      .filter(Boolean),
+  );
+  const missing = ((assignRes.data as ScheduleAssignment[]) ?? []).filter((a) => !seededIds.has(a.id));
+  if (missing.length === 0) return;
+
+  const seedRows = missing.map((a) => {
+    const window = nominalWindow(a.target_date, a.shift);
+    return {
+      guard_id: guardId,
+      target_date: a.target_date,
+      shift: a.shift,
+      source: 'roster' as const,
+      source_assignment_id: a.id,
+      scheduled_start: window.scheduled_start,
+      scheduled_end: window.scheduled_end,
+      actual_start: window.scheduled_start,
+      actual_end: window.scheduled_end,
+    };
+  });
+
+  const { error: insertError } = await db.from('work_log_entries').insert(seedRows);
+  if (insertError && insertError.code !== '23505') throw new Error(insertError.message);
+}
+
+/** This guard's own work-log entries for one roster week, lazily seeded
+ *  from their published roster assignments for that week (seedWeekFromRoster). */
 export function useWorkLogWeek(weekStart: DateKey) {
   const { profile } = useAuth();
   const guardId = profile?.id ?? '';
@@ -53,84 +119,17 @@ export function useWorkLogWeek(weekStart: DateKey) {
     enabled: Boolean(guardId && weekStart),
     queryFn: async (): Promise<WorkLogEntry[]> => {
       const db = requireSupabase();
+      await seedWeekFromRoster(db, guardId, weekStart);
+
       const weekEnd = addDays(weekStart, 6);
-
-      const [entriesRes, runRes] = await Promise.all([
-        db
-          .from('work_log_entries')
-          .select('*')
-          .eq('guard_id', guardId)
-          .gte('target_date', weekStart)
-          .lte('target_date', weekEnd),
-        db
-          .from('schedule_runs')
-          .select('id')
-          .eq('week_start', weekStart)
-          .eq('is_published', true)
-          .maybeSingle(),
-      ]);
-      if (entriesRes.error) throw new Error(entriesRes.error.message);
-      if (runRes.error) throw new Error(runRes.error.message);
-
-      const entries = (entriesRes.data as WorkLogEntry[]) ?? [];
-      const runId = (runRes.data as { id: string } | null)?.id;
-      if (!runId) return entries.sort((a, b) => a.target_date.localeCompare(b.target_date));
-
-      const assignRes = await db
-        .from('schedule_assignments')
-        .select('*')
-        .eq('run_id', runId)
-        .eq('guard_id', guardId);
-      if (assignRes.error) throw new Error(assignRes.error.message);
-
-      const seededIds = new Set(entries.map((e) => e.source_assignment_id).filter(Boolean));
-      const missing = ((assignRes.data as ScheduleAssignment[]) ?? []).filter(
-        (a) => !seededIds.has(a.id),
-      );
-      if (missing.length === 0) {
-        return entries.sort((a, b) => a.target_date.localeCompare(b.target_date));
-      }
-
-      const seedRows = missing.map((a) => {
-        const window = nominalWindow(a.target_date, a.shift);
-        return {
-          guard_id: guardId,
-          target_date: a.target_date,
-          shift: a.shift,
-          source: 'roster' as const,
-          source_assignment_id: a.id,
-          scheduled_start: window.scheduled_start,
-          scheduled_end: window.scheduled_end,
-          actual_start: window.scheduled_start,
-          actual_end: window.scheduled_end,
-        };
-      });
-
-      const { data: inserted, error: insertError } = await db
+      const { data, error } = await db
         .from('work_log_entries')
-        .insert(seedRows)
-        .select('*');
-      // 23505: another tab/request already seeded one of these rows between
-      // our read and this insert -- not a real failure, just re-fetch.
-      if (insertError && insertError.code !== '23505') {
-        throw new Error(insertError.message);
-      }
-      if (insertError) {
-        const retry = await db
-          .from('work_log_entries')
-          .select('*')
-          .eq('guard_id', guardId)
-          .gte('target_date', weekStart)
-          .lte('target_date', weekEnd);
-        if (retry.error) throw new Error(retry.error.message);
-        return ((retry.data as WorkLogEntry[]) ?? []).sort((a, b) =>
-          a.target_date.localeCompare(b.target_date),
-        );
-      }
-
-      return [...entries, ...((inserted as WorkLogEntry[]) ?? [])].sort((a, b) =>
-        a.target_date.localeCompare(b.target_date),
-      );
+        .select('*')
+        .eq('guard_id', guardId)
+        .gte('target_date', weekStart)
+        .lte('target_date', weekEnd);
+      if (error) throw new Error(error.message);
+      return ((data as WorkLogEntry[]) ?? []).sort((a, b) => a.target_date.localeCompare(b.target_date));
     },
   });
 }
@@ -330,11 +329,19 @@ function monthRange(monthKey: string): { start: DateKey; end: DateKey } {
 }
 
 /**
- * Rolls up whatever work-log entries already exist for a calendar month --
- * read-only, no seeding. A week the guard has never opened in the weekly
- * view (useWorkLogWeek) simply has nothing here yet; the one-time backfill
- * script (see the feature plan) is what makes the current month complete
- * without visiting every week first.
+ * Rolls up this guard's work-log entries for a calendar month, seeding from
+ * the published roster first -- every roster week that overlaps the month
+ * gets the same seedWeekFromRoster() treatment useWorkLogWeek gives a
+ * single week, not just whichever weeks the guard happened to separately
+ * open in the weekly view. That used to be the only way a week's roster
+ * shifts reached work_log_entries at all (this query was read-only), which
+ * was fine while the weekly view was primary -- now that the monthly view
+ * is primary (most guards may rarely open weekly at all), relying on that
+ * would have meant newly published weeks silently never showing up here. A
+ * week straddling two months is seeded in full regardless of which of its
+ * two months is being viewed (seedWeekFromRoster works in whole-week
+ * units); only the days actually within [start, end] are returned, same
+ * day-by-own-date allocation monthRange already documents.
  */
 export function useMonthlySalarySummary(monthKey: string) {
   const { profile } = useAuth();
@@ -345,7 +352,13 @@ export function useMonthlySalarySummary(monthKey: string) {
     queryKey: ['workLogMonth', guardId, monthKey],
     enabled: Boolean(guardId),
     queryFn: async (): Promise<WorkLogEntry[]> => {
-      const { data, error } = await requireSupabase()
+      const db = requireSupabase();
+
+      const weeks: DateKey[] = [];
+      for (let w = weekStartOf(start); w <= end; w = addDays(w, 7)) weeks.push(w);
+      await Promise.all(weeks.map((w) => seedWeekFromRoster(db, guardId, w)));
+
+      const { data, error } = await db
         .from('work_log_entries')
         .select('*')
         .eq('guard_id', guardId)

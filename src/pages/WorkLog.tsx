@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
-import { Alert, Button, Card, EmptyState, Modal, Spinner, cn } from '@/components/ui';
+import { Alert, Button, Card, DateField, EmptyState, Modal, Spinner, cn } from '@/components/ui';
 import {
   useAbsencePayouts,
   useAbsencesWeek,
@@ -50,6 +50,25 @@ function timeStringToHour(t: string): number {
   return (h ?? 0) + (m ?? 0) / 60;
 }
 
+/**
+ * Masks free-typed digits into a 24-hour "HH:MM" time as the guard types --
+ * used in place of a native `<input type="time">`, whose displayed format
+ * (12h AM/PM vs 24h) follows the device/browser locale, not this app's own
+ * Hebrew/RTL design (same issue as DateField, see its own comment). Strips
+ * everything but digits, caps at 4 of them, and once there are more than 2
+ * inserts the colon and clamps each half to a valid hour (0-23) / minute
+ * (0-59) -- so "1445" becomes "14:45" without the guard ever typing a colon,
+ * and an out-of-range "2599" still lands on a valid "23:59" rather than
+ * something nonsensical.
+ */
+function formatTimeInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 4);
+  if (digits.length <= 2) return digits;
+  const h = Math.min(23, Number(digits.slice(0, 2)));
+  const m = Math.min(59, Number(digits.slice(2)));
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
 function durationHours(entry: WorkLogEntry): number {
   return (new Date(entry.actual_end).getTime() - new Date(entry.actual_start).getTime()) / 3_600_000;
 }
@@ -78,10 +97,13 @@ function formatMonthKey(monthKey: string): string {
 }
 
 export function WorkLog() {
-  const [view, setView] = useState<'week' | 'month'>('week');
+  // Monthly is the primary/default view -- most guards care about their
+  // month's total, not a single week's; weekly stays available as a
+  // secondary way to see which specific weeks were stronger or weaker.
+  const [view, setView] = useState<'month' | 'week'>('month');
   const [weekStart, setWeekStart] = useState<DateKey>(weekStartOf(todayInIsrael()));
   const [monthKey, setMonthKey] = useState<string>(monthKeyOf(todayInIsrael()));
-  const [editing, setEditing] = useState<WorkLogEntry | 'new' | null>(null);
+  const [editing, setEditing] = useState<WorkLogEntry | null>(null);
   const { data: rateHistory = [] } = useMyRateHistory();
 
   const today = todayInIsrael();
@@ -93,7 +115,7 @@ export function WorkLog() {
     >
       <div className="space-y-4">
         <div className="flex gap-2 rounded-xl bg-slate-200/70 p-1 dark:bg-slate-800">
-          {(['week', 'month'] as const).map((v) => (
+          {(['month', 'week'] as const).map((v) => (
             <button
               key={v}
               type="button"
@@ -127,6 +149,12 @@ export function WorkLog() {
   );
 }
 
+/**
+ * Secondary view -- browse a specific week to see how it went (strong vs.
+ * weak), click an existing row to edit it. Adding a new shift/absence lives
+ * only in MonthlySummary now (the primary view) -- see its own comment for
+ * why duplicating the same two buttons here was removed.
+ */
 function WeeklyView({
   weekStart,
   setWeekStart,
@@ -139,12 +167,12 @@ function WeeklyView({
   setWeekStart: (fn: (w: DateKey) => DateKey) => void;
   today: DateKey;
   rateHistory: RateHistoryEntry[];
-  editing: WorkLogEntry | 'new' | null;
-  setEditing: (v: WorkLogEntry | 'new' | null) => void;
+  editing: WorkLogEntry | null;
+  setEditing: (v: WorkLogEntry | null) => void;
 }) {
   const { data: entries, isLoading } = useWorkLogWeek(weekStart);
   const { data: absences, isLoading: absencesLoading } = useAbsencesWeek(weekStart);
-  const [editingAbsence, setEditingAbsence] = useState<WorkLogAbsence | 'new' | null>(null);
+  const [editingAbsence, setEditingAbsence] = useState<WorkLogAbsence | null>(null);
   const rows = entries ?? [];
   const absenceRows = absences ?? [];
   const totalHours = rows.reduce((sum, e) => sum + durationHours(e), 0);
@@ -184,7 +212,7 @@ function WeeklyView({
             <EmptyState
               icon="🕒"
               title="אין רישומים לשבוע זה"
-              description="משמרות מהסידור המפורסם יתווספו כאן אוטומטית, או הוסף משמרת ביד."
+              description="משמרות מהסידור המפורסם יתווספו כאן אוטומטית. להוספת משמרת ביד, עברו לתצוגה החודשית."
             />
           </Card>
         ) : (
@@ -194,10 +222,6 @@ function WeeklyView({
             ))}
           </Card>
         )}
-
-        <Button fullWidth variant="ghost" onClick={() => setEditing('new')}>
-          + הוסף משמרת
-        </Button>
       </div>
 
       {!absencesLoading && absenceRows.length > 0 && (
@@ -213,22 +237,14 @@ function WeeklyView({
         </Card>
       )}
 
-      <Button fullWidth variant="ghost" onClick={() => setEditingAbsence('new')}>
-        + הוספת היעדרות
-      </Button>
-
       {editing && (
-        <WorkLogEntryEditor
-          entry={editing === 'new' ? null : editing}
-          defaultDate={editing === 'new' ? today : editing.target_date}
-          onClose={() => setEditing(null)}
-        />
+        <WorkLogEntryEditor entry={editing} defaultDate={editing.target_date} onClose={() => setEditing(null)} />
       )}
 
       {editingAbsence && (
         <AbsenceEditor
-          absence={editingAbsence === 'new' ? null : editingAbsence}
-          defaultDate={editingAbsence === 'new' ? today : editingAbsence.target_date}
+          absence={editingAbsence}
+          defaultDate={editingAbsence.target_date}
           onClose={() => setEditingAbsence(null)}
         />
       )}
@@ -236,8 +252,9 @@ function WeeklyView({
   );
 }
 
-/** Shared row rendering for a single work-log entry -- interactive (opens
- *  the edit modal) in the weekly view, read-only in the monthly summary. */
+/** Shared row rendering for a single work-log entry, in both the weekly
+ *  and monthly views -- clicking it opens the edit modal whenever a caller
+ *  passes onClick. */
 function EntryRow({
   entry,
   today,
@@ -445,8 +462,8 @@ function MonthlySummary({
 }) {
   const { data: entries, isLoading } = useMonthlySalarySummary(monthKey);
   const { data: absences, isLoading: absencesLoading } = useMonthlyAbsences(monthKey);
-  const [editing, setEditing] = useState<WorkLogEntry | null>(null);
-  const [editingAbsence, setEditingAbsence] = useState<WorkLogAbsence | null>(null);
+  const [editing, setEditing] = useState<WorkLogEntry | 'new' | null>(null);
+  const [editingAbsence, setEditingAbsence] = useState<WorkLogAbsence | 'new' | null>(null);
   const rows = entries ?? [];
   const absenceRows = absences ?? [];
   const totalHours = rows.reduce((sum, e) => sum + durationHours(e), 0);
@@ -495,7 +512,7 @@ function MonthlySummary({
               <EmptyState
                 icon="🕒"
                 title="אין רישומים לחודש זה"
-                description="רק שבועות שנפתחו ביומן השבועי מצטרפים לסיכום החודשי."
+                description="משמרות מהסידור המפורסם יתווספו כאן אוטומטית, או הוסף משמרת ביד."
               />
             </Card>
           ) : (
@@ -514,6 +531,10 @@ function MonthlySummary({
             </Card>
           )}
 
+          <Button fullWidth variant="ghost" onClick={() => setEditing('new')}>
+            + הוסף משמרת
+          </Button>
+
           {!absencesLoading && sortedAbsencePayouts.length > 0 && (
             <Card className="space-y-0 divide-y divide-slate-100 p-0 dark:divide-slate-800">
               <div className="px-4 py-2.5">
@@ -529,25 +550,25 @@ function MonthlySummary({
               ))}
             </Card>
           )}
+
+          <Button fullWidth variant="ghost" onClick={() => setEditingAbsence('new')}>
+            + הוספת היעדרות
+          </Button>
         </>
       )}
 
-      <p className="px-1 text-xs text-slate-400 dark:text-slate-500">
-        מסכם רק שבועות שכבר נצפו ביומן השבועי (ונזרעו אוטומטית). שבוע שלא נפתח עדיין לא יופיע כאן.
-      </p>
-
       {editing && (
         <WorkLogEntryEditor
-          entry={editing}
-          defaultDate={editing.target_date}
+          entry={editing === 'new' ? null : editing}
+          defaultDate={editing === 'new' ? today : editing.target_date}
           onClose={() => setEditing(null)}
         />
       )}
 
       {editingAbsence && (
         <AbsenceEditor
-          absence={editingAbsence}
-          defaultDate={editingAbsence.target_date}
+          absence={editingAbsence === 'new' ? null : editingAbsence}
+          defaultDate={editingAbsence === 'new' ? today : editingAbsence.target_date}
           onClose={() => setEditingAbsence(null)}
         />
       )}
@@ -622,12 +643,7 @@ function WorkLogEntryEditor({
       <div className="space-y-4">
         {!entry && (
           <Field label="תאריך">
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className={inputClass}
-            />
+            <DateField value={date} onChange={setDate} />
           </Field>
         )}
 
@@ -649,20 +665,24 @@ function WorkLogEntryEditor({
         )}
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="שעת התחלה">
+          <Field label="שעת התחלה (24 שעות)">
             <input
-              type="time"
+              type="text"
+              inputMode="numeric"
+              placeholder="HH:MM"
               value={start}
-              onChange={(e) => setStart(e.target.value)}
-              className={inputClass}
+              onChange={(e) => setStart(formatTimeInput(e.target.value))}
+              className={cn(inputClass, 'num text-center')}
             />
           </Field>
-          <Field label="שעת סיום">
+          <Field label="שעת סיום (24 שעות)">
             <input
-              type="time"
+              type="text"
+              inputMode="numeric"
+              placeholder="HH:MM"
               value={end}
-              onChange={(e) => setEnd(e.target.value)}
-              className={inputClass}
+              onChange={(e) => setEnd(formatTimeInput(e.target.value))}
+              className={cn(inputClass, 'num text-center')}
             />
           </Field>
         </div>
@@ -743,12 +763,7 @@ function AbsenceEditor({
       <div className="space-y-4">
         {!absence && (
           <Field label="תאריך">
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className={inputClass}
-            />
+            <DateField value={date} onChange={setDate} />
           </Field>
         )}
 
