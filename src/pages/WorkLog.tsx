@@ -9,6 +9,7 @@ import {
   useMonthlyAbsences,
   useMonthlySalarySummary,
   useMyRateHistory,
+  useTravelRateHistory,
   useUpsertAbsence,
   useUpsertWorkLogEntry,
   useWorkLogWeek,
@@ -27,7 +28,7 @@ import {
   type DateKey,
 } from '@/lib/dates';
 import { SHIFTS, SHIFT_TYPES, type ShiftType } from '@/lib/shifts';
-import { computePayroll, type RateHistoryEntry } from '@/lib/payroll';
+import { computePayroll, travelPay, type RateHistoryEntry, type TravelRateEntry } from '@/lib/payroll';
 import type { AbsenceType, WorkLogAbsence, WorkLogEntry } from '@/types/database';
 
 const SOURCE_BADGE: Record<WorkLogEntry['source'], { label: string; tone: string }> = {
@@ -86,6 +87,7 @@ export function WorkLog() {
   const [monthKey, setMonthKey] = useState<string>(monthKeyOf(todayInIsrael()));
   const [editing, setEditing] = useState<WorkLogEntry | null>(null);
   const { data: rateHistory = [] } = useMyRateHistory();
+  const { data: travelRateHistory = [] } = useTravelRateHistory();
 
   const today = todayInIsrael();
 
@@ -111,13 +113,20 @@ export function WorkLog() {
         </div>
 
         {view === 'month' ? (
-          <MonthlySummary monthKey={monthKey} setMonthKey={setMonthKey} rateHistory={rateHistory} today={today} />
+          <MonthlySummary
+            monthKey={monthKey}
+            setMonthKey={setMonthKey}
+            rateHistory={rateHistory}
+            travelRateHistory={travelRateHistory}
+            today={today}
+          />
         ) : (
           <WeeklyView
             weekStart={weekStart}
             setWeekStart={setWeekStart}
             today={today}
             rateHistory={rateHistory}
+            travelRateHistory={travelRateHistory}
             editing={editing}
             setEditing={setEditing}
           />
@@ -138,6 +147,7 @@ function WeeklyView({
   setWeekStart,
   today,
   rateHistory,
+  travelRateHistory,
   editing,
   setEditing,
 }: {
@@ -145,6 +155,7 @@ function WeeklyView({
   setWeekStart: (fn: (w: DateKey) => DateKey) => void;
   today: DateKey;
   rateHistory: RateHistoryEntry[];
+  travelRateHistory: TravelRateEntry[];
   editing: WorkLogEntry | null;
   setEditing: (v: WorkLogEntry | null) => void;
 }) {
@@ -155,6 +166,7 @@ function WeeklyView({
   const absenceRows = absences ?? [];
   const totalHours = rows.reduce((sum, e) => sum + durationHours(e), 0);
   const breakdown = useMemo(() => computePayroll(rows, rateHistory), [rows, rateHistory]);
+  const travelTotal = useMemo(() => travelPay(rows, travelRateHistory), [rows, travelRateHistory]);
   const { payouts: absencePayouts } = useAbsencePayouts(absenceRows, rateHistory);
 
   return (
@@ -181,6 +193,7 @@ function WeeklyView({
         hasRate={rateHistory.length > 0}
         breakdown={breakdown}
         absencePayouts={absencePayouts}
+        travelTotal={travelTotal}
       />
 
       <div className="space-y-4">
@@ -362,17 +375,21 @@ function PayrollCard({
   hasRate,
   breakdown,
   absencePayouts,
+  travelTotal,
 }: {
   totalHours: number;
   hasRate: boolean;
   breakdown: ReturnType<typeof computePayroll>;
   absencePayouts: AbsencePayout[];
+  /** travelPay() for the same entries this breakdown covers -- 0 if no
+   *  travel rate is configured yet or there were no worked days. */
+  travelTotal: number;
 }) {
   const vacation = absencePayouts.filter((p) => p.absence.type === 'vacation');
   const sick = absencePayouts.filter((p) => p.absence.type === 'sick');
   const vacationTotal = vacation.reduce((sum, p) => sum + p.value, 0);
   const sickTotal = sick.reduce((sum, p) => sum + p.value, 0);
-  const grandTotal = breakdown.grossEstimate + vacationTotal + sickTotal;
+  const grandTotal = breakdown.grossEstimate + vacationTotal + sickTotal + travelTotal;
   return (
     <Card className="space-y-1">
       <div className="flex items-center justify-between">
@@ -417,6 +434,12 @@ function PayrollCard({
               <span className="num">₪{sickTotal.toFixed(2)}</span>
             </div>
           )}
+          {travelTotal > 0 && (
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+              <span>נסיעות</span>
+              <span className="num">₪{travelTotal.toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex items-center justify-between border-t border-slate-100 pt-1.5 dark:border-slate-800">
             <p className="text-sm font-bold text-brand-700 dark:text-brand-400">הערכת שכר ברוטו</p>
             <p className="num text-base font-bold text-brand-700 dark:text-brand-400">
@@ -436,11 +459,13 @@ function MonthlySummary({
   monthKey,
   setMonthKey,
   rateHistory,
+  travelRateHistory,
   today,
 }: {
   monthKey: string;
   setMonthKey: (fn: (k: string) => string) => void;
   rateHistory: RateHistoryEntry[];
+  travelRateHistory: TravelRateEntry[];
   today: DateKey;
 }) {
   const { data: entries, isLoading } = useMonthlySalarySummary(monthKey);
@@ -451,6 +476,7 @@ function MonthlySummary({
   const absenceRows = absences ?? [];
   const totalHours = rows.reduce((sum, e) => sum + durationHours(e), 0);
   const breakdown = useMemo(() => computePayroll(rows, rateHistory), [rows, rateHistory]);
+  const travelTotal = useMemo(() => travelPay(rows, travelRateHistory), [rows, travelRateHistory]);
   const { payouts: absencePayouts } = useAbsencePayouts(absenceRows, rateHistory);
   const sortedRows = [...rows].sort((a, b) => a.target_date.localeCompare(b.target_date));
   const sortedAbsencePayouts = [...absencePayouts].sort((a, b) =>
@@ -489,6 +515,7 @@ function MonthlySummary({
             hasRate={rateHistory.length > 0}
             breakdown={breakdown}
             absencePayouts={absencePayouts}
+            travelTotal={travelTotal}
           />
 
           {sortedRows.length === 0 ? (

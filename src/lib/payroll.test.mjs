@@ -31,7 +31,7 @@ register(
   import.meta.url,
 );
 
-const { computePayroll, leaveDayValue, consecutiveSickDayCount, sickPayPercent } =
+const { computePayroll, leaveDayValue, travelPay, consecutiveSickDayCount, sickPayPercent } =
   await import('./payroll.ts');
 const { addDays, israelDateTime } = await import('./dates.ts');
 
@@ -320,6 +320,60 @@ checkValue(
   } else {
     failures++;
     console.log(`  \x1b[31mFAIL\x1b[0m leaveDayValue expected 0, got ${value}`);
+  }
+}
+
+// 14. travelPay: one flat rate, one worked day -> that day's rate once.
+//     Calibrated to the owner's real payslip (see travel_rates' migration
+//     comment): 16/day.
+const FLAT_TRAVEL = [{ effective_from: '2000-01-01', daily_rate: 16 }];
+checkValue(
+  'travelPay is the flat daily rate for a single worked day',
+  travelPay([entry(MONDAY, 6.75, 14.75)], FLAT_TRAVEL),
+  16,
+);
+
+// 15. travelPay sums once PER DISTINCT DATE, not per entry -- two entries
+//     logged on the same calendar day (a split shift) still means one
+//     commute, not two.
+checkValue(
+  'travelPay counts a day once even with two entries on it',
+  travelPay([entry(MONDAY, 6.75, 10.75), entry(MONDAY, 14.75, 18.75)], FLAT_TRAVEL),
+  16,
+);
+
+// 16. travelPay over several distinct days sums each day's own rate --
+//     matching the owner's "16 x shifts worked" description.
+checkValue(
+  'travelPay sums the rate once per distinct worked day across a period',
+  travelPay([entry(MONDAY, 6.75, 14.75), entry(THURSDAY, 6.75, 14.75), entry(SATURDAY, 6.75, 14.75)], FLAT_TRAVEL),
+  3 * 16,
+);
+
+// 17. travelPay respects the rate history's own effective_from, same as
+//     rateForDate -- a day before any recorded rate contributes nothing,
+//     and a raise never recalculates an already-passed day.
+{
+  const RAISE_TRAVEL = [
+    { effective_from: '2000-01-01', daily_rate: 16 },
+    { effective_from: addDays(THURSDAY, 1), daily_rate: 20 },
+  ];
+  checkValue(
+    'travelPay prices each day at the rate effective ON that day',
+    travelPay([entry(MONDAY, 6.75, 14.75), entry(addDays(THURSDAY, 1), 6.75, 14.75)], RAISE_TRAVEL),
+    16 + 20,
+  );
+}
+
+// 18. travelPay with no entries, or no rate recorded yet, is 0 -- not NaN.
+{
+  const noEntries = travelPay([], FLAT_TRAVEL);
+  const noRate = travelPay([entry(MONDAY, 6.75, 14.75)], []);
+  if (noEntries === 0 && noRate === 0) {
+    console.log('  \x1b[32mok\x1b[0m   travelPay is 0 with no entries or no recorded rate, not NaN');
+  } else {
+    failures++;
+    console.log(`  \x1b[31mFAIL\x1b[0m travelPay expected 0/0, got ${noEntries}/${noRate}`);
   }
 }
 

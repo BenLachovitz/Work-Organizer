@@ -399,6 +399,53 @@ export function leaveDayValue(rateHistory: RateHistoryEntry[], valuationDate: Da
   return rate * STANDARD_DAY_HOURS;
 }
 
+// ---------------------------------------------------------------------------
+// Travel allowance (נסיעות, migration 65) -- a flat per-worked-day sum, the
+// same for every guard and the manager (unlike the hourly wage, which is
+// per-role). Calibrated against the owner's real payslip: see the
+// migration's own comment for the ₪16/day figure and how it was confirmed.
+// ---------------------------------------------------------------------------
+
+/** One entry in the travel-rate append-only history -- same "from this
+ *  date onward" shape as RateHistoryEntry, just a flat daily sum instead
+ *  of an hourly one. */
+export interface TravelRateEntry {
+  effective_from: DateKey;
+  daily_rate: number;
+}
+
+/** The travel rate in effect ON `date` -- the latest history entry whose
+ *  `effective_from` is on or before it. NULL if `date` is earlier than any
+ *  recorded rate. Same lookup as rateForDate(), over a different history. */
+export function travelRateForDate(history: TravelRateEntry[], date: DateKey): number | null {
+  let best: TravelRateEntry | null = null;
+  for (const entry of history) {
+    if (entry.effective_from <= date && (!best || entry.effective_from > best.effective_from)) {
+      best = entry;
+    }
+  }
+  return best?.daily_rate ?? null;
+}
+
+/**
+ * Total travel allowance for a set of work-log entries: the rate in effect
+ * on EACH distinct worked date, summed once per day regardless of how many
+ * entries fall on it -- a guard covering two shifts in one calendar day
+ * still only commutes once. Never counts an absence day (no commute when
+ * staying home), which is naturally already true here since absences never
+ * appear in `entries` -- work_log_entries and work_log_absences are
+ * separate tables.
+ */
+export function travelPay(entries: WorkLogEntry[], travelHistory: TravelRateEntry[]): number {
+  const dates = new Set(entries.map((e) => e.target_date));
+  let total = 0;
+  for (const date of dates) {
+    const rate = travelRateForDate(travelHistory, date);
+    if (rate != null) total += rate;
+  }
+  return total;
+}
+
 /**
  * Which day, counting backward, `date` is within a consecutive run of sick
  * days -- 1 if `date` itself is the first (nothing the day before it is

@@ -5,12 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import type { AbsenceType, ScheduleAssignment, WorkLogAbsence, WorkLogEntry, WorkLogSource } from '@/types/database';
 import { addDays, israelDateTime, weekStartOf, type DateKey } from '@/lib/dates';
 import { SHIFTS, type ShiftType } from '@/lib/shifts';
-import {
-  consecutiveSickDayCount,
-  leaveDayValue,
-  sickPayPercent,
-  type RateHistoryEntry,
-} from '@/lib/payroll';
+import { consecutiveSickDayCount, leaveDayValue, sickPayPercent, type RateHistoryEntry } from '@/lib/payroll';
 
 export const workLogKeys = {
   week: (guardId: string, weekStart: DateKey) => ['workLogWeek', guardId, weekStart] as const,
@@ -316,6 +311,68 @@ export function useDeleteRate() {
       void qc.invalidateQueries({ queryKey: rateHistoryKey });
       void qc.invalidateQueries({ queryKey: myRateHistoryKey });
     },
+  });
+}
+
+export interface TravelRate {
+  id: string;
+  daily_rate: number;
+  effective_from: DateKey;
+}
+
+const travelRateHistoryKey = ['travelRateHistory'] as const;
+
+/**
+ * The full travel-rate history, oldest first -- unlike payroll_rates'
+ * hourly wage, travel_rates has no per-role split and an open read policy
+ * (see the migration's own comment for why), so this single hook serves
+ * both the Manager Settings editor AND every guard's own gross-estimate
+ * calculation (travelPay() in payroll.ts) -- no separate "my travel rate"
+ * RPC needed the way the hourly wage needs my_hourly_rate_history().
+ */
+export function useTravelRateHistory() {
+  return useQuery({
+    queryKey: travelRateHistoryKey,
+    queryFn: async (): Promise<TravelRate[]> => {
+      const { data, error } = await requireSupabase()
+        .from('travel_rates')
+        .select('id, daily_rate, effective_from')
+        .order('effective_from');
+      if (error) throw new Error(error.message);
+      return (data as TravelRate[]) ?? [];
+    },
+  });
+}
+
+/** Records a new travel rate, effective from a given date -- never an
+ *  update of an existing row, same append-only reasoning as useAddRate(). */
+export function useAddTravelRate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { dailyRate: number; effectiveFrom: DateKey }) => {
+      const { error } = await requireSupabase().from('travel_rates').insert({
+        daily_rate: input.dailyRate,
+        effective_from: input.effectiveFrom,
+      });
+      if (error) {
+        if (error.code === '23505') throw new Error('כבר קיים שינוי תעריף נסיעות לתאריך הזה.');
+        throw new Error(error.message);
+      }
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: travelRateHistoryKey }),
+  });
+}
+
+/** Removes a mis-entered travel-rate history row (same intent as
+ *  useDeleteRate() -- fixing a mistake, not ending a rate period). */
+export function useDeleteTravelRate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await requireSupabase().from('travel_rates').delete().eq('id', id);
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: travelRateHistoryKey }),
   });
 }
 

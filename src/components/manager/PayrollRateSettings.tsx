@@ -1,6 +1,15 @@
 import { useState } from 'react';
 import { Alert, Button, Collapsible, DateField, Spinner, cn } from '@/components/ui';
-import { useAddRate, useDeleteRate, useRateHistory, type PayrollRate } from '@/hooks/useWorkLog';
+import {
+  useAddRate,
+  useAddTravelRate,
+  useDeleteRate,
+  useDeleteTravelRate,
+  useRateHistory,
+  useTravelRateHistory,
+  type PayrollRate,
+  type TravelRate,
+} from '@/hooks/useWorkLog';
 import { todayInIsrael, type DateKey } from '@/lib/dates';
 
 const ROLE_LABEL: Record<PayrollRate['role'], string> = { guard: 'מאבטחים', manager: 'מנהל' };
@@ -16,27 +25,32 @@ const ROLE_LABEL: Record<PayrollRate['role'], string> = { guard: 'מאבטחים
  */
 export function PayrollRateSettings({ defaultExpanded = false }: { defaultExpanded?: boolean }) {
   const { data, isLoading, error } = useRateHistory();
+  const { data: travelData, isLoading: travelLoading, error: travelError } = useTravelRateHistory();
 
   const currentFor = (role: PayrollRate['role']) => {
     const rows = (data ?? []).filter((r) => r.role === role);
     return rows.length ? rows[rows.length - 1]!.hourly_rate : null;
   };
+  const currentTravel = travelData?.length ? travelData[travelData.length - 1]!.daily_rate : null;
+
+  const loading = isLoading || travelLoading;
+  const loadError = error ?? travelError;
 
   return (
     <Collapsible
       title="שכר לשעה · יומן עבודה"
       summary={
-        isLoading
+        loading
           ? 'טוען…'
-          : data
-            ? `מאבטחים ₪${currentFor('guard') ?? '—'} · מנהל ₪${currentFor('manager') ?? '—'}`
+          : data && travelData
+            ? `מאבטחים ₪${currentFor('guard') ?? '—'} · מנהל ₪${currentFor('manager') ?? '—'} · נסיעות ₪${currentTravel ?? '—'}`
             : 'שגיאה בטעינה'
       }
       defaultExpanded={defaultExpanded}
     >
-      {error ? (
-        <Alert tone="error">{error instanceof Error ? error.message : 'שגיאה בטעינה.'}</Alert>
-      ) : isLoading || !data ? (
+      {loadError ? (
+        <Alert tone="error">{loadError instanceof Error ? loadError.message : 'שגיאה בטעינה.'}</Alert>
+      ) : loading || !data || !travelData ? (
         <div className="grid place-items-center py-4">
           <Spinner className="size-5 text-brand-600" />
         </div>
@@ -49,6 +63,7 @@ export function PayrollRateSettings({ defaultExpanded = false }: { defaultExpand
           </p>
           <RoleSection role="guard" history={data.filter((r) => r.role === 'guard')} />
           <RoleSection role="manager" history={data.filter((r) => r.role === 'manager')} />
+          <TravelRateSection history={travelData} />
         </div>
       )}
     </Collapsible>
@@ -155,6 +170,112 @@ function RoleSection({
       ) : (
         <Button size="sm" variant="ghost" onClick={() => setAdding(true)}>
           + שכר חדש
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Same append-only append-a-row editor as RoleSection, for the flat
+ * travel allowance (נסיעות) instead of an hourly wage -- no role split
+ * here, one history for everyone (see travel_rates' own migration comment
+ * for why), so this isn't just RoleSection reused with role hard-coded.
+ */
+function TravelRateSection({ history }: { history: TravelRate[] }) {
+  const add = useAddTravelRate();
+  const del = useDeleteTravelRate();
+  const [adding, setAdding] = useState(false);
+  const [rate, setRate] = useState('');
+  const [effectiveFrom, setEffectiveFrom] = useState<DateKey>(todayInIsrael());
+
+  const sorted = [...history].sort((a, b) => b.effective_from.localeCompare(a.effective_from));
+  const parsed = rate.trim() === '' ? null : Number(rate);
+  const valid = parsed !== null && Number.isFinite(parsed) && parsed >= 0;
+
+  const save = () => {
+    if (!valid) return;
+    add.mutate(
+      { dailyRate: parsed, effectiveFrom },
+      {
+        onSuccess: () => {
+          setAdding(false);
+          setRate('');
+        },
+      },
+    );
+  };
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-bold text-slate-800 dark:text-slate-100">נסיעות (ליום עבודה)</p>
+
+      {sorted.length === 0 ? (
+        <p className="text-xs text-slate-400 dark:text-slate-500">לא הוגדר תעריף נסיעות עדיין.</p>
+      ) : (
+        <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 dark:divide-slate-800 dark:border-slate-700">
+          {sorted.map((r, i) => (
+            <div key={r.id} className="flex items-center justify-between gap-2 px-3 py-2">
+              <div>
+                <span className="num text-sm font-bold text-slate-800 dark:text-slate-100">
+                  ₪{r.daily_rate}
+                </span>
+                <span className="ms-2 text-xs text-slate-500 dark:text-slate-400">
+                  {i === 0 ? 'נוכחי' : 'היה'} · מ-{r.effective_from}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => del.mutate(r.id)}
+                disabled={del.isPending}
+                className="text-xs text-rose-600 hover:underline disabled:opacity-50 dark:text-rose-400"
+              >
+                הסרה
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {adding ? (
+        <div className="flex flex-wrap items-end gap-2 rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800">
+          <label className="flex-1 min-w-[100px]">
+            <span className="mb-1 block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+              תעריף חדש ליום (₪)
+            </span>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              autoFocus
+              value={rate}
+              onChange={(e) => setRate(e.target.value)}
+              placeholder="לדוגמה 16"
+              className={cn(
+                'w-full rounded-lg border-2 border-slate-200 p-1.5 text-sm text-slate-800',
+                'dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
+                'focus:border-brand-400 focus:outline-none',
+                rate && !valid && 'border-rose-400',
+              )}
+            />
+          </label>
+          <label className="flex-1 min-w-[120px]">
+            <span className="mb-1 block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+              בתוקף מתאריך
+            </span>
+            <DateField value={effectiveFrom} onChange={setEffectiveFrom} />
+          </label>
+          <Button size="sm" disabled={!valid} loading={add.isPending} onClick={save}>
+            שמירה
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>
+            ביטול
+          </Button>
+          {add.isError && <Alert tone="error">{(add.error as Error).message}</Alert>}
+        </div>
+      ) : (
+        <Button size="sm" variant="ghost" onClick={() => setAdding(true)}>
+          + תעריף נסיעות חדש
         </Button>
       )}
     </div>
