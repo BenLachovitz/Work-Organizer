@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
+import { CurrentlyOnShiftCard } from '@/components/guard/CurrentlyOnShiftCard';
 import { Alert, Badge, Button, ButtonLink, Card, Spinner, cn } from '@/components/ui';
 import { useAuth } from '@/contexts/AuthContext';
 import { useActiveWeek } from '@/hooks/useWeeks';
@@ -65,6 +66,8 @@ export function GuardHome() {
             בוצע שינוי בסידור זה עתה. המשמרות שלך מעודכנות למטה.
           </Alert>
         )}
+
+        <CurrentlyOnShiftCard weeks={weeks} guards={rosters?.guards ?? []} />
 
         <NotificationPrompt guardId={profile?.id} />
         <PasskeyPrompt guardId={profile?.id} />

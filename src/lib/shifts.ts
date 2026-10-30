@@ -5,6 +5,7 @@
  * the rest matrix is DERIVED from the clock times below, so a change to a shift
  * window automatically re-derives every rest classification.
  */
+import { israelDateTime, type DateKey } from './dates';
 
 // ---------------------------------------------------------------------------
 // Shift catalogue
@@ -461,6 +462,19 @@ export function segmentFloors(
 /** Which shift types contribute coverage to a given segment. */
 export function shiftsCovering(segment: Segment): ShiftType[] {
   return SHIFT_TYPES.filter((s) => SHIFTS[s].covers.includes(segment));
+}
+
+/**
+ * True when `now` falls within the real start/end instants of a shift
+ * scheduled for `targetDate` -- the same israelDateTime() conversion
+ * useWorkLog.ts's nominalWindow() uses to turn a shift's startH/endH into
+ * actual timestamps, just compared against the clock instead of stored.
+ */
+export function isShiftActiveAt(targetDate: DateKey, shift: ShiftType, now: Date): boolean {
+  const def = SHIFTS[shift];
+  const start = israelDateTime(targetDate, def.startH);
+  const end = israelDateTime(targetDate, def.endH);
+  return now >= start && now < end;
 }
 
 // ---------------------------------------------------------------------------
