@@ -352,35 +352,48 @@ export function computePayroll(
  */
 const MONTHLY_LEAVE_DIVISOR = 22;
 
+/** How many full calendar months, immediately BEFORE the absence's own
+ *  month, the reference period spans -- see LEAVE_REFERENCE_DIVISOR. */
+export const LEAVE_REFERENCE_MONTHS = 3;
+
+/** Total divisor for the 3-month reference period: 3 x the monthly
+ *  divisor, not a separately-calibrated number. */
+const LEAVE_REFERENCE_DIVISOR = MONTHLY_LEAVE_DIVISOR * LEAVE_REFERENCE_MONTHS; // 66
+
 /**
- * A guard's day value for vacation/sick pay: that calendar month's TOTAL
- * gross earnings (overtime and Shabbat/holiday premiums INCLUDED -- this
- * is meant to match the "gross" line on a real payslip, which does
- * include overtime pay) divided by the FIXED monthly divisor above --
- * never by how many days the guard actually worked. Callers are expected
- * to pass entries scoped to ONE CALENDAR MONTH (the month the absence
- * falls in), not an arbitrary trailing window -- real payroll finalizes
- * a month's figures as a whole at month-end, so unlike the rate history's
- * "never let the future rewrite the past" rule, using the WHOLE month
- * (including days after the absence itself) is intentional here.
+ * A guard's day value for vacation/sick pay: TOTAL gross earnings
+ * (overtime and Shabbat/holiday premiums INCLUDED -- meant to match the
+ * "gross" line on a real payslip) over the reference period, divided by
+ * the fixed divisor above -- never by how many days the guard actually
+ * worked. Callers are expected to pass entries scoped to the
+ * LEAVE_REFERENCE_MONTHS full calendar months immediately BEFORE the
+ * absence's own month -- NEVER the absence's own month itself, even if
+ * that absence falls early in the month. That exclusion is deliberate,
+ * surfaced by the owner: if the reference period could include the
+ * guard's current, still-in-progress month, a vacation day taken in that
+ * same month's first week would be valued against almost no data (maybe
+ * one shift logged so far), making it absurdly low until the month fills
+ * up -- using only already-COMPLETE prior months avoids that entirely,
+ * and also matches the original legal source's own "3 months before the
+ * vacation" framing, which an earlier version of this function had
+ * actually dropped by scoping to the absence's own month instead.
  *
- * This is the fourth formula this function has gone through, each
+ * This is the fifth formula this function has gone through, each
  * iteration surfaced by the owner checking real payslip numbers against
  * it: (1) full overtime-inclusive gross averaged over actual worked days
  * -- too high; (2) hours capped at a standard 8h/7h day, averaged over
- * actual worked days -- still too high; (3) full gross summed over ~3
- * months and divided by a FIXED 75 (a 6-day-week, 3-month convention) --
- * far too low; (4) the textbook "regular wage / actual days worked"
- * formula (a clearer worked-example source) -- STILL too high even once
- * the system had ~2.5 real months of backfilled history to average over,
- * which is what ruled out "not enough data" as the explanation and
- * pointed at a fixed-divisor, standard-month convention instead -- this
- * version. If this also doesn't match a real payslip figure, the next
- * things to try are the divisor (21 vs 22) and whether the reference
- * period should be the preceding month rather than the month the absence
- * itself falls in.
+ * actual worked days -- still too high; (3) full gross summed over a
+ * trailing ~90 days and divided by a FIXED 75 (a 6-day-week, 3-month
+ * convention) -- far too low; (4) the textbook "regular wage / actual
+ * days worked" formula (a clearer worked-example source) -- STILL too
+ * high even with ~2.5 real months of backfilled history, which ruled out
+ * "not enough data" and pointed at a fixed-divisor, standard-month
+ * convention instead; (5) that fixed-divisor idea, but WRONGLY scoped to
+ * the absence's own calendar month instead of the 3 months before it --
+ * this version restores the "3 months before" window while keeping the
+ * monthly-divisor insight from (4)'s replacement.
  */
-export function monthlyLeaveDayValue(entries: WorkLogEntry[], rateHistory: RateHistoryEntry[]): number {
+export function leaveDayValue(entries: WorkLogEntry[], rateHistory: RateHistoryEntry[]): number {
   const byDate = new Map<DateKey, WorkLogEntry[]>();
   for (const entry of entries) {
     const list = byDate.get(entry.target_date);
@@ -392,7 +405,25 @@ export function monthlyLeaveDayValue(entries: WorkLogEntry[], rateHistory: RateH
   for (const dayEntries of byDate.values()) {
     total += computePayroll(dayEntries, rateHistory).grossEstimate;
   }
-  return total / MONTHLY_LEAVE_DIVISOR;
+  return total / LEAVE_REFERENCE_DIVISOR;
+}
+
+/**
+ * The LEAVE_REFERENCE_MONTHS full calendar months immediately before
+ * `date`'s own month -- e.g. for a November absence: August 1 through
+ * October 31. Never includes `date`'s own month, however early in it
+ * `date` falls -- see leaveDayValue's own comment for why.
+ */
+export function leaveReferencePeriod(date: DateKey): { start: DateKey; end: DateKey } {
+  const [y, m] = date.slice(0, 7).split('-').map(Number);
+  const yy = y ?? 1970;
+  const mm = m ?? 1;
+  // mm is 1-based; Date.UTC's month is 0-based, so (mm - 1) is "this
+  // month" at index 0 -- day 0 of that gives the LAST day of the
+  // previous month, exactly the end of the reference period.
+  const end = new Date(Date.UTC(yy, mm - 1, 0));
+  const start = new Date(Date.UTC(yy, mm - 1 - LEAVE_REFERENCE_MONTHS, 1));
+  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
 }
 
 /**

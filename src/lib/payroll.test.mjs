@@ -31,7 +31,7 @@ register(
   import.meta.url,
 );
 
-const { computePayroll, monthlyLeaveDayValue, consecutiveSickDayCount, sickPayPercent } =
+const { computePayroll, leaveDayValue, leaveReferencePeriod, consecutiveSickDayCount, sickPayPercent } =
   await import('./payroll.ts');
 const { addDays, israelDateTime } = await import('./dates.ts');
 
@@ -277,22 +277,21 @@ function checkValue(name, actual, expected, tolerance = 0.01) {
   }
 }
 
-// 11. monthlyLeaveDayValue: a single plain 8h day's gross (320) divided by
-//     the FIXED 22, NOT by the 1 day actually worked (320/1=320 would be
-//     the "textbook" formula this superseded -- too high in practice).
+// 11. leaveDayValue: a single plain 8h day's gross (320) divided by the
+//     FIXED 66 (3 x 22), not by the 1 day actually worked.
 checkValue(
-  'monthlyLeaveDayValue divides by the FIXED 22, not by days worked',
-  monthlyLeaveDayValue([entry(MONDAY, 6.75, 14.75)], FLAT_HISTORY),
-  (8 * RATE) / 22,
+  'leaveDayValue divides by the FIXED 66 (3 months x 22), not by days worked',
+  leaveDayValue([entry(MONDAY, 6.75, 14.75)], FLAT_HISTORY),
+  (8 * RATE) / 66,
 );
 
 // 12. Multiple days SUM their gross first -- a 12h weekday (8h@100% +
 //     2h@125% + 2h@150% = 540) plus a plain 8h day (320) = 860 total,
-//     divided by the fixed 22, not averaged over the 2 days worked.
+//     divided by the fixed 66, not averaged over the 2 days worked.
 checkValue(
-  'monthlyLeaveDayValue sums every day in the month before dividing',
-  monthlyLeaveDayValue([entry(MONDAY, 6.75, 18.75), entry(THURSDAY, 6.75, 14.75)], FLAT_HISTORY),
-  (40 * (8 + 1.25 * 2 + 1.5 * 2) + 8 * RATE) / 22, // (540 + 320) / 22
+  'leaveDayValue sums every day in the reference period before dividing',
+  leaveDayValue([entry(MONDAY, 6.75, 18.75), entry(THURSDAY, 6.75, 14.75)], FLAT_HISTORY),
+  (40 * (8 + 1.25 * 2 + 1.5 * 2) + 8 * RATE) / 66, // (540 + 320) / 66
 );
 
 // 13. Overtime and Shabbat/holiday premiums ARE included in the total --
@@ -300,20 +299,48 @@ checkValue(
 //     them. A 12h Saturday shift's full premium gross (780, from the
 //     already-tested overtime engine) counts, not a flat/capped figure.
 checkValue(
-  'monthlyLeaveDayValue includes real overtime/Shabbat premiums in the total',
-  monthlyLeaveDayValue([entry(SATURDAY, 6.75, 18.75)], FLAT_HISTORY),
-  (40 * (8 * 1.5 + 2 * 1.75 + 2 * 2.0)) / 22, // 780 / 22
+  'leaveDayValue includes real overtime/Shabbat premiums in the total',
+  leaveDayValue([entry(SATURDAY, 6.75, 18.75)], FLAT_HISTORY),
+  (40 * (8 * 1.5 + 2 * 1.75 + 2 * 2.0)) / 66, // 780 / 66
 );
 
-// 14. monthlyLeaveDayValue with no entries at all returns 0 (nothing to
-//     value an absence against yet), rather than NaN or throwing.
+// 14. leaveDayValue with no entries at all returns 0 (nothing to value an
+//     absence against yet), rather than NaN or throwing.
 {
-  const value = monthlyLeaveDayValue([], FLAT_HISTORY);
+  const value = leaveDayValue([], FLAT_HISTORY);
   if (value === 0) {
-    console.log('  \x1b[32mok\x1b[0m   monthlyLeaveDayValue([]) is 0, not NaN');
+    console.log('  \x1b[32mok\x1b[0m   leaveDayValue([]) is 0, not NaN');
   } else {
     failures++;
-    console.log(`  \x1b[31mFAIL\x1b[0m monthlyLeaveDayValue([]) expected 0, got ${value}`);
+    console.log(`  \x1b[31mFAIL\x1b[0m leaveDayValue([]) expected 0, got ${value}`);
+  }
+}
+
+// 15. leaveReferencePeriod: for a November absence, the reference period
+//     is August 1 - October 31 -- the 3 FULL months before November, never
+//     including November itself. This is the fix for the owner's own
+//     scenario: a vacation taken in week 1 of a month must never be valued
+//     against that same still-in-progress month's thin data.
+{
+  const { start, end } = leaveReferencePeriod('2026-11-15');
+  if (start === '2026-08-01' && end === '2026-10-31') {
+    console.log('  \x1b[32mok\x1b[0m   leaveReferencePeriod(Nov) -> Aug 1 - Oct 31, excluding November');
+  } else {
+    failures++;
+    console.log(`  \x1b[31mFAIL\x1b[0m leaveReferencePeriod('2026-11-15') = {start: ${start}, end: ${end}}, expected Aug 1 - Oct 31`);
+  }
+}
+
+// 16. Same check across a Hebrew-calendar-irrelevant but Gregorian-tricky
+//     year boundary: a February absence's reference period is November-
+//     January of the PRIOR year for November, not an out-of-range month.
+{
+  const { start, end } = leaveReferencePeriod('2027-02-10');
+  if (start === '2026-11-01' && end === '2027-01-31') {
+    console.log('  \x1b[32mok\x1b[0m   leaveReferencePeriod(Feb) correctly crosses the year boundary');
+  } else {
+    failures++;
+    console.log(`  \x1b[31mFAIL\x1b[0m leaveReferencePeriod('2027-02-10') = {start: ${start}, end: ${end}}, expected Nov 1 2026 - Jan 31 2027`);
   }
 }
 

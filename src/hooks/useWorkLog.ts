@@ -7,7 +7,8 @@ import { addDays, israelDateTime, type DateKey } from '@/lib/dates';
 import { SHIFTS, type ShiftType } from '@/lib/shifts';
 import {
   consecutiveSickDayCount,
-  monthlyLeaveDayValue,
+  leaveDayValue,
+  leaveReferencePeriod,
   sickPayPercent,
   type RateHistoryEntry,
 } from '@/lib/payroll';
@@ -161,8 +162,8 @@ const WORK_LOG_QUERY_PREFIXES = new Set([
  * several views at once in ways that are easy to miss one of: editing a
  * SHIFT changes the entry lists (workLogWeek/workLogMonth) AND the
  * absence-payout average it feeds into (absencePayoutContext), since
- * monthlyLeaveDayValue is computed from the guard's own work_log_entries
- * for that absence's calendar month. A bug here (shift edits only
+ * leaveDayValue is computed from the guard's own work_log_entries over
+ * the 3 months before that absence's month. A bug here (shift edits only
  * invalidating the entry lists, not absencePayoutContext) is exactly what
  * made the owner's vacation-day estimate look frozen after adding missing
  * shifts -- the cached average never refetched. One shared predicate for
@@ -365,10 +366,6 @@ export function useMonthlySalarySummary(monthKey: string) {
  *  streaks are rarely more than a handful of days. */
 const SICK_STREAK_LOOKBACK_DAYS = 10;
 
-function monthKeyOf(date: DateKey): string {
-  return date.slice(0, 7);
-}
-
 export function useAbsencesWeek(weekStart: DateKey) {
   const { profile } = useAuth();
   const guardId = profile?.id ?? '';
@@ -463,21 +460,24 @@ export interface AbsencePayout {
   /** 1 for vacation; 0/0.5/1 for sick, by which day of a consecutive run
    *  this one is (Israeli Sick Pay Law). */
   percent: number;
-  /** monthlyLeaveDayValue(...) for the CALENDAR MONTH this absence falls
-   *  in, times `percent`. 0 if there is no logged work history yet. */
+  /** leaveDayValue(...) over the LEAVE_REFERENCE_MONTHS full calendar
+   *  months before this absence's own month, times `percent`. 0 if there
+   *  is no logged work history yet in that reference period. */
   value: number;
 }
 
 /**
  * Values a set of absences (one roster week's or one month's worth) against
- * the guard's own work history. Each absence is valued from its own
- * CALENDAR MONTH's total (monthlyLeaveDayValue in payroll.ts) -- including
- * days after the absence within that same month, since real payroll
- * finalizes a month's figures as a whole, unlike the rate history's
- * "never let the future rewrite the past" rule. One combined fetch covers
- * every absence passed in (spanning every month touched by any of them)
- * rather than one round trip per absence; each absence's own month is
- * then a client-side slice of that shared fetch.
+ * the guard's own work history. Each absence is valued from the
+ * LEAVE_REFERENCE_MONTHS full calendar months BEFORE its own month
+ * (leaveReferencePeriod/leaveDayValue in payroll.ts) -- never the absence's
+ * own month, however early in it the absence falls (see leaveDayValue's own
+ * comment for why: it keeps a vacation taken in week 1 of a month from
+ * being valued against that same month's own, still-thin data). One
+ * combined fetch covers every absence passed in (spanning every reference
+ * period touched by any of them) rather than one round trip per absence;
+ * each absence's own period is then a client-side slice of that shared
+ * fetch.
  */
 export function useAbsencePayouts(
   absences: WorkLogAbsence[],
@@ -489,8 +489,8 @@ export function useAbsencePayouts(
   const dates = absences.map((a) => a.target_date).sort();
   const minDate = dates[0];
   const maxDate = dates[dates.length - 1];
-  const fetchStart = minDate ? monthRange(monthKeyOf(minDate)).start : undefined;
-  const fetchEnd = maxDate ? monthRange(monthKeyOf(maxDate)).end : undefined;
+  const fetchStart = minDate ? leaveReferencePeriod(minDate).start : undefined;
+  const fetchEnd = maxDate ? leaveReferencePeriod(maxDate).end : undefined;
 
   const query = useQuery({
     queryKey: ['absencePayoutContext', guardId, fetchStart, fetchEnd],
@@ -530,9 +530,9 @@ export function useAbsencePayouts(
     if (!query.data) return [];
     const { entries, sickDates } = query.data;
     return absences.map((absence) => {
-      const { start, end } = monthRange(monthKeyOf(absence.target_date));
+      const { start, end } = leaveReferencePeriod(absence.target_date);
       const relevant = entries.filter((e) => e.target_date >= start && e.target_date <= end);
-      const dayValue = monthlyLeaveDayValue(relevant, rateHistory);
+      const dayValue = leaveDayValue(relevant, rateHistory);
       const percent =
         absence.type === 'vacation'
           ? 1
