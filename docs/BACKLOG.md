@@ -1,7 +1,7 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.30.0** — §14 there is the
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.30.1** — §14 there is the
 build status and roadmap, §1.17–§1.34 is the changelog for everything since v2.15, §15 is the
 personal work log + estimated gross salary feature. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
@@ -1067,6 +1067,29 @@ seeing a brand-new week actually arrive pre-populated from the new standing defa
 few real days to pass naturally, or a direct Supabase check timed right before the next week gets
 created. `package.json`/`GitVersion.yml` bumped to 2.30.0.
 
+**v2.30.1 (same day) — bug fix: the button failed for real the moment Ben tried it.** Every press
+returned `DELETE requires a WHERE clause`. Root cause: `supautils` (confirmed live via `SHOW
+session_preload_libraries`) — a Supabase hardening extension requiring every `authenticated`-role
+`DELETE`/`UPDATE` to carry a `WHERE` clause. `set_week_as_new_normal()`'s two `DELETE`s (clearing
+both standing-default tables before re-inserting) had none — the first fully unqualified `DELETE`s
+in this whole codebase; everything else already filters. Never caught while building it because
+every test connection (the Management API, used for `db:apply` and every diagnostic query) runs as
+a role `supautils` exempts — only a real `authenticated` call, i.e. the actual app, ever hits the
+guard. Migration 68 added `WHERE TRUE` to both `DELETE`s (the standard fix for an intentional
+full-table clear under this kind of guard). Testing that fix *properly* this time — a disposable
+test manager account, signed in for real, calling the RPC through the actual REST path rather than
+a privileged connection — immediately found the same problem on the function's one `UPDATE`
+(unreached by the narrower first test, since it comes after both `DELETE`s). Migration 69 added
+`WHERE id` to it. Re-verified clean end to end the same way: the RPC succeeds, the standing-default
+table is provably written, then restored to its real prior (empty) state — proving nothing had
+actually been written by any of Ben's earlier attempts either. `package.json`/`GitVersion.yml`
+bumped to 2.30.1.
+
+**Lesson worth keeping, alongside this project's existing ones**: a privileged connection used for
+migrations and ad-hoc checks is not a faithful stand-in for the app's own `authenticated` role —
+verifying anything that touches a DELETE/UPDATE needs a real authenticated call, not just one that
+runs without error under elevated privileges.
+
 ---
 
 ## What is left
@@ -1209,9 +1232,9 @@ rejected the push — often a stale subscription that's already been pruned by t
   plain `UPDATE`, not committed anywhere. (The abandoned WhatsApp design's three `WHATSAPP_*`
   secrets were never set and are moot now; `request-pin-reset`'s reuse of this cron-secret pair for
   the `pin_reset_otp` type is moot too — that function is deleted as of the v2.22.1 revert.)
-- 67 migrations applied, tracked in a `schema_migrations` ledger — 58–65 belong to the work-log-
+- 69 migrations applied, tracked in a `schema_migrations` ledger — 58–65 belong to the work-log-
   salary feature (Step AH above), 66 re-adds `phone_number` for Step AJ's tap-to-call/WhatsApp icons,
-  67 adds Step AK's sticky-default tables/RPC
+  67 adds Step AK's sticky-default tables/RPC, 68–69 are the same-day WHERE-clause fix (v2.30.1)
 
 ### Current database contents (24 October 2026)
 
@@ -1234,8 +1257,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.30.0**
-("set as new normal" sticky week settings, Step AK above), tagged `v2.30.0`.
+state that version describes), matching the spec's own version history. Currently at **2.30.1**
+(same-day WHERE-clause bug fix for "set as new normal," Step AK above), tagged `v2.30.1`.
 
 ## Commands
 

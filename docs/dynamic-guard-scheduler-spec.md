@@ -1,6 +1,6 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.30.0 (build steps A–Y complete plus the double-shift display setting, the
+**Version:** 2.30.1 (build steps A–Y complete plus the double-shift display setting, the
 draft-preview export change, manager PIN-reset, a stale-past-week guard-view fix, two roster-
 editor polish items — an optionally coverage-occupying placeholder and split afternoon-
 segment shifts — the Yom Kippur special-coverage feature, the personal work log +
@@ -364,6 +364,35 @@ Verified after the deletion: zero `100001`–`100007` codes, auth users or `is_d
 | 129 | **"Set as new normal" button** (`WeekExceptionsPanel.tsx`) — a manager viewing any week can now press one button to snapshot that week's per-day morning/segment coverage overrides and its 12h/11h display-hours setting into a new **standing default** every future week is seeded from. Deliberately not automatic inheritance from the prior week, and deliberately not a separate "edit the defaults" settings page — a one-off special week must never silently become next month's standard; becoming the standard is always this one explicit action. | During a staffing period needing the same reduced coverage shape every week, the manager had to re-enter the identical per-day overrides and re-flip the display setting from scratch on every new week — the two settings had no standing-default mechanism at all, unlike a third, similar-looking setting (the week-level morning baseline) which already did. |
 | 130 | **Two new standing-default tables** (`default_morning_target_overrides`, `default_segment_target_overrides`, migration 67) plus `scheduler_settings.default_double_shift_display_hours` — the exact same "persistent default, seeded into a per-week row only once, `ON CONFLICT DO NOTHING`, never re-touched afterward" shape this project already uses for `profiles.default_kamut` → `weekly_guard_targets.configured_kamut` (migration 19/20) and `scheduler_settings.default_morning_target_slots` (migration 24). `ensure_roster_weeks()` gained two new seeding blocks, identical in shape to its existing כמות-seeding block, plus `double_shift_display_hours` finally flowing into its `roster_weeks` INSERTs instead of silently falling through to the column's own `DEFAULT 12` every time regardless of what was last set. | Confirmed by reading `ensure_roster_weeks()`'s live body before writing anything — this was a real, provable gap (the two override tables were never seeded at all; the display-hours column was never even in the function's INSERT column list), not a guess. Copying an already-proven pattern rather than inventing a new one keeps the new mechanism held to the same "seed once, decouple, never silently overwrite" guarantee the existing one already has. |
 | 131 | **`set_week_as_new_normal(p_week_start)` RPC** — a manager-only, `SECURITY INVOKER` function (same shape as `set_week_status`: every table it touches already has RLS that correctly authorizes a manager caller, so no `SECURITY DEFINER` bypass is needed) that deletes and re-inserts both standing-default tables from the given week's current override rows, and updates the display-hours default from that week's own setting — one atomic action across three tables. | Matches this project's established use of a `SECURITY DEFINER`/`SECURITY INVOKER` RPC whenever a manager action must touch more than one table atomically (`publish_roster`, `delete_employee`, `set_week_status`), rather than several separate client-side writes that could partially fail. |
+
+### v2.30.1 — bug fix: the button failed in real use the same day (31 October 2026)
+
+The owner pressed the new button and got `DELETE requires a WHERE clause` every time. Traced to
+`supautils` (`session_preload_libraries`, confirmed via `SHOW session_preload_libraries` against the
+live project) — a Supabase-authored Postgres hardening extension that requires every `DELETE`/
+`UPDATE` issued by the `authenticated` role to carry a `WHERE` clause, as a guard against an
+accidental full-table wipe. `set_week_as_new_normal()`'s two `DELETE`s (clearing both standing-
+default tables before re-inserting) had none — the first fully unqualified `DELETE`s anywhere in
+this codebase; every other `DELETE` already carries one, confirmed by grep.
+
+Not caught before shipping because every connection used to build and test the function — the
+Supabase Management API, used for `db:apply` and every ad-hoc diagnostic query — runs as a
+privileged role `supautils` exempts from the guard. Only a genuine `authenticated`-role call (the
+real app, in a real browser) ever hits it. Migration 68 fixed both `DELETE`s
+(`WHERE TRUE`, the standard escape hatch for an intentional full-table clear under this guard);
+testing *that* fix properly — by creating a disposable test manager account and calling the RPC
+through the real authenticated REST path, the only way to actually exercise the guard — immediately
+surfaced the same problem on the function's one `UPDATE` (reached only after both `DELETE`s, so
+invisible to the first, narrower test). Migration 69 added `WHERE id` to it (a real, correct filter
+for `scheduler_settings`' singleton-row shape, not just a workaround). Re-verified end to end the
+same way afterward: success, with the standing-default table provably updated and then restored to
+its real prior state (both were still empty — the original bug meant nothing had ever actually
+been written). `package.json`/`GitVersion.yml` bumped to 2.30.1.
+
+**Lesson worth keeping**: a privileged connection used for migrations and diagnostics is not a
+faithful stand-in for the app's own `authenticated` role — this project's hosted Postgres has at
+least one real behavioral difference between them (`supautils`' WHERE-clause guard) that only a
+genuinely authenticated call exercises.
 
 ---
 
@@ -3366,4 +3395,4 @@ writing to it.
 
 ---
 
-_Specification v2.30.0 — revised 31 October 2026._
+_Specification v2.30.1 — revised 31 October 2026._
