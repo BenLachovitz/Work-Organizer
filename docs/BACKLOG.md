@@ -1,8 +1,8 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.29.0** — §14 there is the
-build status and roadmap, §1.17–§1.33 is the changelog for everything since v2.15, §15 is the
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.30.0** — §14 there is the
+build status and roadmap, §1.17–§1.34 is the changelog for everything since v2.15, §15 is the
 personal work log + estimated gross salary feature. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
@@ -1022,13 +1022,65 @@ already handles correctly (no icons, no broken links). `package.json`/`GitVersio
 
 ---
 
+## Step AK (31 October 2026) — "set as new normal" sticky week settings
+
+Committed straight to `main` (spec §1.34, v2.30.0).
+
+What it is: during a staffing period needing the same reduced coverage shape every week, Ben had to
+re-enter the same per-day morning/segment coverage overrides, and re-flip the 12h/11h display
+setting, from scratch on every new week — neither had a standing-default mechanism, unlike the
+week-level morning baseline (2-or-3), which already carries forward automatically via
+`scheduler_settings.default_morning_target_slots`. Rather than making the two settings inherit
+automatically from the prior week, or splitting them out to their own "edit the defaults" settings
+page, Ben's explicit call: a single **"set as new normal"** button on `WeekExceptionsPanel.tsx`
+(the panel where both settings are already edited) that snapshots whichever week is currently
+selected and makes its exception set and display setting the new standing default — deliberate and
+separate from just editing a week, so a one-off special week never silently becomes next month's
+standard.
+
+Built entirely on an already-proven pattern in this codebase, confirmed by reading it in full before
+writing anything new: `profiles.default_kamut` → `weekly_guard_targets.configured_kamut` already has
+exactly this "standing default, seeded into a per-week row only once (`ON CONFLICT DO NOTHING`),
+decoupled from the default afterward" shape. Migration 67 adds two new standing-default tables
+(`default_morning_target_overrides`, `default_segment_target_overrides`, no `week_start` — these are
+the template, not a per-week row) plus `scheduler_settings.default_double_shift_display_hours`, the
+exact sibling column to `default_morning_target_slots`. `ensure_roster_weeks()` gained two new
+seeding blocks shaped identically to its existing כמות block, and — a real, confirmed gap, not
+assumed — `double_shift_display_hours` finally flows into its `roster_weeks` INSERTs at all; before
+this, every new week fell through to the column's own `DEFAULT 12` regardless of what was last set,
+since the function's INSERT column list never even mentioned it.
+
+The "set as new normal" action itself is one new RPC, `set_week_as_new_normal(p_week_start)` —
+`SECURITY INVOKER`, same shape as `set_week_status`, since every table it touches already has RLS
+that correctly authorizes a manager caller (no need for a `SECURITY DEFINER` bypass). It deletes and
+re-inserts both standing-default tables from the given week's current rows and updates the
+display-hours default in one atomic statement, matching this project's established use of an RPC
+whenever a manager action must touch more than one table atomically (`publish_roster`,
+`delete_employee`).
+
+Full TypeScript typecheck clean, migration applied to the live database (confirmed both new tables
+show up RLS-protected, manager-only). Manually confirmed the new button, its explanatory copy, and
+its loading/success states render correctly via a throwaway preview route (mock props, no live data
+touched), removed before committing. **Still needs real usage to fully confirm**: since
+`ensure_roster_weeks()` only ever seeds `v_current`/`v_next` and never re-touches an existing week,
+seeing a brand-new week actually arrive pre-populated from the new standing default needs either a
+few real days to pass naturally, or a direct Supabase check timed right before the next week gets
+created. `package.json`/`GitVersion.yml` bumped to 2.30.0.
+
+---
+
 ## What is left
 
 Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
-deliberately deferred design choice, not a build gap. Eight things still open, not build gaps
+deliberately deferred design choice, not a build gap. Nine things still open, not build gaps
 (self-service forgot-PIN, formerly listed here, was fully reverted — see Step AB, fully reverted,
 above — and is not an open item, it's removed):
 
+- **"Set as new normal" confirmed against a real newly-created week** (Step AK, spec §1.34) — the
+  button itself, migration, and RPC are all confirmed working; what's not yet observed is a brand
+  new week actually arriving pre-populated from the standing default, since `ensure_roster_weeks()`
+  only ever seeds `v_current`/`v_next` and won't touch a week that already exists. Needs either a
+  few real days to pass, or a direct Supabase check timed right before the next week is created.
 - **Passkey real-device registration + unlock confirmation** (Step X, spec §8) — now on the rebuilt
   app-scoped WebAuthn mechanism (own `webauthn` Edge Function, not Supabase's native Passkey API; see
   Step X's same-day revision above). Registering from Preferences on a real iPhone/Android, confirming
@@ -1157,8 +1209,9 @@ rejected the push — often a stale subscription that's already been pruned by t
   plain `UPDATE`, not committed anywhere. (The abandoned WhatsApp design's three `WHATSAPP_*`
   secrets were never set and are moot now; `request-pin-reset`'s reuse of this cron-secret pair for
   the `pin_reset_otp` type is moot too — that function is deleted as of the v2.22.1 revert.)
-- 66 migrations applied, tracked in a `schema_migrations` ledger — 58–65 belong to the work-log-
-  salary feature (Step AH above), 66 re-adds `phone_number` for Step AJ's tap-to-call/WhatsApp icons
+- 67 migrations applied, tracked in a `schema_migrations` ledger — 58–65 belong to the work-log-
+  salary feature (Step AH above), 66 re-adds `phone_number` for Step AJ's tap-to-call/WhatsApp icons,
+  67 adds Step AK's sticky-default tables/RPC
 
 ### Current database contents (24 October 2026)
 
@@ -1181,8 +1234,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.29.0**
-(tap-to-call/tap-to-WhatsApp icons on the shift card, Step AJ above), tagged `v2.29.0`.
+state that version describes), matching the spec's own version history. Currently at **2.30.0**
+("set as new normal" sticky week settings, Step AK above), tagged `v2.30.0`.
 
 ## Commands
 

@@ -1,13 +1,14 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.29.0 (build steps A–Y complete plus the double-shift display setting, the
+**Version:** 2.30.0 (build steps A–Y complete plus the double-shift display setting, the
 draft-preview export change, manager PIN-reset, a stale-past-week guard-view fix, two roster-
 editor polish items — an optionally coverage-occupying placeholder and split afternoon-
 segment shifts — the Yom Kippur special-coverage feature, the personal work log +
-estimated gross salary feature (§15), a homepage "who's on shift right now" card (§1.32), and now
-tap-to-call/tap-to-WhatsApp icons on that card (§1.33); live and in daily use; deployed to
-production — the self-service forgot-PIN feature (§12.12) was fully reverted after a production
-session-persistence regression, see §14.1 Step AB and §14.3)
+estimated gross salary feature (§15), a homepage "who's on shift right now" card (§1.32),
+tap-to-call/tap-to-WhatsApp icons on that card (§1.33), and now a "set as new normal" sticky
+default for per-day coverage overrides and the display-hours setting (§1.34); live and in daily
+use; deployed to production — the self-service forgot-PIN feature (§12.12) was fully reverted
+after a production session-persistence regression, see §14.1 Step AB and §14.3)
 **Roster Context:** Flexible team size, 6–12 registered guards, 9 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
 **Document Date:** 31 October 2026
@@ -355,6 +356,14 @@ Verified after the deletion: zero `100001`–`100007` codes, auth users or `is_d
 | 126 | **`phone_number` re-added** (migration 66) to `roster_codes`/`profiles`, identical shape to the one fully reverted in migration 50 (nullable, no uniqueness constraint, `copy_phone_number()`/`trg_profiles_phone_number` trigger, `roster_code_status` view extended) — the item 125 follow-up, now built. **Optional everywhere this time**, unlike the original: adding a new employee needs no phone number (owner's explicit call), unlike the old design where it was required to feed the now-abandoned WhatsApp-OTP call. No RLS change — `profiles_read` was already `USING (TRUE)` (migration 3), confirmed by reading the policy before building anything: any guard already reads every column of every other guard's profile row. | The old revert (migration 50) was for a reason specific to that feature (the Meta WhatsApp Business API path was abandoned) — not evidence against the column itself, which this feature needed for an unrelated purpose. |
 | 127 | **Tap-to-call / tap-to-WhatsApp icons** on `CurrentlyOnShiftCard.tsx` — a guard with a phone number on file gets two small icon tap-targets next to their name: a phone icon (`tel:<e164>`) and a chat-bubble icon (`https://wa.me/<digits>`, no leading `+`). A guard with none on file shows exactly what it showed before — no empty placeholders. First `<a href="tel:...">`/external-link precedent in the codebase. | `https://wa.me/<number>` needs no WhatsApp Business API, account, or backend integration at all — it's a plain URL, exactly as simple as a phone dialer link. Both options turned out to cost the same thing (a phone number existing), so both were built rather than picking one. |
 | 128 | `src/lib/phone.ts` restored verbatim from git history (Israeli-mobile-only `^05\d{8}$`, E.164 canonical storage, `050-1234567` display form) — `normalizeIsraeliPhone()`/`isValidIsraeliPhone()`/`formatPhoneForDisplay()`, plus 10 new unit fixtures (`src/lib/phone.test.mjs`, `npm run test:phone`). `TeamManagement.tsx` gained an optional phone field on `AddEmployeeCard` and a phone-edit toggle panel on `EmployeeRow`, shaped identically to the existing PIN-reset panel, including for the manager's own row (phone editing has no "not yourself" restriction, unlike PIN reset/delete). | Reused rather than reinvented — the old, reverted feature's validation/display logic and UI shape were already right for this purpose; only the required-on-add rule changed (item 126). |
+
+### 1.34 Changes in Version 2.30.0 — "set as new normal" sticky week settings (31 October 2026)
+
+| #   | Change | Rationale |
+| --- | ------ | --------- |
+| 129 | **"Set as new normal" button** (`WeekExceptionsPanel.tsx`) — a manager viewing any week can now press one button to snapshot that week's per-day morning/segment coverage overrides and its 12h/11h display-hours setting into a new **standing default** every future week is seeded from. Deliberately not automatic inheritance from the prior week, and deliberately not a separate "edit the defaults" settings page — a one-off special week must never silently become next month's standard; becoming the standard is always this one explicit action. | During a staffing period needing the same reduced coverage shape every week, the manager had to re-enter the identical per-day overrides and re-flip the display setting from scratch on every new week — the two settings had no standing-default mechanism at all, unlike a third, similar-looking setting (the week-level morning baseline) which already did. |
+| 130 | **Two new standing-default tables** (`default_morning_target_overrides`, `default_segment_target_overrides`, migration 67) plus `scheduler_settings.default_double_shift_display_hours` — the exact same "persistent default, seeded into a per-week row only once, `ON CONFLICT DO NOTHING`, never re-touched afterward" shape this project already uses for `profiles.default_kamut` → `weekly_guard_targets.configured_kamut` (migration 19/20) and `scheduler_settings.default_morning_target_slots` (migration 24). `ensure_roster_weeks()` gained two new seeding blocks, identical in shape to its existing כמות-seeding block, plus `double_shift_display_hours` finally flowing into its `roster_weeks` INSERTs instead of silently falling through to the column's own `DEFAULT 12` every time regardless of what was last set. | Confirmed by reading `ensure_roster_weeks()`'s live body before writing anything — this was a real, provable gap (the two override tables were never seeded at all; the display-hours column was never even in the function's INSERT column list), not a guess. Copying an already-proven pattern rather than inventing a new one keeps the new mechanism held to the same "seed once, decouple, never silently overwrite" guarantee the existing one already has. |
+| 131 | **`set_week_as_new_normal(p_week_start)` RPC** — a manager-only, `SECURITY INVOKER` function (same shape as `set_week_status`: every table it touches already has RLS that correctly authorizes a manager caller, so no `SECURITY DEFINER` bypass is needed) that deletes and re-inserts both standing-default tables from the given week's current override rows, and updates the display-hours default from that week's own setting — one atomic action across three tables. | Matches this project's established use of a `SECURITY DEFINER`/`SECURITY INVOKER` RPC whenever a manager action must touch more than one table atomically (`publish_roster`, `delete_employee`, `set_week_status`), rather than several separate client-side writes that could partially fail. |
 
 ---
 
@@ -3357,4 +3366,4 @@ writing to it.
 
 ---
 
-_Specification v2.29.0 — revised 31 October 2026._
+_Specification v2.30.0 — revised 31 October 2026._
