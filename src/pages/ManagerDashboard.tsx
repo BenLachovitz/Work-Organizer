@@ -12,6 +12,7 @@ import {
   useManagerWeek,
   useMorningTargetOverrides,
   useSegmentTargetOverrides,
+  useSetWeekAsNewNormal,
   useUpdateMorningTargetOverride,
   useUpdateSegmentTargetOverride,
   useUpdateWeek,
@@ -54,6 +55,12 @@ export function ManagerDashboard() {
   const segmentTargetOverrides = segmentTargetOverridesRaw ?? {};
   const updateSegmentDayOverride = useUpdateSegmentTargetOverride();
   const updateWeek = useUpdateWeek();
+  const setAsNewNormal = useSetWeekAsNewNormal();
+  // Tracks WHICH week's snapshot last succeeded, not just whether it did --
+  // WeekExceptionsPanel stays mounted across a week switch (see the comment
+  // below), so a plain boolean would keep showing "saved" after switching to
+  // a week the manager never actually pressed the button for.
+  const [newNormalSavedWeek, setNewNormalSavedWeek] = useState<string | null>(null);
   const { data: schedulerSettings } = useSchedulerSettings();
   // A guard submitting availability, or writing a note (§3.6), previously sat
   // invisible until the manager reloaded the page.
@@ -148,6 +155,20 @@ export function ManagerDashboard() {
           }
           onSetDoubleShiftHours={(h) =>
             updateWeek.mutate({ weekStart: selected, doubleShiftHours: h })
+          }
+          onSetAsNewNormal={() =>
+            setAsNewNormal.mutate(selected, {
+              onSuccess: () => setNewNormalSavedWeek(selected),
+            })
+          }
+          settingNewNormal={setAsNewNormal.isPending}
+          newNormalSuccess={newNormalSavedWeek === selected}
+          newNormalError={
+            setAsNewNormal.isError
+              ? setAsNewNormal.error instanceof Error
+                ? setAsNewNormal.error.message
+                : 'הפעולה נכשלה.'
+              : null
           }
         />
 

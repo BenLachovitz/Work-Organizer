@@ -1,4 +1,4 @@
-import { Collapsible, cn } from '@/components/ui';
+import { Alert, Button, Collapsible, cn } from '@/components/ui';
 import { HEBREW_DAYS } from '@/lib/dates';
 import {
   SEGMENT_DEFS,
@@ -46,6 +46,10 @@ export function WeekExceptionsPanel({
   segmentTargetOverrides,
   onSetSegmentDayOverride,
   onSetDoubleShiftHours,
+  onSetAsNewNormal,
+  settingNewNormal,
+  newNormalSuccess,
+  newNormalError,
   saving,
 }: {
   week: RosterWeek | null;
@@ -63,6 +67,14 @@ export function WeekExceptionsPanel({
     target: SecondaryTarget,
   ) => void;
   onSetDoubleShiftHours: (h: DoubleShiftHours) => void;
+  /** Snapshots this week's per-day overrides + display-hours setting into
+   *  the standing defaults every future week is seeded from (migration 67)
+   *  -- a deliberate, separate action, never automatic, so a one-off
+   *  special week never silently becomes next month's standard. */
+  onSetAsNewNormal: () => void;
+  settingNewNormal: boolean;
+  newNormalSuccess: boolean;
+  newNormalError: string | null;
   saving: boolean;
 }) {
   if (!week) return null;
@@ -223,6 +235,32 @@ export function WeekExceptionsPanel({
               </button>
             ))}
           </div>
+        </div>
+
+        {/* ---------------- make this week's setup the new standard ---------------- */}
+        <div className="border-t border-slate-200 pt-4 dark:border-slate-800">
+          <p className="mb-1 text-sm font-bold text-slate-700 dark:text-slate-300">
+            קביעת ברירת המחדל הקבועה
+          </p>
+          <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+            החרגות היום והתצוגה של שבוע זה יהפכו לברירת המחדל שכל שבוע חדש ייפתח איתה מעכשיו, עד
+            שתלחץ שוב. לא משנה שבועות שכבר נוצרו, ולא נוגע ביעד הבוקר הרגיל (יש לו ברירת מחדל
+            משלו בהגדרות).
+          </p>
+          {newNormalError && <Alert tone="error">{newNormalError}</Alert>}
+          {newNormalSuccess && !newNormalError && (
+            <Alert tone="success">נשמר - כך ייראה כל שבוע חדש מעכשיו.</Alert>
+          )}
+          <Button
+            size="sm"
+            variant="secondary"
+            fullWidth
+            loading={settingNewNormal}
+            onClick={onSetAsNewNormal}
+            className="mt-2"
+          >
+            קביעת ברירת המחדל הקבועה
+          </Button>
         </div>
       </div>
     </Collapsible>

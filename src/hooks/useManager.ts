@@ -325,6 +325,25 @@ export function useUpdateWeek() {
   });
 }
 
+/**
+ * Snapshots this week's current per-day morning/segment overrides and
+ * double-shift display setting into the standing defaults every future
+ * week gets seeded from (migration 67) -- the manager's explicit "make what
+ * I see right now the new normal" action, via the set_week_as_new_normal
+ * RPC. No query invalidation: it only changes how a FUTURE week gets
+ * seeded, nothing about the currently-displayed week.
+ */
+export function useSetWeekAsNewNormal() {
+  return useMutation({
+    mutationFn: async (weekStart: DateKey) => {
+      const { error } = await requireSupabase().rpc('set_week_as_new_normal', {
+        p_week_start: weekStart,
+      });
+      if (error) throw new Error(error.message);
+    },
+  });
+}
+
 /** Same slot shape SavePreferencesInput uses (src/hooks/useGuardPortal.ts) --
  *  allows12h and strength are per slot, not per week. */
 export interface ManagerSavePreferencesInput {
