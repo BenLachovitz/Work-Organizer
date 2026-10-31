@@ -394,6 +394,9 @@ faithful stand-in for the app's own `authenticated` role — this project's host
 least one real behavioral difference between them (`supautils`' WHERE-clause guard) that only a
 genuinely authenticated call exercises.
 
+**Confirmed by the owner the same day**: pressed the button for real in production after the fix —
+works.
+
 ---
 
 ## 2. OPERATIONAL SCHEDULING RULES

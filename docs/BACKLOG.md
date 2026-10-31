@@ -1090,6 +1090,8 @@ migrations and ad-hoc checks is not a faithful stand-in for the app's own `authe
 verifying anything that touches a DELETE/UPDATE needs a real authenticated call, not just one that
 runs without error under elevated privileges.
 
+**Confirmed by Ben the same day**: pressed the button for real after the fix shipped — works.
+
 ---
 
 ## What is left
@@ -1099,11 +1101,12 @@ deliberately deferred design choice, not a build gap. Nine things still open, no
 (self-service forgot-PIN, formerly listed here, was fully reverted — see Step AB, fully reverted,
 above — and is not an open item, it's removed):
 
-- **"Set as new normal" confirmed against a real newly-created week** (Step AK, spec §1.34) — the
-  button itself, migration, and RPC are all confirmed working; what's not yet observed is a brand
-  new week actually arriving pre-populated from the standing default, since `ensure_roster_weeks()`
-  only ever seeds `v_current`/`v_next` and won't touch a week that already exists. Needs either a
-  few real days to pass, or a direct Supabase check timed right before the next week is created.
+- **"Set as new normal" confirmed against a real newly-created week** (Step AK, spec §1.34/v2.30.1)
+  — the button itself is now confirmed working end to end, by Ben, in production (after the
+  v2.30.1 WHERE-clause fix). What's not yet observed is a brand new week actually arriving
+  pre-populated from the standing default, since `ensure_roster_weeks()` only ever seeds
+  `v_current`/`v_next` and won't touch a week that already exists. Needs either a few real days to
+  pass, or a direct Supabase check timed right before the next week is created.
 - **Passkey real-device registration + unlock confirmation** (Step X, spec §8) — now on the rebuilt
   app-scoped WebAuthn mechanism (own `webauthn` Edge Function, not Supabase's native Passkey API; see
   Step X's same-day revision above). Registering from Preferences on a real iPhone/Android, confirming
