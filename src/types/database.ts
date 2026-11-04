@@ -140,6 +140,9 @@ export interface WorkLogEntry {
   note: string | null;
   created_at: string;
   updated_at: string;
+  /** Soft-delete marker (migration 70) -- NULL means not deleted. Every
+   *  guard-facing read filters this out; never surfaced in the UI itself. */
+  deleted_at: string | null;
 }
 
 export type AbsenceType = 'sick' | 'vacation';

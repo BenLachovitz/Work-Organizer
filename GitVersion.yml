@@ -10,13 +10,16 @@
 #
 # next-version is the seed GitVersion computes from when no higher version
 # can be derived from tags/branch history -- bumped with each shipped
-# version (see docs/BACKLOG.md's Versioning section). Currently 2.30.1:
-# bug fix for "set as new normal" (v2.30.0, spec section 1.34) -- its two
-# DELETEs and one UPDATE had no WHERE clause, tripping supautils'
-# "DELETE/UPDATE requires a WHERE clause" guard for the authenticated role
-# (migrations 68-69). Never caught before shipping because every connection
-# used to test it beforehand ran as a privileged, guard-exempt role.
-next-version: 2.30.1
+# version (see docs/BACKLOG.md's Versioning section). Currently 2.30.2: two
+# work-log bug fixes (migration 70) -- deleting a roster-seeded entry had no
+# effect because the lazy roster reseed re-created it on the next load
+# (fixed with a deleted_at soft-delete the reseed now respects), and a
+# day12/night12 shift shortened by the week's "11h display" setting was
+# still seeded at the full 12h nominal window (fixed via a shared
+# nominalHours() helper, with existing 'roster' rows self-correcting on
+# next load). Confirmed against the owner's real Sep 5 2026 data before
+# shipping.
+next-version: 2.30.2
 mode: Mainline
 branches:
   main:

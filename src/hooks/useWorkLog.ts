@@ -4,7 +4,7 @@ import { requireSupabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { AbsenceType, ScheduleAssignment, WorkLogAbsence, WorkLogEntry, WorkLogSource } from '@/types/database';
 import { addDays, israelDateTime, weekStartOf, type DateKey } from '@/lib/dates';
-import { SHIFTS, type ShiftType } from '@/lib/shifts';
+import { nominalHours, type DoubleShiftHours, type ShiftType } from '@/lib/shifts';
 import { consecutiveSickDayCount, leaveDayValue, sickPayPercent, type RateHistoryEntry } from '@/lib/payroll';
 
 export const workLogKeys = {
@@ -12,26 +12,50 @@ export const workLogKeys = {
 };
 
 /** Nominal start/end for a shift on a given date, ISO strings ready for a
- *  timestamptz column -- the same SHIFTS[...].startH/endH clock windows the
- *  roster grid itself uses, just converted to real instants. */
-function nominalWindow(targetDate: DateKey, shift: ShiftType) {
-  const def = SHIFTS[shift];
+ *  timestamptz column -- SHIFTS[...].startH/endH, EXCEPT for a day12/night12
+ *  assignment the week's own double-shift display-hours setting shortens
+ *  (nominalHours() in src/lib/shifts.ts -- the same computation the roster
+ *  grid itself uses to render "06:45-17:45" instead of the full 12h window).
+ *  `self`/`dayAssignments`/`doubleShiftHours` are only meaningful for that
+ *  case; every other shift type ignores them. */
+function nominalWindow(
+  targetDate: DateKey,
+  shift: ShiftType,
+  self: ScheduleAssignment,
+  dayAssignments: readonly ScheduleAssignment[],
+  doubleShiftHours: DoubleShiftHours,
+) {
+  const { startH, endH } = nominalHours(shift, self, dayAssignments, doubleShiftHours);
   return {
-    scheduled_start: israelDateTime(targetDate, def.startH).toISOString(),
-    scheduled_end: israelDateTime(targetDate, def.endH).toISOString(),
+    scheduled_start: israelDateTime(targetDate, startH).toISOString(),
+    scheduled_end: israelDateTime(targetDate, endH).toISOString(),
   };
+}
+
+/** The slice of an existing work_log_entries row seedWeekFromRoster needs to
+ *  decide whether to insert, correct, or leave an assignment alone. */
+interface SeededEntryInfo {
+  id: string;
+  source_assignment_id: string | null;
+  source: WorkLogSource;
+  scheduled_start: string | null;
+  scheduled_end: string | null;
+  deleted_at: string | null;
 }
 
 /**
  * Ensures every one of this guard's PUBLISHED roster assignments for one
  * week has a matching work_log_entries row, inserting whichever are
- * missing. Self-contained -- fetches that week's own existing entries
- * itself rather than trusting a caller to have already fetched exactly the
- * right range, so it behaves identically whether called for a single week
- * (useWorkLogWeek) or for every week touching a wider range
- * (useMonthlySalarySummary, which needs this seeding to run for EVERY week
- * overlapping the viewed month, not just one the guard happened to open in
- * the weekly view).
+ * missing, and corrects any still-untouched 'roster' row whose scheduled
+ * window no longer matches what the roster actually implies (the
+ * double-shift display-hours setting, e.g. a day12 shortened to 06:45-17:45,
+ * can be set/changed after the row was first seeded -- see nominalWindow()).
+ * Self-contained -- fetches that week's own existing entries itself rather
+ * than trusting a caller to have already fetched exactly the right range, so
+ * it behaves identically whether called for a single week (useWorkLogWeek)
+ * or for every week touching a wider range (useMonthlySalarySummary, which
+ * needs this seeding to run for EVERY week overlapping the viewed month, not
+ * just one the guard happened to open in the weekly view).
  *
  * Seeding is plain INSERT, not upsert: work_log_one_per_assignment is a
  * PARTIAL unique index (WHERE source_assignment_id IS NOT NULL), which
@@ -43,10 +67,15 @@ function nominalWindow(targetDate: DateKey, shift: ShiftType) {
  * this" -- the caller re-fetches whatever range it actually needs
  * afterward regardless, so a dropped insert here is never lost silently.
  *
- * A guard's 'edited'/'manual' rows are never touched here -- only assignments
- * with no matching entry get a new 'roster' row. See the feature plan for
- * why a re-published week's orphaned entries are left in place rather than
- * deleted.
+ * A guard's 'edited'/'manual' rows -- and any SOFT-DELETED row, regardless of
+ * its source -- are never touched here, whether that means inserting a new
+ * row for an already-represented assignment or correcting an existing one:
+ * a soft-deleted row still occupies work_log_one_per_assignment's unique
+ * slot (by design, see migration 70) specifically so this function keeps
+ * treating that assignment as "already seeded" and leaves it alone forever,
+ * which is what actually makes a guard's delete stick. See the feature plan
+ * for why a re-published week's orphaned entries are also left in place
+ * rather than deleted.
  */
 async function seedWeekFromRoster(
   db: ReturnType<typeof requireSupabase>,
@@ -54,53 +83,100 @@ async function seedWeekFromRoster(
   weekStart: DateKey,
 ): Promise<void> {
   const weekEnd = addDays(weekStart, 6);
-  const [entriesRes, runRes] = await Promise.all([
+  const [entriesRes, runRes, weekRes] = await Promise.all([
     db
       .from('work_log_entries')
-      .select('source_assignment_id')
+      .select('id, source_assignment_id, source, scheduled_start, scheduled_end, deleted_at')
       .eq('guard_id', guardId)
       .gte('target_date', weekStart)
       .lte('target_date', weekEnd),
     db.from('schedule_runs').select('id').eq('week_start', weekStart).eq('is_published', true).maybeSingle(),
+    db.from('roster_weeks').select('double_shift_display_hours').eq('week_start', weekStart).maybeSingle(),
   ]);
   if (entriesRes.error) throw new Error(entriesRes.error.message);
   if (runRes.error) throw new Error(runRes.error.message);
+  if (weekRes.error) throw new Error(weekRes.error.message);
 
   const runId = (runRes.data as { id: string } | null)?.id;
   if (!runId) return;
 
-  const assignRes = await db
-    .from('schedule_assignments')
-    .select('*')
-    .eq('run_id', runId)
-    .eq('guard_id', guardId);
+  const doubleShiftHours =
+    (weekRes.data as { double_shift_display_hours: DoubleShiftHours } | null)?.double_shift_display_hours ?? 12;
+
+  // The FULL run, not just this guard's own rows -- nominalHours() needs
+  // every OTHER guard's assignment on the same date to know whether a
+  // day12/night12 shift's edge hour is genuinely someone else's (see
+  // isDoubleShiftShortened() in src/lib/shifts.ts).
+  const assignRes = await db.from('schedule_assignments').select('*').eq('run_id', runId);
   if (assignRes.error) throw new Error(assignRes.error.message);
+  const allAssignments = (assignRes.data as ScheduleAssignment[]) ?? [];
+  const mine = allAssignments.filter((a) => a.guard_id === guardId);
 
-  const seededIds = new Set(
-    ((entriesRes.data as { source_assignment_id: string | null }[]) ?? [])
-      .map((e) => e.source_assignment_id)
-      .filter(Boolean),
+  const bySourceAssignment = new Map<string, SeededEntryInfo>(
+    ((entriesRes.data as SeededEntryInfo[]) ?? [])
+      .filter((e) => e.source_assignment_id)
+      .map((e) => [e.source_assignment_id as string, e]),
   );
-  const missing = ((assignRes.data as ScheduleAssignment[]) ?? []).filter((a) => !seededIds.has(a.id));
-  if (missing.length === 0) return;
 
-  const seedRows = missing.map((a) => {
-    const window = nominalWindow(a.target_date, a.shift);
-    return {
-      guard_id: guardId,
-      target_date: a.target_date,
-      shift: a.shift,
-      source: 'roster' as const,
-      source_assignment_id: a.id,
-      scheduled_start: window.scheduled_start,
-      scheduled_end: window.scheduled_end,
-      actual_start: window.scheduled_start,
-      actual_end: window.scheduled_end,
-    };
-  });
+  const toInsert: {
+    guard_id: string;
+    target_date: DateKey;
+    shift: ShiftType;
+    source: 'roster';
+    source_assignment_id: string;
+    scheduled_start: string;
+    scheduled_end: string;
+    actual_start: string;
+    actual_end: string;
+  }[] = [];
+  const toCorrect: { id: string; scheduled_start: string; scheduled_end: string }[] = [];
 
-  const { error: insertError } = await db.from('work_log_entries').insert(seedRows);
-  if (insertError && insertError.code !== '23505') throw new Error(insertError.message);
+  for (const a of mine) {
+    const dayAssignments = allAssignments.filter((x) => x.target_date === a.target_date);
+    const window = nominalWindow(a.target_date, a.shift, a, dayAssignments, doubleShiftHours);
+    const existing = bySourceAssignment.get(a.id);
+
+    if (!existing) {
+      toInsert.push({
+        guard_id: guardId,
+        target_date: a.target_date,
+        shift: a.shift,
+        source: 'roster',
+        source_assignment_id: a.id,
+        scheduled_start: window.scheduled_start,
+        scheduled_end: window.scheduled_end,
+        actual_start: window.scheduled_start,
+        actual_end: window.scheduled_end,
+      });
+    } else if (
+      existing.source === 'roster' &&
+      existing.deleted_at == null &&
+      (existing.scheduled_start !== window.scheduled_start || existing.scheduled_end !== window.scheduled_end)
+    ) {
+      toCorrect.push({ id: existing.id, scheduled_start: window.scheduled_start, scheduled_end: window.scheduled_end });
+    }
+  }
+
+  if (toInsert.length > 0) {
+    const { error: insertError } = await db.from('work_log_entries').insert(toInsert);
+    if (insertError && insertError.code !== '23505') throw new Error(insertError.message);
+  }
+
+  // A still-'roster' row's actual_* always equals its scheduled_* (nothing
+  // has ever diverged them -- that divergence is exactly what 'edited'
+  // means), so correcting one also means correcting the other.
+  for (const c of toCorrect) {
+    const { error: updateError } = await db
+      .from('work_log_entries')
+      .update({
+        scheduled_start: c.scheduled_start,
+        scheduled_end: c.scheduled_end,
+        actual_start: c.scheduled_start,
+        actual_end: c.scheduled_end,
+      })
+      .eq('id', c.id);
+    if (updateError) throw new Error(updateError.message);
+  }
 }
 
 /** This guard's own work-log entries for one roster week, lazily seeded
@@ -121,6 +197,7 @@ export function useWorkLogWeek(weekStart: DateKey) {
         .from('work_log_entries')
         .select('*')
         .eq('guard_id', guardId)
+        .is('deleted_at', null)
         .gte('target_date', weekStart)
         .lte('target_date', weekEnd);
       if (error) throw new Error(error.message);
@@ -205,12 +282,24 @@ export function useUpsertWorkLogEntry() {
   });
 }
 
+/**
+ * Soft-deletes an entry -- NOT a hard DELETE. A roster-seeded row's
+ * source_assignment_id must keep occupying work_log_one_per_assignment's
+ * unique slot, or the next seedWeekFromRoster() call (every time the guard
+ * reopens their work log) reads the gap as "never seeded" and re-inserts the
+ * exact row that was just deleted. This is what actually lets a guard remove
+ * a shift they ended up not working (e.g. called in sick the day before) --
+ * a plain delete here used to silently come right back. See migration 70.
+ */
 export function useDeleteWorkLogEntry() {
   const qc = useQueryClient();
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await requireSupabase().from('work_log_entries').delete().eq('id', id);
+      const { error } = await requireSupabase()
+        .from('work_log_entries')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', id);
       if (error) throw new Error(error.message);
     },
     onSuccess: () => invalidateAllWorkLogViews(qc),
@@ -419,6 +508,7 @@ export function useMonthlySalarySummary(monthKey: string) {
         .from('work_log_entries')
         .select('*')
         .eq('guard_id', guardId)
+        .is('deleted_at', null)
         .gte('target_date', start)
         .lte('target_date', end);
       if (error) throw new Error(error.message);

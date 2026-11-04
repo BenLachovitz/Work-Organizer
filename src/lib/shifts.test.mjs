@@ -31,7 +31,7 @@ register(
   import.meta.url,
 );
 
-const { isShiftActiveAt } = await import('./shifts.ts');
+const { isShiftActiveAt, nominalHours } = await import('./shifts.ts');
 const { addDays, israelDateTime } = await import('./dates.ts');
 
 // An arbitrary Sunday -- every other date below is derived from it with
@@ -129,6 +129,103 @@ checkValue(
   isShiftActiveAt(MONDAY, 'morning', at(TUESDAY, 10)),
   false,
 );
+
+// ---------------------------------------------------------------------------
+// nominalHours() -- the work log's own "what did this shift really run" look-
+// up (src/hooks/useWorkLog.ts's nominalWindow()), which must match the
+// double-shift display-hours shortening the roster grid/guard's own shift
+// list already render via doubleShiftSuffix()/doubleShiftLabel().
+// ---------------------------------------------------------------------------
+
+function checkHours(name, actual, expected) {
+  checkValue(`${name} (startH)`, actual.startH, expected.startH);
+  checkValue(`${name} (endH)`, actual.endH, expected.endH);
+}
+
+const DAY12_FULL = { startH: 6.75, endH: 18.75 };
+const DAY12_SHORT = { startH: 6.75, endH: 17.75 };
+const NIGHT12_FULL = { startH: 18.75, endH: 30.75 };
+const NIGHT12_SHORT = { startH: 19.75, endH: 30.75 };
+
+// 10. A plain (non-day12/night12) shift is never affected by the setting.
+checkHours(
+  'a plain morning shift ignores doubleShiftHours entirely',
+  nominalHours('morning', { shift: 'morning', guard_id: 'g1' }, [], 11),
+  { startH: 6.75, endH: 14.75 },
+);
+
+// 11. The setting itself at 12 (the default): day12 always reads full,
+//     regardless of who else is on the roster that day.
+{
+  const self = { shift: 'day12', guard_id: 'g1' };
+  const other = { shift: 'afternoon', guard_id: 'g2' };
+  checkHours(
+    'day12 stays full at doubleShiftHours=12 even with real S2 coverage',
+    nominalHours('day12', self, [self, other], 12),
+    DAY12_FULL,
+  );
+}
+
+// 12. At 11, with NO other real guard covering day12's edge segment (S2):
+//     shortening would imply an hour with nobody there, so it stays full.
+{
+  const self = { shift: 'day12', guard_id: 'g1' };
+  checkHours(
+    'day12 stays full at doubleShiftHours=11 when nobody else covers S2',
+    nominalHours('day12', self, [self], 11),
+    DAY12_FULL,
+  );
+}
+
+// 13. At 11, with another REAL (non-placeholder) guard covering S2 (e.g. the
+//     full afternoon shift, which covers both S2 and S3): this is the actual
+//     reported bug -- the guard's own real last hour is someone else's, so
+//     the work log must seed the shortened 06:45-17:45 window, not the full
+//     12h one.
+{
+  const self = { shift: 'day12', guard_id: 'g1' };
+  const other = { shift: 'afternoon', guard_id: 'g2' };
+  checkHours(
+    'day12 shortens to 06:45-17:45 at doubleShiftHours=11 when another guard covers S2',
+    nominalHours('day12', self, [self, other], 11),
+    DAY12_SHORT,
+  );
+}
+
+// 14. A PLACEHOLDER (guard_id null) "covering" S2 does not count as real
+//     coverage -- same reasoning isDoubleShiftShortened() itself documents.
+{
+  const self = { shift: 'day12', guard_id: 'g1' };
+  const placeholder = { shift: 'afternoon_early', guard_id: null };
+  checkHours(
+    'day12 stays full at doubleShiftHours=11 when only a placeholder covers S2',
+    nominalHours('day12', self, [self, placeholder], 11),
+    DAY12_FULL,
+  );
+}
+
+// 15. night12's edge segment is S3, and its shortening moves the START an
+//     hour LATER instead of the end an hour earlier.
+{
+  const self = { shift: 'night12', guard_id: 'g1' };
+  const other = { shift: 'afternoon_late', guard_id: 'g2' };
+  checkHours(
+    'night12 shortens to start an hour later at doubleShiftHours=11 when another guard covers S3',
+    nominalHours('night12', self, [self, other], 11),
+    NIGHT12_SHORT,
+  );
+}
+
+// 16. night12 with no real S3 coverage from anyone else stays full, same
+//     reasoning as fixture 12.
+{
+  const self = { shift: 'night12', guard_id: 'g1' };
+  checkHours(
+    'night12 stays full at doubleShiftHours=11 when nobody else covers S3',
+    nominalHours('night12', self, [self], 11),
+    NIGHT12_FULL,
+  );
+}
 
 if (failures > 0) {
   console.error(`\n${failures} fixture(s) failed.\n`);

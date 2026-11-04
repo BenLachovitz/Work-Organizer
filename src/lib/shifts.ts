@@ -550,6 +550,33 @@ export function doubleShiftLabel<T extends { shift: ShiftType; guard_id: string 
   return shift === 'day12' ? '06:45-17:45' : '19:45-06:45';
 }
 
+/**
+ * The real nominal start/end hour (from midnight of the shift's own day) for
+ * `shift` on this specific assignment -- SHIFTS[shift].startH/endH for every
+ * ordinary shift, but for a day12/night12 assignment that `isDoubleShiftShortened()`
+ * marks as shortened, the same 1-hour-earlier-ending (day12) / 1-hour-later-
+ * starting (night12) boundary doubleShiftLabel() already renders as text.
+ *
+ * This exists so the work log's seeded "scheduled" window (useWorkLog.ts's
+ * nominalWindow()) matches what the roster itself actually shows this guard
+ * as having worked, instead of always the full 12h catalog window -- a real
+ * discrepancy the roster-display logic already computed correctly, which the
+ * work log simply never consulted when it was built.
+ */
+export function nominalHours<T extends { shift: ShiftType; guard_id: string | null }>(
+  shift: ShiftType,
+  self: T,
+  dayAssignments: readonly T[],
+  doubleShiftHours: DoubleShiftHours,
+): { startH: number; endH: number } {
+  const def = SHIFTS[shift];
+  if (shift !== 'day12' && shift !== 'night12') return { startH: def.startH, endH: def.endH };
+  if (!isDoubleShiftShortened(shift, self, dayAssignments, doubleShiftHours)) {
+    return { startH: def.startH, endH: def.endH };
+  }
+  return shift === 'day12' ? { startH: def.startH, endH: def.endH - 1 } : { startH: def.startH + 1, endH: def.endH };
+}
+
 // ---------------------------------------------------------------------------
 // Rest rules (spec 2.6)
 //

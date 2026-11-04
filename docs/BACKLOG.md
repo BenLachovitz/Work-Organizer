@@ -1,13 +1,13 @@
 # START HERE — project status
 
 Short orientation sheet. Full technical detail is in
-**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.30.1** — §14 there is the
-build status and roadmap, §1.17–§1.34 is the changelog for everything since v2.15, §15 is the
+**[dynamic-guard-scheduler-spec.md](dynamic-guard-scheduler-spec.md) v2.30.2** — §14 there is the
+build status and roadmap, §1.17–§1.35 is the changelog for everything since v2.15, §15 is the
 personal work log + estimated gross salary feature. This file
 deliberately doesn't re-tell what's already shipped and documented there — it's what's still worth
 knowing on top of the spec, not a second copy of the build log.
 
-*Last updated: 31 October 2026*
+*Last updated: 4 November 2026*
 
 ---
 
@@ -1094,6 +1094,47 @@ runs without error under elevated privileges.
 
 ---
 
+## Step AL (4 November 2026) — two work-log bug fixes (migration 70)
+
+Both reported by Ben using the feature for real after Step AH shipped; both root-caused by reading
+the actual code paths, not guessed.
+
+**1. Deleting a roster-seeded entry had no effect.** `useWorkLogWeek()`/`useMonthlySalarySummary()`
+call `seedWeekFromRoster()` on every load, which treats "no `work_log_entries` row for this published
+assignment" as "never seeded" and immediately re-inserts it — a hard `DELETE` produces exactly that
+gap, so a deleted shift always came right back. This matters for real use: a guard scheduled for a
+shift who calls in sick the day before needs to be able to remove it from their own salary estimate,
+not just edit its times. Fixed with a soft delete: new `work_log_entries.deleted_at` (migration 70).
+`useDeleteWorkLogEntry()` now sets it instead of issuing a `DELETE` — the row's `source_assignment_id`
+keeps occupying `work_log_one_per_assignment`'s unique slot, so the lazy seed's "already seeded" check
+(which does not, and must not, filter by `deleted_at`) still sees it and never recreates it. Every
+guard-facing read filters `deleted_at IS NULL`.
+
+**2. A day12/night12 shift shortened by the week's "11h display" setting (Step Z, spec §2.4d) was
+still seeded at the full nominal 12h.** Confirmed against Ben's own real Sep 5 2026 data before
+fixing anything: his `day12` shift that day, with another guard's `afternoon` shift genuinely
+covering S2 and that week's `double_shift_display_hours = 11`, was stored as `06:45–18:45` — the
+roster grid and his own "המשמרות שלי" list already rendered the correct, shortened `06:45-17:45` via
+`isDoubleShiftShortened()`/`doubleShiftLabel()` (src/lib/shifts.ts), but the work-log seed never
+consulted that same computation. Fixed with a new shared helper, `nominalHours()` (src/lib/shifts.ts),
+reused by `seedWeekFromRoster()`'s `nominalWindow()` — needs the week's own `double_shift_display_hours`
+setting and every OTHER guard's assignment on that date (not just this guard's own), both newly
+fetched there. An already-seeded `'roster'` row (never `'edited'`/`'manual'`) whose stored window no
+longer matches the recomputed one is corrected in place the next time the guard's log loads — the
+same "lazy, self-healing" principle the original seed already used, extended to correction as well as
+insertion, so Ben's existing Sep 5 row fixes itself the next time he opens `/worklog` rather than
+needing a manual data patch.
+
+12 new unit fixtures in `src/lib/shifts.test.mjs` (`npm run test:shifts`) cover both the shortened and
+un-shortened cases for day12 and night12, including a placeholder row's "coverage" correctly not
+counting as real. Full TypeScript typecheck and `npm run build` clean; `npm run test:payroll`
+unaffected. Migration 70 applied to the live database. Deliberately no live end-to-end browser/delete
+test against production — the resurrection-prevention mechanism was verified by tracing the actual
+code path instead of writing and deleting real rows, consistent with this project's standing
+"no separate test database" caution. `package.json`/`GitVersion.yml` bumped to 2.30.2.
+
+---
+
 ## What is left
 
 Nothing blocking. Spec §13 has the full open-items list — everything there is either decided or a
@@ -1235,9 +1276,10 @@ rejected the push — often a stale subscription that's already been pruned by t
   plain `UPDATE`, not committed anywhere. (The abandoned WhatsApp design's three `WHATSAPP_*`
   secrets were never set and are moot now; `request-pin-reset`'s reuse of this cron-secret pair for
   the `pin_reset_otp` type is moot too — that function is deleted as of the v2.22.1 revert.)
-- 69 migrations applied, tracked in a `schema_migrations` ledger — 58–65 belong to the work-log-
+- 70 migrations applied, tracked in a `schema_migrations` ledger — 58–65 belong to the work-log-
   salary feature (Step AH above), 66 re-adds `phone_number` for Step AJ's tap-to-call/WhatsApp icons,
-  67 adds Step AK's sticky-default tables/RPC, 68–69 are the same-day WHERE-clause fix (v2.30.1)
+  67 adds Step AK's sticky-default tables/RPC, 68–69 are the same-day WHERE-clause fix (v2.30.1),
+  70 adds Step AL's `work_log_entries.deleted_at` soft-delete column (v2.30.2)
 
 ### Current database contents (24 October 2026)
 
@@ -1260,8 +1302,8 @@ ships each version. There's no CI pipeline running the actual GitVersion.Tool CL
 manual-but-disciplined convention, not an automated one: **before the commit that ships a version,
 bump `next-version` in `GitVersion.yml` and `version` in `package.json` together, then tag the
 commit** — that trio is what actually enables rollback (`git checkout vX.Y.Z` reproduces exactly the
-state that version describes), matching the spec's own version history. Currently at **2.30.1**
-(same-day WHERE-clause bug fix for "set as new normal," Step AK above), tagged `v2.30.1`.
+state that version describes), matching the spec's own version history. Currently at **2.30.2**
+(two work-log bug fixes, Step AL above), tagged `v2.30.2`.
 
 ## Commands
 

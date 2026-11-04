@@ -1,17 +1,18 @@
 # TECHNICAL SPECIFICATION & ARCHITECTURE BLUEPRINT: AUTOMATED SECURITY GUARD SCHEDULER
 
-**Version:** 2.30.1 (build steps A–Y complete plus the double-shift display setting, the
+**Version:** 2.30.2 (build steps A–Y complete plus the double-shift display setting, the
 draft-preview export change, manager PIN-reset, a stale-past-week guard-view fix, two roster-
 editor polish items — an optionally coverage-occupying placeholder and split afternoon-
 segment shifts — the Yom Kippur special-coverage feature, the personal work log +
 estimated gross salary feature (§15), a homepage "who's on shift right now" card (§1.32),
-tap-to-call/tap-to-WhatsApp icons on that card (§1.33), and now a "set as new normal" sticky
-default for per-day coverage overrides and the display-hours setting (§1.34); live and in daily
-use; deployed to production — the self-service forgot-PIN feature (§12.12) was fully reverted
-after a production session-persistence regression, see §14.1 Step AB and §14.3)
+tap-to-call/tap-to-WhatsApp icons on that card (§1.33), a "set as new normal" sticky
+default for per-day coverage overrides and the display-hours setting (§1.34), and now two
+work-log bug fixes — a soft-delete fix and a day12/night12 display-hours seeding fix (§1.35);
+live and in daily use; deployed to production — the self-service forgot-PIN feature (§12.12)
+was fully reverted after a production session-persistence regression, see §14.1 Step AB and §14.3)
 **Roster Context:** Flexible team size, 6–12 registered guards, 9 currently active
 **Target Roster Week:** Sunday 9 August 2026 – Saturday 15 August 2026
-**Document Date:** 31 October 2026
+**Document Date:** 4 November 2026
 
 ---
 
@@ -396,6 +397,20 @@ genuinely authenticated call exercises.
 
 **Confirmed by the owner the same day**: pressed the button for real in production after the fix —
 works.
+
+### 1.35 Changes in Version 2.30.2 — two work-log bug fixes (4 November 2026)
+
+Both reported by the owner using the personal-work-log feature (§15) for real; full account in
+docs/BACKLOG.md's Step AL.
+
+| #   | Change | Rationale |
+| --- | ------ | --------- |
+| 132 | **Soft delete for `work_log_entries`** (`deleted_at`, migration 70) — deleting a roster-seeded entry had no visible effect, because `seedWeekFromRoster()` (src/hooks/useWorkLog.ts) treats "no row for this published assignment" as "never seeded" and re-inserts it on every load; a hard `DELETE` produced exactly that signal. `useDeleteWorkLogEntry()` now sets `deleted_at` instead — the row's `source_assignment_id` keeps occupying `work_log_one_per_assignment`'s unique slot, so the lazy seed's "already seeded" check (which does not filter by `deleted_at`) never recreates it. Every guard-facing read filters `deleted_at IS NULL`. | A guard who was scheduled for a shift and then couldn't work it (sick, pulled the day before) needs this to be able to remove it from their own salary estimate — editing its times isn't the same thing as it never having happened. |
+| 133 | **day12/night12 seeding now respects the double-shift display-hours setting** — confirmed against the owner's own real 5 September 2026 data before fixing anything: a `day12` shift genuinely shortened to 06:45-17:45 by `isDoubleShiftShortened()` (§2.4d, another guard's real coverage of the edge segment plus that week's `double_shift_display_hours = 11`) was still seeded at the full nominal 06:45-18:45. New shared `nominalHours()` helper (src/lib/shifts.ts) reused by `nominalWindow()`, which now also fetches the week's own setting and every OTHER guard's same-day assignments. An already-seeded `'roster'` row (never `'edited'`/`'manual'`) whose window no longer matches is corrected in place next time the guard's log loads, rather than needing a manual data fix. | The roster grid and the guard's own "המשמרות שלי" list already computed this correctly (§2.4d) — the work log simply never consulted the same computation when it was built, before pay was a concept in this app. |
+
+12 new unit fixtures (`src/lib/shifts.test.mjs`, `npm run test:shifts`). Typecheck, build, and
+`npm run test:payroll` all clean. Migration 70 applied to the live database. `package.json`/
+`GitVersion.yml` bumped to 2.30.2.
 
 ---
 
@@ -3398,4 +3413,4 @@ writing to it.
 
 ---
 
-_Specification v2.30.1 — revised 31 October 2026._
+_Specification v2.30.2 — revised 4 November 2026._
