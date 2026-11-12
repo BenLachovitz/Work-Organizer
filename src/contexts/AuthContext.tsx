@@ -41,6 +41,13 @@ interface AuthValue {
   claim: (employeeCode: string, pin: string) => Promise<void>;
   signInWithPasskey: () => Promise<void>;
   signOut: () => Promise<void>;
+  /** Re-fetches the signed-in user's own profile row. The bootstrap/sign-in
+   *  flows otherwise only load it once, so a role/silence change made to the
+   *  CURRENT caller's own row (e.g. self-demoting after a handover) would
+   *  otherwise leave isManager stale until the next reload -- not a security
+   *  gap, since every RLS policy/RPC re-checks the live row regardless, just
+   *  a UX one (src/pages/TeamManagement.tsx calls this after a self-change). */
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -112,6 +119,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // (every code but Ben's), so the flag can just mirror that split.
       is_demo: code !== '005396',
       phone_number: null,
+      is_silenced: false,
+      is_protected: false,
     };
   }, []);
 
@@ -249,6 +258,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [demoMode, signIn],
   );
 
+  const refreshProfile = useCallback(async () => {
+    if (demoMode || !session) return;
+    setProfile(await loadProfile(session.user.id));
+  }, [demoMode, session, loadProfile]);
+
   const signOut = useCallback(async () => {
     if (demoMode) {
       sessionStorage.removeItem(DEMO_KEY);
@@ -272,8 +286,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       claim,
       signInWithPasskey,
       signOut,
+      refreshProfile,
     }),
-    [status, session, profile, demoMode, lookupCode, signIn, claim, signInWithPasskey, signOut],
+    [
+      status,
+      session,
+      profile,
+      demoMode,
+      lookupCode,
+      signIn,
+      claim,
+      signInWithPasskey,
+      signOut,
+      refreshProfile,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

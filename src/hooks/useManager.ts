@@ -243,6 +243,10 @@ export interface RosterCodeStatus {
   employee_code: string;
   display_name: string;
   initial_role: 'guard' | 'manager' | 'admin';
+  /** Live profiles.role once claimed; falls back to initial_role before
+   *  that. Drives TeamManagement's role-change control and badge -- unlike
+   *  initial_role, this reflects an actual promotion/demotion. */
+  role: 'guard' | 'manager' | 'admin';
   is_claimed: boolean;
   claim_enabled: boolean;
   claimed_at: string | null;
@@ -257,6 +261,10 @@ export interface RosterCodeStatus {
   /** E.164, optional -- same column as Profile.phone_number, from whichever
    *  of roster_codes / profiles currently holds the truth for this row. */
   phone_number: string | null;
+  /** False until claimed -- silencing only ever applies to a live profile. */
+  is_silenced: boolean;
+  /** False until claimed -- protection only ever applies to a live profile. */
+  is_protected: boolean;
 }
 
 /** Registration status per badge code, for chasing guards who never signed up

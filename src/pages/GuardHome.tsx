@@ -188,7 +188,12 @@ export function GuardHome() {
                 : `הגשת ${slotCount} משמרות זמינות.`}
             </Alert>
           ) : (
-            active.isOpen && (
+            // A silenced guard is never expected to submit, so this nag
+            // never shows for them -- everything else on the page (the
+            // submit button, roster view) stays exactly as-is; they can
+            // still submit if they want to (src/pages/TeamManagement.tsx).
+            active.isOpen &&
+            !profile?.is_silenced && (
               <Alert tone="warn" title="טרם הגשת">
                 חשוב להגיש לפני מועד הסגירה, אחרת לא תשובץ לשבוע זה.
               </Alert>

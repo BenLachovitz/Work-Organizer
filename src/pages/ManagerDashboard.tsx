@@ -73,7 +73,9 @@ export function ManagerDashboard() {
   const rows = useMemo(
     () =>
       data
-        ? buildGuardRows(data).filter((r) => visibleToViewMode(r.guard, viewMode))
+        ? buildGuardRows(data).filter(
+            (r) => visibleToViewMode(r.guard, viewMode) && !r.guard.is_silenced,
+          )
         : [],
     [data, viewMode],
   );

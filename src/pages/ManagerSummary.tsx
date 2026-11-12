@@ -47,7 +47,11 @@ export function ManagerSummary() {
   const dates = useMemo(() => (selected ? weekDates(selected) : []), [selected]);
   const rows = useMemo(
     () =>
-      data ? buildGuardRows(data).filter((r) => visibleToViewMode(r.guard, viewMode)) : [],
+      data
+        ? buildGuardRows(data).filter(
+            (r) => visibleToViewMode(r.guard, viewMode) && !r.guard.is_silenced,
+          )
+        : [],
     [data, viewMode],
   );
   const coverage = useMemo(() => (data ? buildCoverage(data, dates) : []), [data, dates]);

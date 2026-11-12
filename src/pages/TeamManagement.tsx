@@ -10,6 +10,8 @@ import {
   useAddEmployee,
   useDeleteEmployee,
   useResetGuardPin,
+  useSetEmployeeRole,
+  useSetGuardSilenced,
   useUpdateDefaultKamut,
   useUpdateEmployeePhone,
 } from '@/hooks/useTeam';
@@ -41,6 +43,15 @@ import { visibleToViewMode } from '@/lib/viewMode';
  *   DEFAULT כמות the steady state a new week is seeded from (migration 19),
  *                NOT the per-week override the Stepper on TeamTable already
  *                edits -- that one still works exactly as before.
+ *   ROLE         promotes a guard to manager, or demotes a manager back to
+ *                guard (set_employee_role, migration 71). Not gated to
+ *                "not yourself" -- a handover needs self-demotion to work.
+ *                Refuses to touch a protected account's role at all, and
+ *                refuses to demote the last remaining manager.
+ *   SILENCE      opts a guard out of submission tracking, reminder/
+ *                broadcast notifications and future scheduling, without
+ *                touching is_active, role, or login (migration 72).
+ *                Reversible; also not gated to "not yourself."
  */
 export function TeamManagement() {
   const { data, isLoading, error } = useRosterCodeStatus();
@@ -268,17 +279,20 @@ function TeamSection({
 }
 
 function EmployeeRow({ row }: { row: RosterCodeStatus }) {
-  const { profile } = useAuth();
+  const { profile, refreshProfile } = useAuth();
   const updateDefault = useUpdateDefaultKamut();
   const deleteEmployee = useDeleteEmployee();
   const resetPin = useResetGuardPin();
   const updatePhone = useUpdateEmployeePhone();
+  const setRole = useSetEmployeeRole();
+  const setSilenced = useSetGuardSilenced();
   const [confirming, setConfirming] = useState(false);
   const [resettingPin, setResettingPin] = useState(false);
   const [newPin, setNewPin] = useState('');
   const [pinResetDone, setPinResetDone] = useState(false);
   const [editingPhone, setEditingPhone] = useState(false);
   const [phoneDraft, setPhoneDraft] = useState('');
+  const [confirmingDemote, setConfirmingDemote] = useState(false);
 
   const saving = updateDefault.isPending || deleteEmployee.isPending;
   const isSelf = row.profile_id !== null && row.profile_id === profile?.id;
@@ -320,8 +334,12 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
             <span className="truncate font-bold text-slate-900 dark:text-slate-100">
               {row.display_name}
             </span>
-            {row.initial_role === 'manager' && <Badge tone="brand">מנהל</Badge>}
+            {(row.role === 'manager' || row.role === 'admin') && (
+              <Badge tone="brand">מנהל</Badge>
+            )}
             {!row.is_claimed && <Badge tone="amber">ממתין</Badge>}
+            {row.is_silenced && <Badge tone="slate">מצב תמיכה</Badge>}
+            {row.is_protected && <Badge tone="slate">מוגן</Badge>}
           </div>
           <p className="num mt-0.5 text-xs text-slate-500 dark:text-slate-400">
             {row.employee_code}
@@ -361,6 +379,72 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
         >
           {editingPhone ? 'ביטול' : row.phone_number ? 'עריכת טלפון' : 'הוספת טלפון'}
         </Button>
+
+        {/* Role and silence controls are deliberately NOT gated by "not
+            yourself" -- a manager handover needs self-promotion-of-someone-
+            else and self-demotion/self-silencing to all work. The RPC's own
+            lockout/protection checks are the real safety net, not this UI. */}
+        {row.profile_id &&
+          (row.role === 'guard' ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              loading={setRole.isPending}
+              onClick={() =>
+                setRole.mutate(
+                  { profileId: row.profile_id!, role: 'manager' },
+                  { onSuccess: () => isSelf && void refreshProfile() },
+                )
+              }
+            >
+              קידום למנהל
+            </Button>
+          ) : row.is_protected ? (
+            <span className="text-xs text-slate-400 dark:text-slate-500">
+              מוגן - לא ניתן לשנות תפקיד
+            </span>
+          ) : (
+            <>
+              <Button
+                size="sm"
+                variant={confirmingDemote ? 'danger' : 'ghost'}
+                loading={setRole.isPending}
+                onClick={() =>
+                  confirmingDemote
+                    ? setRole.mutate(
+                        { profileId: row.profile_id!, role: 'guard' },
+                        {
+                          onSuccess: () => {
+                            setConfirmingDemote(false);
+                            if (isSelf) void refreshProfile();
+                          },
+                        },
+                      )
+                    : setConfirmingDemote(true)
+                }
+              >
+                {confirmingDemote ? 'לחץ שוב לאישור ההחזרה לעובד' : 'החזרה לעובד'}
+              </Button>
+              {confirmingDemote && (
+                <Button size="sm" variant="ghost" onClick={() => setConfirmingDemote(false)}>
+                  ביטול
+                </Button>
+              )}
+            </>
+          ))}
+
+        {row.profile_id && (
+          <Button
+            size="sm"
+            variant="ghost"
+            loading={setSilenced.isPending}
+            onClick={() =>
+              setSilenced.mutate({ profileId: row.profile_id!, value: !row.is_silenced })
+            }
+          >
+            {row.is_silenced ? 'ביטול מצב תמיכה' : 'מצב תמיכה בלבד'}
+          </Button>
+        )}
 
         {!isSelf && (
           <>
@@ -471,9 +555,21 @@ function EmployeeRow({ row }: { row: RosterCodeStatus }) {
         </div>
       )}
 
-      {(updateDefault.isError || deleteEmployee.isError || resetPin.isError || updatePhone.isError) && (
+      {(updateDefault.isError ||
+        deleteEmployee.isError ||
+        resetPin.isError ||
+        updatePhone.isError ||
+        setRole.isError ||
+        setSilenced.isError) && (
         <p className="mt-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800 dark:bg-rose-950/50 dark:text-rose-400">
-          {[updateDefault.error, deleteEmployee.error, resetPin.error, updatePhone.error]
+          {[
+            updateDefault.error,
+            deleteEmployee.error,
+            resetPin.error,
+            updatePhone.error,
+            setRole.error,
+            setSilenced.error,
+          ]
             .filter((e): e is Error => e instanceof Error)
             .map((e) => e.message)
             .join(' · ') || 'הפעולה נכשלה.'}

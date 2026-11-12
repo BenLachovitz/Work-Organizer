@@ -186,3 +186,56 @@ export function useUpdateEmployeePhone() {
     onSuccess: () => void invalidateCodes(qc),
   });
 }
+
+/**
+ * Promotes a guard to manager, or demotes a manager back to guard -- via the
+ * set_employee_role RPC (migration 71), not a plain table write, because the
+ * RPC is what enforces "never zero managers" and "a protected account's role
+ * never changes." Self-promotion/demotion is allowed (TeamManagement.tsx
+ * does not gate this by `!isSelf`) -- if it affects the calling manager's own
+ * row, the caller is responsible for also calling AuthContext's
+ * refreshProfile() so the cached isManager flag doesn't lag the actual role.
+ */
+export function useSetEmployeeRole() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { profileId: string; role: 'guard' | 'manager' }) => {
+      const { error } = await requireSupabase().rpc('set_employee_role', {
+        p_profile_id: input.profileId,
+        p_role: input.role,
+      });
+      if (error) {
+        if (/cannot demote the last remaining manager/.test(error.message)) {
+          throw new Error('לא ניתן להחזיר למעמד עובד את המנהל האחרון שנותר במערכת.');
+        }
+        if (/role is protected/.test(error.message)) {
+          throw new Error('לא ניתן לשנות את התפקיד של חשבון מוגן זה.');
+        }
+        throw new Error(error.message);
+      }
+    },
+    onSuccess: () => void invalidateCodes(qc),
+  });
+}
+
+/**
+ * Toggles the silenced ("support mode only") flag -- a direct write to
+ * profiles.is_silenced, same immediate, no-confirm shape as
+ * useUpdateDefaultKamut(). Unlike that hook there is no roster_codes branch:
+ * this control only ever shows for an already-claimed row in TeamManagement
+ * (profileId is never null there), since silencing a not-yet-claimed
+ * invitation is meaningless (migration 72).
+ */
+export function useSetGuardSilenced() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { profileId: string; value: boolean }) => {
+      const { error } = await requireSupabase()
+        .from('profiles')
+        .update({ is_silenced: input.value })
+        .eq('id', input.profileId);
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => void invalidateCodes(qc),
+  });
+}

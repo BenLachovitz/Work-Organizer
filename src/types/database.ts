@@ -24,6 +24,15 @@ export interface Profile {
   /** E.164, optional. Powers the "currently on shift" card's tap-to-call/
    *  tap-to-WhatsApp links -- NULL means no icons show for this guard. */
   phone_number: string | null;
+  /** True once a manager has opted this guard out of submission tracking,
+   *  reminder/broadcast notifications, and future scheduling -- without
+   *  touching is_active or role, and without blocking login or any page.
+   *  Reversible (src/pages/TeamManagement.tsx). */
+  is_silenced: boolean;
+  /** True only for the creator's own account, set once by hand directly in
+   *  the database -- no app code path ever writes this. set_employee_role()
+   *  refuses to change a protected row's role at all, for any caller. */
+  is_protected: boolean;
 }
 
 export interface RosterWeek {
