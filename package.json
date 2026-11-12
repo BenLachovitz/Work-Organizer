@@ -19,6 +19,7 @@
     "test:cloud": "node supabase/tests/rls.cloud.test.mjs && node supabase/tests/auth.cloud.test.mjs && node supabase/tests/client.cloud.test.mjs && node supabase/tests/preferences.cloud.test.mjs && node supabase/tests/manager.cloud.test.mjs && node --experimental-strip-types supabase/tests/generate.cloud.test.mjs && node supabase/tests/edit.cloud.test.mjs && node supabase/tests/realtime.cloud.test.mjs && node supabase/tests/notifications.cloud.test.mjs && node supabase/tests/webauthn.cloud.test.mjs",
     "test:prefs": "node supabase/tests/preferences.cloud.test.mjs",
     "test:manager": "node supabase/tests/manager.cloud.test.mjs",
+    "test:employeerole": "node supabase/tests/employee-role-silence.cloud.test.mjs",
     "test:fixtures": "node --experimental-strip-types solver/tests/run-fixtures.mjs",
     "test:payroll": "node --experimental-strip-types src/lib/payroll.test.mjs",
     "test:shifts": "node --experimental-strip-types src/lib/shifts.test.mjs",

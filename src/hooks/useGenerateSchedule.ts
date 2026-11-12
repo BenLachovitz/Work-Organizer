@@ -49,7 +49,12 @@ export function buildSolverInput(
   morningTargetOverrides: MorningTargetOverrides = {},
   secondaryTargetOverrides: SecondaryTargetOverrides = {},
 ): SolverInput {
-  const guards = data.guards.map((guard) => {
+  // A silenced guard is excluded here, not from data.guards itself -- that
+  // list is shared with the roster display/editor/export, which still need
+  // to resolve a silenced guard's name for any already-published assignment
+  // of theirs (see src/pages/TeamManagement.tsx's silence toggle).
+  const schedulableGuards = data.guards.filter((guard) => !guard.is_silenced);
+  const guards = schedulableGuards.map((guard) => {
     const prefs = data.preferences.filter((p) => p.guard_id === guard.id);
 
     const availability: Record<string, BaseShift[]> = {};
