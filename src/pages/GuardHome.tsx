@@ -8,6 +8,7 @@ import { useGuardWeek, useVisibleRosters } from '@/hooks/useGuardPortal';
 import { useNotifications } from '@/hooks/useNotifications';
 import { usePasskey } from '@/hooks/usePasskey';
 import { useRosterRealtime } from '@/hooks/useRosterRealtime';
+import { downloadShiftsIcs } from '@/lib/exportIcs';
 import {
   HEBREW_DAYS,
   addDays,
@@ -154,6 +155,29 @@ export function GuardHome() {
               </Card>
             );
           })
+        )}
+
+        {weeks.length > 0 && (
+          <div className="space-y-1.5">
+            <Button
+              variant="secondary"
+              fullWidth
+              disabled={
+                !weeks.some((wk) =>
+                  wk.assignments.some(
+                    (a) => a.guard_id === profile?.id && a.target_date >= todayInIsrael(),
+                  ),
+                )
+              }
+              onClick={() => profile && downloadShiftsIcs(weeks, profile.id, todayInIsrael())}
+            >
+              הוספת המשמרות שלי ליומן
+            </Button>
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              יורד קובץ ‎.ics‏ — פתיחתו תוסיף את המשמרות ל-Google Calendar או Apple Calendar, לפי
+              אפליקציית ברירת המחדל במכשיר.
+            </p>
+          </div>
         )}
 
         <CurrentlyOnShiftCard weeks={weeks} guards={rosters?.guards ?? []} />

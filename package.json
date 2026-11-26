@@ -23,6 +23,7 @@
     "test:fixtures": "node --experimental-strip-types solver/tests/run-fixtures.mjs",
     "test:payroll": "node --experimental-strip-types src/lib/payroll.test.mjs",
     "test:shifts": "node --experimental-strip-types src/lib/shifts.test.mjs",
+    "test:ics": "node --experimental-strip-types src/lib/exportIcs.test.mjs",
     "test:phone": "node --experimental-strip-types src/lib/phone.test.mjs",
     "test:compare": "node --experimental-strip-types solver/tests/compare-engines.mjs",
     "solver:dev": "uvicorn main:app --app-dir solver --reload --port 8099",
