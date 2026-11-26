@@ -174,8 +174,7 @@ export function GuardHome() {
               הוספת המשמרות שלי ליומן
             </Button>
             <p className="text-xs text-slate-400 dark:text-slate-500">
-              יורד קובץ ‎.ics‏ — פתיחתו תוסיף את המשמרות ל-Google Calendar או Apple Calendar, לפי
-              אפליקציית ברירת המחדל במכשיר.
+              מוסיף את המשמרות שלך ליומן Google או Apple, לפי אפליקציית ברירת המחדל במכשיר שלך.
             </p>
           </div>
         )}
