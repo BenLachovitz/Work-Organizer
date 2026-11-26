@@ -33,6 +33,8 @@ export function WeekControlsPanel({
   const [showArchive, setShowArchive] = useState(false);
   const deadline = week ? new Date(week.submission_deadline) : null;
   const left = deadline ? timeUntil(deadline) : null;
+  const neverPublishedArchivedWeek =
+    !!week && week.status !== 'published' && archive.some((w) => w.week_start === week.week_start);
 
   return (
     <Card className="space-y-4">
@@ -63,13 +65,26 @@ export function WeekControlsPanel({
               type="button"
               onClick={() => onSelect(w.week_start)}
               className={cn(
-                'shrink-0 rounded-xl px-3 py-2 text-sm font-semibold transition-colors',
+                'relative shrink-0 rounded-xl px-3 py-2 text-sm font-semibold transition-colors',
                 w.week_start === selected
                   ? 'bg-brand-600 text-white'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700',
               )}
             >
               {formatWeekRange(w.week_start)}
+              {/* A finished (archived) week that was never actually published --
+                  distinct from "generated"/"locked", which are normal mid-flow
+                  states for a live week. Caught the hard way once already: a
+                  roster can be shared with the team (e.g. the WhatsApp JPEG
+                  export, which works on a draft too) without ever being
+                  published in-app, which silently starves anything gated on
+                  is_published, like the work-log seed. */}
+              {showArchive && w.status !== 'published' && (
+                <span
+                  className="absolute -top-1 -right-1 size-2.5 rounded-full bg-rose-500 ring-2 ring-white dark:ring-slate-900"
+                  title="שבוע שהסתיים ומעולם לא פורסם"
+                />
+              )}
             </button>
           ))}
           {showArchive && archive.length === 0 && (
@@ -101,14 +116,18 @@ export function WeekControlsPanel({
                 </p>
               )}
             </div>
-            <Badge tone={week.status === 'open' ? 'green' : 'slate'}>
-              {week.status === 'open'
-                ? 'פתוח'
-                : week.status === 'locked'
-                  ? 'נעול'
-                  : week.status === 'generated'
-                    ? 'נוצר סידור'
-                    : 'פורסם'}
+            <Badge
+              tone={neverPublishedArchivedWeek ? 'rose' : week.status === 'open' ? 'green' : 'slate'}
+            >
+              {neverPublishedArchivedWeek
+                ? 'שבוע שהסתיים ומעולם לא פורסם'
+                : week.status === 'open'
+                  ? 'פתוח'
+                  : week.status === 'locked'
+                    ? 'נעול'
+                    : week.status === 'generated'
+                      ? 'נוצר סידור'
+                      : 'פורסם'}
             </Badge>
           </div>
 

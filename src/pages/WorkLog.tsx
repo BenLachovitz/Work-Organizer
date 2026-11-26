@@ -468,7 +468,7 @@ function MonthlySummary({
   travelRateHistory: TravelRateEntry[];
   today: DateKey;
 }) {
-  const { data: entries, isLoading } = useMonthlySalarySummary(monthKey);
+  const { data: entries, isLoading, isError, error } = useMonthlySalarySummary(monthKey);
   const { data: absences, isLoading: absencesLoading } = useMonthlyAbsences(monthKey);
   const [editing, setEditing] = useState<WorkLogEntry | 'new' | null>(null);
   const [editingAbsence, setEditingAbsence] = useState<WorkLogAbsence | 'new' | null>(null);
@@ -507,6 +507,16 @@ function MonthlySummary({
           <div className="grid place-items-center py-10">
             <Spinner className="size-6 text-brand-600" />
           </div>
+        </Card>
+      ) : isError ? (
+        // A real fetch/seed failure must never look like an empty month --
+        // seedWeekFromRoster failing for one week fails the whole Promise.all,
+        // and silently rendering the same "no entries" EmptyState below would
+        // be indistinguishable from a genuinely quiet month.
+        <Card>
+          <Alert tone="error">
+            {error instanceof Error ? error.message : 'טעינת יומן העבודה נכשלה.'}
+          </Alert>
         </Card>
       ) : (
         <>
